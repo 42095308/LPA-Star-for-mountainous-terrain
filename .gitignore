@@ -1,0 +1,43 @@
+### Python / Conda ###
+# 忽略所有环境文件夹（通常位于项目根目录下的 envs/ 或 .venv/）
+# 忽略虚拟环境
+.conda/
+.env/
+env/
+envs/
+venv/
+ENV/
+pythonenv*
+
+### PyCharm (JetBrains IDE) ###
+# 忽略 PyCharm 的项目配置文件
+.idea/
+# 如果你希望保留项目结构但忽略个人设置，可以取消注释下面几行：
+# !.idea/vcs.xml
+# !.idea/modules.xml
+
+### Python 编译与临时文件 ###
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+### 操作系统临时文件 ###
+.DS_Store
+Thumbs.db
