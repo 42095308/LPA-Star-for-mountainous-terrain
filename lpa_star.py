@@ -609,10 +609,13 @@ axA.grid(True, alpha=0.3, linestyle='--')
 # --- 右：3D地面投影图 ---
 axB = fig_pv.add_subplot(122, projection='3d')
 step3d = 8
-Z_s = Z[::step3d, ::step3d]
-rs_, cs_ = Z_s.shape
-Xg, Yg = np.meshgrid(np.arange(cs_)*step3d*RESOLUTION/1000,
-                     np.arange(rs_)*step3d*RESOLUTION/1000)
+# 与 nodes 的 (x_km, y_km) 坐标系严格对齐：y 轴采用 (rows-1-r)*res
+r_idx = np.arange(0, rows, step3d, dtype=int)
+c_idx = np.arange(0, cols, step3d, dtype=int)
+Z_s = Z[np.ix_(r_idx, c_idx)]
+x_vals = c_idx * RESOLUTION / 1000
+y_vals = (rows - 1 - r_idx) * RESOLUTION / 1000
+Xg, Yg = np.meshgrid(x_vals, y_vals)
 axB.plot_surface(Xg, Yg, Z_s, cmap='terrain', alpha=0.35, linewidth=0)
 for e in edges:
     i, j = int(e[0]), int(e[1])
@@ -634,7 +637,8 @@ if path1:
         rg = int(np.clip(rg, 0, rows-1)); cg = int(np.clip(cg, 0, cols-1))
         iz_gnd.append(float(Z[rg, cg]))
     iz_gnd = np.array(iz_gnd)
-    axB.plot(ix, iy, iz_gnd, color='gray', lw=1.5,
+    # 投影线z坐标严格取地形高程Z[r,c]，避免“悬浮”观感
+    axB.plot(ix, iy, iz_gnd, color='gray', lw=1.6,
              linestyle='--', alpha=0.7)
     drop_idx = np.linspace(0, len(ix)-1, 8, dtype=int)
     for di in drop_idx:
@@ -700,17 +704,15 @@ def draw_base(ax, title):
 
 def draw_blocked_topology(ax, blocked_edges, color='#E53935'):
     """强调离散图中真正被封锁/修改的底层拓扑边。"""
-    for i, (u, v) in enumerate(blocked_edges):
+    for u, v in blocked_edges:
         mx = (nodes[u,0] + nodes[v,0]) / 2
         my = (nodes[u,1] + nodes[v,1]) / 2
-        label_edge = '受影响底层拓扑边' if i == 0 else None
-        label_mark = '受阻断点' if i == 0 else None
         ax.plot([nodes[u,0], nodes[v,0]], [nodes[u,1], nodes[v,1]],
                 color=color, lw=3.2, zorder=8, alpha=0.92,
-                solid_capstyle='round', label=label_edge)
+                solid_capstyle='round', label='_nolegend_')
         ax.scatter([mx], [my], c=color, s=120, marker='X',
                    zorder=9, edgecolors='white', linewidths=0.6,
-                   alpha=0.95, label=label_mark)
+                   alpha=0.95, label='_nolegend_')
 
 def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
                                         path_alpha=0.85, blocked_alpha=0.95):
@@ -724,7 +726,7 @@ def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
     py_raw = [nodes[n,1] for n in raw_path]
     ax.plot(px_raw, py_raw, color='#B0BEC5', lw=1.8, zorder=6.0,
             alpha=path_alpha, linestyle='-',
-            label='原离散拓扑路径')
+            label='原路径(离散)')
 
     blocked_set = {(min(u, v), max(u, v)) for u, v in blocked_edges}
     first_hit = True
@@ -733,7 +735,7 @@ def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
         key = (min(u, v), max(u, v))
         if key not in blocked_set:
             continue
-        label = '原路径受阻段（离散边）' if first_hit else None
+        label = '原路径受阻段' if first_hit else None
         ax.plot([nodes[u,0], nodes[v,0]], [nodes[u,1], nodes[v,1]],
                 color='#D50000', lw=4.2, zorder=8.6, alpha=blocked_alpha,
                 solid_capstyle='round', label=label)
@@ -758,9 +760,9 @@ def draw_update_ripple(ax, expanded_order, cmap='magma'):
         try:
             hull = ConvexHull(pts)
             poly = pts[hull.vertices]
-            patch = Polygon(poly, closed=True, facecolor='#E1BEE7',
-                            edgecolor='#6A1B9A', linewidth=1.6,
-                            alpha=0.24, zorder=3.9,
+            patch = Polygon(poly, closed=True, fill=True,
+                            facecolor='#D9B6FF', edgecolor='#6A1B9A',
+                            linewidth=1.4, alpha=0.18, zorder=4.05,
                             label='LPA Local Update Area')
             ax.add_patch(patch)
         except QhullError:
@@ -772,16 +774,35 @@ def draw_update_ripple(ax, expanded_order, cmap='magma'):
     # 核心节点（顺序着色 + 描边增强对比度）
     ax.scatter(x, y, c=order, cmap=cmap, s=30, alpha=0.93,
                zorder=5.8, edgecolors='black', linewidths=0.45,
-               label='LPA*更新波纹（展开顺序）')
+               label='LPA*更新节点')
 
     # 起/止展开节点标记，帮助审稿人读取传播方向
     s0, s1 = int(idx[0]), int(idx[-1])
     ax.scatter([nodes[s0,0]], [nodes[s0,1]], c='#00BCD4', s=46, marker='o',
                zorder=6.4, edgecolors='black', linewidths=0.4, alpha=0.95,
-               label='展开起点')
+               label='_nolegend_')
     ax.scatter([nodes[s1,0]], [nodes[s1,1]], c='#FF9800', s=56, marker='*',
                zorder=6.5, edgecolors='black', linewidths=0.4, alpha=0.95,
-               label='展开终点')
+               label='_nolegend_')
+
+def apply_compact_legend(ax, ordered_labels, loc='upper left'):
+    """压缩图例项数量，适配IEEE单栏缩放显示。"""
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = {}
+    for h, l in zip(handles, labels):
+        if (not l) or l.startswith('_'):
+            continue
+        if l not in by_label:
+            by_label[l] = h
+
+    picked_labels = [l for l in ordered_labels if l in by_label]
+    if not picked_labels:
+        return
+    picked_handles = [by_label[l] for l in picked_labels]
+    ax.legend(picked_handles, picked_labels,
+              prop=font, fontsize=6.2, loc=loc,
+              frameon=True, framealpha=0.82,
+              borderpad=0.25, labelspacing=0.22, handlelength=1.7)
 
 # --- 子图1：初始路径 ---
 ax1 = axes[0]
@@ -811,10 +832,14 @@ if path1:
     draw_raw_path_with_blocked_segments(ax2, path1_raw, blocked_edges,
                                         path_alpha=0.90, blocked_alpha=0.95)
     ax2.plot(curve1[:,0], curve1[:,1], color='red', lw=1.7, zorder=4.0, alpha=0.40,
-             linestyle='--', label='原平滑路径（由离散路径生成）')
+             linestyle='--', label='原路径(平滑)')
 draw_update_ripple(ax2, phase3_expanded_nodes_order)
 draw_blocked_topology(ax2, blocked_edges)
-ax2.legend(prop=font, fontsize=7, loc='lower right')
+apply_compact_legend(
+    ax2,
+    ['LPA Local Update Area', 'LPA*更新节点', '原路径受阻段', '原路径(离散)', '原路径(平滑)'],
+    loc='upper left'
+)
 
 # --- 子图3：重规划路径 ---
 ax3 = axes[2]
@@ -825,7 +850,7 @@ if path1:
     draw_raw_path_with_blocked_segments(ax3, path1_raw, blocked_edges,
                                         path_alpha=0.45, blocked_alpha=0.70)
     ax3.plot(curve1[:,0], curve1[:,1], color='red', lw=1.5, zorder=3.3, alpha=0.28,
-             linestyle='--', dashes=(5,3), label='原平滑路径（受阻）')
+             linestyle='--', dashes=(5,3), label='原路径(平滑受阻)')
 draw_update_ripple(ax3, phase3_expanded_nodes_order)
 draw_blocked_topology(ax3, blocked_edges)
 if path3:
@@ -841,7 +866,11 @@ if path3:
                      arrowprops=dict(arrowstyle='->', color='darkblue',
                                      lw=0.8, mutation_scale=7,
                                      alpha=0.5), zorder=7)
-ax3.legend(prop=font, fontsize=7, loc='lower right')
+apply_compact_legend(
+    ax3,
+    ['LPA Local Update Area', 'LPA*更新节点', '原路径受阻段', '重规划路径（B样条）', '原路径(平滑受阻)'],
+    loc='upper left'
+)
 
 plt.tight_layout()
 plt.savefig('lpa_result.png', dpi=150, bbox_inches='tight')

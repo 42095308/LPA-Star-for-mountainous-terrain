@@ -1,4 +1,4 @@
-"""
+﻿"""
 ================================================================================
 文件名：layered_graph.py
 用    途：分层拓扑航路网络构建（含碰撞检测、垂直锚点、孤岛预防）
@@ -8,20 +8,19 @@
     1. Terminal Pillars（末端锚点）
        根据 7 个起降/配送任务点，垂直生成贯穿三层的 21 个核心接驳节点
        同一地点三层节点坐标 (x,y) 完全相同，垂直连通
-    2. Topological Waypoints（拓扑航路点）
-       在支路层(Z+75m)和骨干层(Z+105m)，结合地形曲率提取山脊/山谷特征点
-    3. Grid Fallback（均匀网格兜底）
-       若某 400m×400m 区域内无特征点，强制在中心补充节点，防止图断开
+    2. Regular Grid Waypoints（规则稠密网格点）
+       在支路层(Z+75m)和骨干层(Z+105m)，按约170m间距规则布点
+       10km×10km 区域约 58×58 ≈ 3364 点/层
 
 【边集 E 的生成】
     1. Horizontal Edges（水平航段）
-       同层节点距离 ≤ 600m，且三维碰撞检测通过（线段距地形 ≥ 30m）
+       同层节点距离 ≤ 250m，且三维碰撞检测通过（线段距地形 ≥ 30m）
     2. Vertical Edges（垂直电梯）
        末端锚点三层直接垂直连通，无人机安全爬升/下降通道
     3. Forced Pillar Edges（锚点强制接入）
        末端锚点支路/骨干层在 PILLAR_CONNECT_DIST 内强制接入主网，保证网络可达性
     3. Climb Edges（斜向爬升段）
-       支路↔骨干层节点，水平距离 ≤ 300m 且爬升角 ≤ 30° 且碰撞检测通过
+       支路-骨干层节点，水平距离 ≤ 250m 且爬升角 ≤ 30° 且碰撞检测通过
 
 【论文对应】
     Method Section 3.2：三层拓扑航路网络构建
@@ -45,6 +44,7 @@ import matplotlib
 from matplotlib.font_manager import FontProperties
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
+from scipy.spatial import cKDTree
 
 matplotlib.rcParams['font.family'] = ['SimHei', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -62,12 +62,14 @@ LAYER_COLORS  = ["#2196F3", "#4CAF50", "#FF5722"]
 LAYER_MARKERS = ["o", "s", "^"]
 LAYER_SIZES   = [80, 45, 30]
 
-BACKBONE_SPACING  = 400    # 骨干层节点间距（米）
-BRANCH_SPACING    = 300    # 支路层节点间距（米）
-GRID_CELL_SIZE    = 400    # 孤岛预防网格大小（米）
+NODE_SPACING_M    = 170    # 稠密布点间距（米）
+BACKBONE_SPACING  = NODE_SPACING_M
+BRANCH_SPACING    = NODE_SPACING_M
+GRID_CELL_SIZE    = NODE_SPACING_M
 
-INTRA_EDGE_DIST   = 600    # 同层连边最大距离（米）
-INTER_EDGE_DIST      = 300    # 跨层斜向连边最大水平距离（米）
+INTRA_EDGE_DIST   = 250    # 同层连边最大距离（米）
+INTER_EDGE_DIST   = 250    # 跨层斜向连边最大水平距离（米）
+MAX_INTER_NEIGHBORS = 4    # 每个支路层节点最多连接到骨干层邻居数
 PILLAR_CONNECT_DIST  = 2000   # 末端锚点强制接入主网的搜索半径（米）
 MAX_CLIMB_ANGLE   = 30     # 最大爬升/下降角（度）
 SAFETY_HEIGHT     = 30     # 碰撞检测安全高度（米）
@@ -150,72 +152,23 @@ valley_pts = np.argwhere(Z_smooth == minimum_filter(Z_smooth, size=size_px))
 topo_pts   = np.vstack([ridge_pts, valley_pts])
 print(f"  山脊点: {len(ridge_pts)}，山谷点: {len(valley_pts)}，合计: {len(topo_pts)}")
 
-# ===== Step 2：稀疏采样 =====
-def sparse_sample(pts, spacing_m):
-    spacing_px = spacing_m / RESOLUTION
-    sampled = []
-    for pt in pts:
-        if not sampled:
-            sampled.append(pt)
-            continue
-        if min(np.linalg.norm(pt - s) for s in sampled) >= spacing_px:
-            sampled.append(pt)
-    return np.array(sampled) if sampled else np.zeros((0, 2))
+# ===== Step 2：规则稠密网格采样（目标约170m） =====
+GRID_POINTS_PER_AXIS = max(2, int(10000 / BRANCH_SPACING))
+row_axis = np.linspace(0, rows - 1, GRID_POINTS_PER_AXIS, dtype=int)
+col_axis = np.linspace(0, cols - 1, GRID_POINTS_PER_AXIS, dtype=int)
 
-backbone_pts = sparse_sample(topo_pts, BACKBONE_SPACING)
-branch_pts   = sparse_sample(topo_pts, BRANCH_SPACING)
-print(f"  稀疏采样：骨干层 {len(backbone_pts)} 点，支路层 {len(branch_pts)} 点")
+def regular_grid_sample(row_samples, col_samples):
+    rr, cc = np.meshgrid(row_samples, col_samples, indexing='ij')
+    return np.column_stack([rr.ravel(), cc.ravel()])
 
-# ===== 补丁3：均匀网格兜底 =====
-SNAP_RADIUS_M = 100    # 地形吸附半径（米）
+# 区域支路层与骨干层都采用相同密度的规则栅格布点
+branch_pts = regular_grid_sample(row_axis, col_axis)
+backbone_pts = regular_grid_sample(row_axis, col_axis)
 
-def topo_snap(r_center, c_center):
-    """
-    地形吸附：在半径内寻找局部地形极值
-    奇数格吸附山脊，偶数格吸附山谷，让节点贴合地形走向
-    """
-    snap_px = max(1, int(SNAP_RADIUS_M / RESOLUTION))
-    r0 = max(0, r_center - snap_px)
-    r1 = min(rows, r_center + snap_px + 1)
-    c0 = max(0, c_center - snap_px)
-    c1 = min(cols, c_center + snap_px + 1)
-    patch = Z_smooth[r0:r1, c0:c1]
-    if (r_center // snap_px + c_center // snap_px) % 2 == 0:
-        local_idx = np.unravel_index(patch.argmax(), patch.shape)
-    else:
-        local_idx = np.unravel_index(patch.argmin(), patch.shape)
-    return r0 + local_idx[0], c0 + local_idx[1]
-
-def grid_fallback(existing_pts, spacing_m):
-    """在无节点格子中心补充节点，并做地形吸附，避免完美正方形网格"""
-    step_px = int(spacing_m / RESOLUTION)
-    extra   = []
-    for r0 in range(0, rows, step_px):
-        for c0 in range(0, cols, step_px):
-            r_center = r0 + step_px // 2
-            c_center = c0 + step_px // 2
-            if r_center >= rows or c_center >= cols:
-                continue
-            has_node = any(
-                abs(pt[0] - r_center) < step_px and
-                abs(pt[1] - c_center) < step_px
-                for pt in existing_pts
-            )
-            if not has_node:
-                r_snap, c_snap = topo_snap(r_center, c_center)
-                extra.append([r_snap, c_snap])
-    return np.array(extra) if extra else np.zeros((0, 2))
-
-extra_backbone = grid_fallback(backbone_pts, GRID_CELL_SIZE)
-extra_branch   = grid_fallback(branch_pts,   GRID_CELL_SIZE)
-
-if len(extra_backbone) > 0:
-    backbone_pts = np.vstack([backbone_pts, extra_backbone])
-if len(extra_branch) > 0:
-    branch_pts = np.vstack([branch_pts, extra_branch])
-
-print(f"  网格兜底：骨干层+{len(extra_backbone)}，支路层+{len(extra_branch)}")
-print(f"  最终：骨干层 {len(backbone_pts)} 节点，支路层 {len(branch_pts)} 节点")
+actual_spacing_m = 10000.0 / max(GRID_POINTS_PER_AXIS, 1)
+print(f"  轴向采样点数: {GRID_POINTS_PER_AXIS}（理论≈10000/{BRANCH_SPACING:.0f}）")
+print(f"  每层节点数: {len(branch_pts)}（约 {GRID_POINTS_PER_AXIS}×{GRID_POINTS_PER_AXIS}）")
+print(f"  实际平均间距: {actual_spacing_m:.1f} m")
 
 # ===== Step 3：构建节点表 =====
 print("\n[Step3] 构建节点表...")
@@ -304,14 +257,21 @@ print(f"  强制接入边: {forced_count}")
 
 # --- 同层水平边（含碰撞检测）---
 def add_intra_edges(idx_start, idx_end, max_dist_m):
-    count    = 0
-    max_km   = max_dist_m / 1000
-    for i in range(idx_start, idx_end):
-        for j in range(i + 1, idx_end):
-            if np.linalg.norm(nodes[i,:2] - nodes[j,:2]) <= max_km:
-                if collision_free(nodes[i], nodes[j]):
-                    edges.append([i, j, 0])
-                    count += 1
+    count  = 0
+    max_km = max_dist_m / 1000
+    idx = np.arange(idx_start, idx_end, dtype=int)
+    if len(idx) < 2:
+        return count
+
+    coords = nodes[idx, :2]
+    tree = cKDTree(coords)
+    # 只遍历邻域候选边，避免 O(N^2) 全配对
+    for li, lj in tree.query_pairs(r=max_km):
+        i = int(idx[li])
+        j = int(idx[lj])
+        if collision_free(nodes[i], nodes[j]):
+            edges.append([i, j, 0])
+            count += 1
     return count
 
 # 末端层水平边（锚点之间）
@@ -331,17 +291,34 @@ print(f"  同层水平边 支路层: {c1}，正在计算骨干层...")
 c2 = add_intra_edges(backbone_start, len(nodes),     INTRA_EDGE_DIST)
 print(f"  同层水平边 骨干层: {c2}")
 
-# --- 斜向爬升边（支路↔骨干，含角度约束+碰撞检测）---
+# --- 斜向爬升边（支路-骨干，含角度约束+碰撞检测）---
 climb_count   = 0
 max_inter_km  = INTER_EDGE_DIST / 1000
 max_angle_rad = np.radians(MAX_CLIMB_ANGLE)
 
-for i in range(branch_start, backbone_start):
-    for j in range(backbone_start, len(nodes)):
-        d_horiz = np.linalg.norm(nodes[i,:2] - nodes[j,:2])
-        if d_horiz > max_inter_km:
-            continue
-        d_vert = abs(nodes[i,2] - nodes[j,2])
+branch_idx = np.arange(branch_start, backbone_start, dtype=int)
+backbone_idx = np.arange(backbone_start, len(nodes), dtype=int)
+branch_xy = nodes[branch_idx, :2]
+backbone_xy = nodes[backbone_idx, :2]
+backbone_tree = cKDTree(backbone_xy)
+neighbor_lists = backbone_tree.query_ball_point(branch_xy, r=max_inter_km)
+
+for b_local, cand_locals in enumerate(neighbor_lists):
+    if len(cand_locals) == 0:
+        continue
+
+    i = int(branch_idx[b_local])
+    # 限制跨层邻居上限，控制总边数
+    if len(cand_locals) > MAX_INTER_NEIGHBORS:
+        cand_locals = sorted(
+            cand_locals,
+            key=lambda c_local: np.linalg.norm(branch_xy[b_local] - backbone_xy[c_local])
+        )[:MAX_INTER_NEIGHBORS]
+
+    for c_local in cand_locals:
+        j = int(backbone_idx[c_local])
+        d_horiz = np.linalg.norm(nodes[i, :2] - nodes[j, :2])
+        d_vert = abs(nodes[i, 2] - nodes[j, 2])
         # 水平距离转米再计算角度
         if d_horiz * 1000 < 1e-3:
             continue
@@ -351,7 +328,7 @@ for i in range(branch_start, backbone_start):
             edges.append([i, j, 2])
             climb_count += 1
 
-print(f"  斜向爬升边 支路↔骨干: {climb_count}")
+print(f"  斜向爬升边 支路-骨干: {climb_count}")
 edges = np.array(edges) if edges else np.zeros((0, 3), dtype=int)
 
 print(f"\n  边总数 |E| = {len(edges)}")
@@ -444,3 +421,4 @@ plt.savefig('graph_vis.png', dpi=150, bbox_inches='tight')
 print("[完成] graph_vis.png 已保存")
 print("[下一步] 运行 path_planning.py 进行约束最短路规划")
 plt.show()
+
