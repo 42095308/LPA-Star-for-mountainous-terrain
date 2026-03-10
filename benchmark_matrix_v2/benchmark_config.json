@@ -1,0 +1,56 @@
+{
+  "workdir": ".",
+  "trials": 100,
+  "seed": 20260310,
+  "out_dir": "benchmark_matrix_v2",
+  "min_start_goal_dist_km": 1.5,
+  "max_attempt_factor": 8,
+  "progress_every": 5,
+  "n_block_grid": "2,4,6,8",
+  "k_events_grid": "1,3,5",
+  "scales": "small,medium,large",
+  "scale_fractions": "small:0.55,medium:0.78,large:1.0",
+  "event_radius_km": 0.8,
+  "event_pool_factor": 6,
+  "disable_plots": false,
+  "focus_scale": "large",
+  "focus_k_intensity": 3,
+  "focus_n_block_cont": 4,
+  "focus_k_scale": 3,
+  "focus_n_block_scale": 4,
+  "focus_k_distribution": 3,
+  "plot_scale": "large",
+  "plot_k_intensity": 3,
+  "plot_n_block_cont": 4,
+  "plot_k_distribution": 3,
+  "resolved": {
+    "focus_scale": "large",
+    "focus_k_intensity": 3,
+    "focus_n_block_cont": 4,
+    "focus_k_scale": 3,
+    "focus_n_block_scale": 4,
+    "focus_k_distribution": 3
+  },
+  "resolved_n_blocks": [
+    2,
+    4,
+    6,
+    8
+  ],
+  "resolved_k_values": [
+    1,
+    3,
+    5
+  ],
+  "resolved_scales": [
+    "small",
+    "medium",
+    "large"
+  ],
+  "plot_paths": [
+    "C:\\programming\\code\\article_python\\benchmark_matrix_v2\\fig1_event_intensity_vs_time.png",
+    "C:\\programming\\code\\article_python\\benchmark_matrix_v2\\fig2_k_vs_cumulative_time.png",
+    "C:\\programming\\code\\article_python\\benchmark_matrix_v2\\fig3_event_intensity_vs_expanded.png",
+    "C:\\programming\\code\\article_python\\benchmark_matrix_v2\\fig4_time_distribution_box_cdf.png"
+  ]
+}

@@ -1,0 +1,2 @@
+scale,n_block,k_events,graph_nodes,graph_edges,b4_mean_cumulative_ms,b2_mean_cumulative_ms,b2_over_b4_time_ratio,b4_success_rate,b2_success_rate
+large,4,5,6749,32594,88.05239802226424,123.72703596483916,1.4051523722676413,1.0,1.0
