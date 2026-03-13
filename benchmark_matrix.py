@@ -1,4 +1,4 @@
-"""
+﻿"""
 Benchmark matrix runner for experiments A/B/C/D:
 - Event intensity sweep (n_block grid)
 - Continuous multi-event replanning (K grid)
@@ -30,6 +30,7 @@ from benchmark import (
     astar_global_replan,
     build_weighted_graph,
     ci95,
+    load_risk_fields,
     normalize_pair,
     sample_start_goal,
     write_csv,
@@ -139,12 +140,19 @@ def build_scaled_graph(
     z_grid: np.ndarray,
     scale_name: str,
     fraction: float,
+    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
 ) -> WeightedGraph:
     nodes = np.asarray(base_nodes, dtype=float)
     edges = np.asarray(base_edges, dtype=int)
 
     if fraction >= 0.999:
-        return build_weighted_graph(f"layered_{scale_name}", nodes.copy(), edges.copy(), z_grid)
+        return build_weighted_graph(
+            f"layered_{scale_name}",
+            nodes.copy(),
+            edges.copy(),
+            z_grid,
+            risk_fields=risk_fields,
+        )
 
     x = nodes[:, 0]
     y = nodes[:, 1]
@@ -190,7 +198,13 @@ def build_scaled_graph(
 
     if sub_edges.shape[0] == 0:
         raise RuntimeError(f"scale '{scale_name}' has empty edge set after component filtering")
-    return build_weighted_graph(f"layered_{scale_name}", sub_nodes, sub_edges, z_grid)
+    return build_weighted_graph(
+        f"layered_{scale_name}",
+        sub_nodes,
+        sub_edges,
+        z_grid,
+        risk_fields=risk_fields,
+    )
 
 
 def collect_event_candidates(
@@ -1050,13 +1064,22 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     scales = parse_scale_names(args.scales, scale_fractions)
 
     z_grid = np.asarray(np.load("Z_crop.npy"), dtype=float)
+    risk_fields = load_risk_fields(root, z_grid.shape)
+    print(f"[risk] mode={risk_fields['mode']}")
     base_nodes = np.asarray(np.load("graph_nodes.npy"), dtype=float)
     base_edges = np.asarray(np.load("graph_edges.npy"), dtype=int)
 
     scale_graphs: Dict[str, WeightedGraph] = {}
     for scale in scales:
         frac = float(scale_fractions[scale])
-        g = build_scaled_graph(base_nodes, base_edges, z_grid, scale, frac)
+        g = build_scaled_graph(
+            base_nodes,
+            base_edges,
+            z_grid,
+            scale,
+            frac,
+            risk_fields=risk_fields,
+        )
         scale_graphs[scale] = g
         print(f"[build] scale={scale} frac={frac:.3f}: |V|={g.n_nodes}, |E|={g.n_edges}")
 
@@ -1216,3 +1239,4 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
     run_benchmark_matrix(args)
+

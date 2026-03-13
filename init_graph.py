@@ -1,83 +1,96 @@
-"""
+﻿"""
 ================================================================================
-文件名：huashan_dem.py
-用    途：华山景区 DEM 数据裁剪、坐标转换与可视化
+鏂囦欢鍚嶏細huashan_dem.py
+鐢?   閫旓細鍗庡北鏅尯 DEM 鏁版嵁瑁佸壀銆佸潗鏍囪浆鎹笌鍙鍖?
 ================================================================================
 
-【功能说明】
-    1. 从原始 ALOS PALSAR DEM（.tif）中，以华山五峰为中心裁剪 10km x 10km 区域
-    2. 将 UTM 投影坐标系转换为 WGS84 经纬度坐标系
-    3. 生成并排可视化图（左：俯视热力图，右：3D 地形图）
-    4. 左图支持鼠标悬停，实时显示当前位置的经纬度和高程
+銆愬姛鑳借鏄庛€?
+    1. 浠庡師濮?ALOS PALSAR DEM锛?tif锛変腑锛屼互鍗庡北浜斿嘲涓轰腑蹇冭鍓?10km x 10km 鍖哄煙
+    2. 灏?UTM 鎶曞奖鍧愭爣绯昏浆鎹负 WGS84 缁忕含搴﹀潗鏍囩郴
+    3. 鐢熸垚骞舵帓鍙鍖栧浘锛堝乏锛氫刊瑙嗙儹鍔涘浘锛屽彸锛?D 鍦板舰鍥撅級
+    4. 宸﹀浘鏀寔榧犳爣鎮仠锛屽疄鏃舵樉绀哄綋鍓嶄綅缃殑缁忕含搴﹀拰楂樼▼
 
-【缓存机制】
-    首次运行：从 .tif 裁剪数据，生成经纬度查找表，耗时约 10~30 秒
-    后续运行：直接读取缓存文件，秒级启动
-    重置缓存：手动删除以下两个缓存文件即可强制重新裁剪
+銆愮紦瀛樻満鍒躲€?
+    棣栨杩愯锛氫粠 .tif 瑁佸壀鏁版嵁锛岀敓鎴愮粡绾害鏌ユ壘琛紝鑰楁椂绾?10~30 绉?
+    鍚庣画杩愯锛氱洿鎺ヨ鍙栫紦瀛樻枃浠讹紝绉掔骇鍚姩
+    閲嶇疆缂撳瓨锛氭墜鍔ㄥ垹闄や互涓嬩袱涓紦瀛樻枃浠跺嵆鍙己鍒堕噸鏂拌鍓?
 
-【输入文件】
+銆愯緭鍏ユ枃浠躲€?
     AP_19438_FBD_F0680_RT1.dem.tif
-        原始 ALOS PALSAR DEM 数据，分辨率 12.5m/像元
-        坐标系：UTM 投影（需转换为 WGS84）
-        下载来源：NASA EarthData（https://earthdata.nasa.gov）
+        鍘熷 ALOS PALSAR DEM 鏁版嵁锛屽垎杈ㄧ巼 12.5m/鍍忓厓
+        鍧愭爣绯伙細UTM 鎶曞奖锛堥渶杞崲涓?WGS84锛?
+        涓嬭浇鏉ユ簮锛歂ASA EarthData锛坔ttps://earthdata.nasa.gov锛?
 
-【输出文件】
+銆愯緭鍑烘枃浠躲€?
     huashan_final.png
-        可视化结果图（俯视热力图 + 3D 地形图），用于论文插图
+        鍙鍖栫粨鏋滃浘锛堜刊瑙嗙儹鍔涘浘 + 3D 鍦板舰鍥撅級锛岀敤浜庤鏂囨彃鍥?
 
     Z_crop.npy
-        裁剪后的高程矩阵，shape=(800, 800)，单位：米
-        flipud 处理后行方向为南到北，与地图方向一致
-        供后续步骤（可飞空间生成、分层建图）直接读取
+        瑁佸壀鍚庣殑楂樼▼鐭╅樀锛宻hape=(800, 800)锛屽崟浣嶏細绫?
+        flipud 澶勭悊鍚庤鏂瑰悜涓哄崡鍒板寳锛屼笌鍦板浘鏂瑰悜涓€鑷?
+        渚涘悗缁楠わ紙鍙绌洪棿鐢熸垚銆佸垎灞傚缓鍥撅級鐩存帴璇诲彇
 
     Z_crop_geo.npz
-        经纬度查找表，包含两个数组：
-            lon_grid[row, col]：每个像素的经度（单位：度E）
-            lat_grid[row, col]：每个像素的纬度（单位：度N）
-        与 Z_crop.npy 的行列索引一一对应
+        缁忕含搴︽煡鎵捐〃锛屽寘鍚袱涓暟缁勶細
+            lon_grid[row, col]锛氭瘡涓儚绱犵殑缁忓害锛堝崟浣嶏細搴锛?
+            lat_grid[row, col]锛氭瘡涓儚绱犵殑绾害锛堝崟浣嶏細搴锛?
+        涓?Z_crop.npy 鐨勮鍒楃储寮曚竴涓€瀵瑰簲
 
-【依赖库】
+銆愪緷璧栧簱銆?
     pip install numpy rasterio pyproj matplotlib
 
-【后续步骤】
-    Step 2：生成可飞空间（safe_corridor.py）
-        输入：Z_crop.npy
-        输出：floor_height.npy（飞行下限面）
-               ceiling_height.npy（飞行上限面）
-    Step 3：分层拓扑路网构建（layered_graph.py）
-    Step 4：LPA* 动态增量重规划（lpa_star.py）
+銆愬悗缁楠ゃ€?
+    Step 2锛氱敓鎴愬彲椋炵┖闂达紙safe_corridor.py锛?
+        杈撳叆锛歓_crop.npy
+        杈撳嚭锛歠loor_height.npy锛堥琛屼笅闄愰潰锛?
+               ceiling_height.npy锛堥琛屼笂闄愰潰锛?
+    Step 3锛氬垎灞傛嫇鎵戣矾缃戞瀯寤猴紙layered_graph.py锛?
+    Step 4锛歀PA* 鍔ㄦ€佸閲忛噸瑙勫垝锛坙pa_star.py锛?
 ================================================================================
 """
 
 import numpy as np
 import os
-import rasterio
-from rasterio.transform import xy as rio_xy
-from pyproj import Transformer
+import sys
 import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.font_manager import FontProperties
 from mpl_toolkits.mplot3d import Axes3D
 
+try:
+    import rasterio
+except Exception:
+    rasterio = None
+
+try:
+    from pyproj import Transformer
+except Exception:
+    Transformer = None
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="backslashreplace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(errors="backslashreplace")
+
 matplotlib.rcParams['font.family'] = ['SimHei', 'DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
 font = FontProperties(family='SimHei')
 
-# ===== 配置参数 =====
+# ===== 閰嶇疆鍙傛暟 =====
 TIF_FILE   = "AP_19438_FBD_F0680_RT1.dem.tif"
 CACHE_FILE = "Z_crop.npy"
 CACHE_GEO  = "Z_crop_geo.npz"
 RESOLUTION = 12.5
 
 PEAKS = {
-    "南峰": {"row": 4609, "col": 1938, "elev": 2154.0},
-    "东峰": {"row": 4642, "col": 1985, "elev": 2096.0},
-    "西峰": {"row": 4600, "col": 1949, "elev": 2082.0},
-    "北峰": {"row": 4468, "col": 2004, "elev": 1615.0},
-    "中峰": {"row": 4594, "col": 1951, "elev": 2038.0},
+    "鍗楀嘲": {"row": 4609, "col": 1938, "elev": 2154.0},
+    "涓滃嘲": {"row": 4642, "col": 1985, "elev": 2096.0},
+    "瑗垮嘲": {"row": 4600, "col": 1949, "elev": 2082.0},
+    "鍖楀嘲": {"row": 4468, "col": 2004, "elev": 1615.0},
+    "涓嘲": {"row": 4594, "col": 1951, "elev": 2038.0},
 }
 
-# ===== 裁剪范围计算 =====
+# ===== 瑁佸壀鑼冨洿璁＄畻 =====
 center_row = int(np.mean([p["row"] for p in PEAKS.values()]))
 center_col = int(np.mean([p["col"] for p in PEAKS.values()]))
 half       = int(10000 / 2 / RESOLUTION)
@@ -88,18 +101,22 @@ col_max    = center_col + half
 total_rows = row_max - row_min
 total_cols = col_max - col_min
 
-# ===== 缓存逻辑 =====
+# ===== 缂撳瓨閫昏緫 =====
 if os.path.exists(CACHE_FILE) and os.path.exists(CACHE_GEO):
-    print("[缓存] 检测到缓存文件，直接读取...")
+    print("[缂撳瓨] 妫€娴嬪埌缂撳瓨鏂囦欢锛岀洿鎺ヨ鍙?..")
     Z_crop = np.load(CACHE_FILE)
     geo = np.load(CACHE_GEO)
-    # 每个像素的经纬度查找表（flipud后的）
+    # 姣忎釜鍍忕礌鐨勭粡绾害鏌ユ壘琛紙flipud鍚庣殑锛?
     lon_grid = geo["lon_grid"]
     lat_grid = geo["lat_grid"]
-    print(f"[缓存] 读取完成，shape={Z_crop.shape}")
+    print(f"[缂撳瓨] 璇诲彇瀹屾垚锛宻hape={Z_crop.shape}")
 
 else:
-    print(f"[裁剪] 未找到缓存，从 {TIF_FILE} 裁剪...")
+    if rasterio is None:
+        raise RuntimeError('rasterio is not installed and cache files are missing. Install rasterio or prepare Z_crop.npy and Z_crop_geo.npz.')
+    if Transformer is None:
+        raise RuntimeError("pyproj is not installed and cache files are missing.")
+    print(f"[瑁佸壀] 鏈壘鍒扮紦瀛橈紝浠?{TIF_FILE} 瑁佸壀...")
 
     with rasterio.open(TIF_FILE) as src:
         Z_full = src.read(1).astype(float)
@@ -107,48 +124,48 @@ else:
         transform = src.transform
         src_crs   = src.crs
 
-    print(f"[信息] 原始坐标系: {src_crs}")
+    print(f"[淇℃伅] 鍘熷鍧愭爣绯? {src_crs}")
 
-    # 建立 UTM → WGS84 转换器
+    # 寤虹珛 UTM 鈫?WGS84 杞崲鍣?
     transformer = Transformer.from_crs(
         src_crs, "EPSG:4326", always_xy=True
     )
 
-    # 裁剪
+    # 瑁佸壀
     Z_crop = Z_full[row_min:row_max, col_min:col_max]
     Z_crop = np.flipud(Z_crop)
 
-    # ===== 为每个像素计算经纬度查找表 =====
-    print("[计算] 正在生成经纬度查找表（约需10秒）...")
+    # ===== 涓烘瘡涓儚绱犺绠楃粡绾害鏌ユ壘琛?=====
+    print("[璁＄畻] 姝ｅ湪鐢熸垚缁忕含搴︽煡鎵捐〃锛堢害闇€10绉掞級...")
     rows_idx = np.arange(total_rows)
     cols_idx = np.arange(total_cols)
 
-    # 每个像素在原始tif中的行列号
+    # 姣忎釜鍍忕礌鍦ㄥ師濮媡if涓殑琛屽垪鍙?
     orig_rows = (row_min + (total_rows - 1 - rows_idx)).astype(int)  # flipud
     orig_cols = (col_min + cols_idx).astype(int)
 
-    # 向量化计算所有像素的 UTM 坐标
+    # 鍚戦噺鍖栬绠楁墍鏈夊儚绱犵殑 UTM 鍧愭爣
     orig_rows_2d, orig_cols_2d = np.meshgrid(orig_rows, orig_cols, indexing='ij')
     utm_x_2d = transform.c + orig_cols_2d * transform.a + orig_rows_2d * transform.b
     utm_y_2d = transform.f + orig_cols_2d * transform.d + orig_rows_2d * transform.e
 
-    # 批量转换为经纬度
+    # 鎵归噺杞崲涓虹粡绾害
     lon_flat, lat_flat = transformer.transform(
         utm_x_2d.ravel(), utm_y_2d.ravel()
     )
     lon_grid = lon_flat.reshape(total_rows, total_cols)
     lat_grid = lat_flat.reshape(total_rows, total_cols)
 
-    # 保存缓存
+    # 淇濆瓨缂撳瓨
     np.save(CACHE_FILE, Z_crop)
     np.savez(CACHE_GEO, lon_grid=lon_grid, lat_grid=lat_grid)
-    print(f"[裁剪] 完成，缓存已保存")
+    print(f"[瑁佸壀] 瀹屾垚锛岀紦瀛樺凡淇濆瓨")
 
-print(f"高程范围: {np.nanmin(Z_crop):.0f}m ~ {np.nanmax(Z_crop):.0f}m")
-print(f"经度范围: {lon_grid.min():.4f}°E ~ {lon_grid.max():.4f}°E")
-print(f"纬度范围: {lat_grid.min():.4f}°N ~ {lat_grid.max():.4f}°N")
+print(f"楂樼▼鑼冨洿: {np.nanmin(Z_crop):.0f}m ~ {np.nanmax(Z_crop):.0f}m")
+print(f"缁忓害鑼冨洿: {lon_grid.min():.4f}掳E ~ {lon_grid.max():.4f}掳E")
+print(f"绾害鑼冨洿: {lat_grid.min():.4f}掳N ~ {lat_grid.max():.4f}掳N")
 
-# ===== 计算峰值 km 坐标 =====
+# ===== 璁＄畻宄板€?km 鍧愭爣 =====
 peak_coords = {}
 for name, p in PEAKS.items():
     r_in_crop = p["row"] - row_min
@@ -163,26 +180,26 @@ for name, p in PEAKS.items():
         "elev": p["elev"],
         "lon": lon, "lat": lat
     }
-    print(f"  {name}: {lon:.5f}°E, {lat:.5f}°N, 海拔={p['elev']}m")
+    print(f"  {name}: {lon:.5f}掳E, {lat:.5f}掳N, 娴锋嫈={p['elev']}m")
 
-# ===== 绘图 =====
+# ===== 缁樺浘 =====
 fig = plt.figure(figsize=(20, 8))
 
-# ---------- 左图：俯视热力图 ----------
+# ---------- 宸﹀浘锛氫刊瑙嗙儹鍔涘浘 ----------
 ax1 = fig.add_subplot(121)
 extent = [0, total_cols * RESOLUTION / 1000,
           0, total_rows * RESOLUTION / 1000]
 im = ax1.imshow(Z_crop, cmap='terrain',
                 extent=extent, origin='upper', aspect='equal')
-plt.colorbar(im, ax=ax1, label='高程 (m)', shrink=0.8)
+plt.colorbar(im, ax=ax1, label='楂樼▼ (m)', shrink=0.8)
 
-# 标注峰值
+# 鏍囨敞宄板€?
 for name, c in peak_coords.items():
     ax1.plot(c["x"], c["y"], 'r^', markersize=10, zorder=5)
     ax1.annotate(
         f'{name}  {c["elev"]:.0f}m\n'
-        f'{c["lon"]:.5f}°E\n'
-        f'{c["lat"]:.5f}°N',
+        f'{c["lon"]:.5f}掳E\n'
+        f'{c["lat"]:.5f}掳N',
         xy=(c["x"], c["y"]),
         xytext=(c["x"] + 0.5, c["y"] + 0.5),
         fontproperties=font, fontsize=8, color='darkred',
@@ -191,13 +208,16 @@ for name, c in peak_coords.items():
                   facecolor='white', edgecolor='red', alpha=0.85)
     )
 
-ax1.set_xlabel('东西方向 (km)', fontproperties=font)
-ax1.set_ylabel('南北方向 (km)', fontproperties=font)
-ax1.set_title('华山核心区域 俯视热力图（鼠标悬停查看经纬度和高程）',
-              fontproperties=font, fontsize=11)
+ax1.set_xlabel('涓滆タ鏂瑰悜 (km)', fontproperties=font)
+ax1.set_ylabel('鍗楀寳鏂瑰悜 (km)', fontproperties=font)
+ax1.set_title(
+    "Huashan Core DEM (Top View with Peak Labels)",
+    fontproperties=font,
+    fontsize=11,
+)
 ax1.grid(True, alpha=0.3, linestyle='--')
 
-# ===== 鼠标悬停交互 =====
+# ===== 榧犳爣鎮仠浜や簰 =====
 annot = ax1.annotate(
     "", xy=(0, 0), xytext=(15, 15),
     textcoords="offset points",
@@ -229,13 +249,13 @@ def on_hover(event):
         fig.canvas.draw_idle()
         return
 
-    # 直接从查找表取经纬度
+    # 鐩存帴浠庢煡鎵捐〃鍙栫粡绾害
     lon = lon_grid[row_idx, col_idx]
     lat = lat_grid[row_idx, col_idx]
 
-    text = (f"经度: {lon:.5f}°E\n"
-            f"纬度: {lat:.5f}°N\n"
-            f"高程: {elev:.1f} m")
+    text = (f"缁忓害: {lon:.5f}掳E\n"
+            f"绾害: {lat:.5f}掳N\n"
+            f"楂樼▼: {elev:.1f} m")
 
     annot.xy = (x_km, y_km)
     annot.set_text(text)
@@ -244,7 +264,7 @@ def on_hover(event):
 
 fig.canvas.mpl_connect("motion_notify_event", on_hover)
 
-# ---------- 右图：3D 视图 ----------
+# ---------- 鍙冲浘锛?D 瑙嗗浘 ----------
 ax2 = fig.add_subplot(122, projection='3d')
 step   = 5
 Z_show = Z_crop[::step, ::step]
@@ -264,13 +284,13 @@ for name, c in peak_coords.items():
              fontproperties=font, ha='center')
 
 ax2.view_init(elev=30, azim=225)
-ax2.set_xlabel('东西 (km)', fontproperties=font, labelpad=8)
-ax2.set_ylabel('南北 (km)', fontproperties=font, labelpad=8)
-ax2.set_zlabel('高度 (m)', fontproperties=font, labelpad=8)
-ax2.set_title('华山核心区域 3D视图', fontproperties=font, fontsize=12)
+ax2.set_xlabel('涓滆タ (km)', fontproperties=font, labelpad=8)
+ax2.set_ylabel('鍗楀寳 (km)', fontproperties=font, labelpad=8)
+ax2.set_zlabel('楂樺害 (m)', fontproperties=font, labelpad=8)
+ax2.set_title('鍗庡北鏍稿績鍖哄煙 3D瑙嗗浘', fontproperties=font, fontsize=12)
 
 plt.tight_layout()
 plt.savefig('huashan_final.png', dpi=150, bbox_inches='tight')
-print("\n静态图已保存为 huashan_final.png")
-print("交互窗口已打开，鼠标悬停在左图查看经纬度和高程")
+print("\n闈欐€佸浘宸蹭繚瀛樹负 huashan_final.png")
+print("浜や簰绐楀彛宸叉墦寮€锛岄紶鏍囨偓鍋滃湪宸﹀浘鏌ョ湅缁忕含搴﹀拰楂樼▼")
 plt.show()

@@ -419,6 +419,6 @@ ax2.set_title('分层拓扑航路网络 3D视图', fontproperties=font, fontsize
 plt.tight_layout()
 plt.savefig('graph_vis.png', dpi=150, bbox_inches='tight')
 print("[完成] graph_vis.png 已保存")
-print("[下一步] 运行 path_planning.py 进行约束最短路规划")
+print("[下一步] 先运行 human_risk_osm.py 生成游客风险场，再运行 lpa_star.py 进行动态规划")
 plt.show()
 

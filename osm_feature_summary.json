@@ -1,0 +1,38 @@
+{
+  "bbox_wgs84": {
+    "lat_min": 34.42011722515028,
+    "lat_max": 34.51094669081819,
+    "lon_min": 110.07933448644265,
+    "lon_max": 110.18899972715636
+  },
+  "shape": [
+    800,
+    800
+  ],
+  "resolution_m": 12.5,
+  "feature_counts": {
+    "trails": 53,
+    "cable_lines": 1,
+    "cable_stations": 3,
+    "viewpoints": 20,
+    "hotspot_points_rasterized": 23
+  },
+  "query_fallback": {
+    "used_fallback_query": false,
+    "missing_before_fallback": [],
+    "missing_after_fallback": []
+  },
+  "weights": {
+    "w_trail": 0.6,
+    "w_hotspot": 0.4
+  },
+  "risk_stats": {
+    "trail_min": 5.742743802886267e-43,
+    "trail_max": 1.0,
+    "hotspot_min": 0.0,
+    "hotspot_max": 1.0,
+    "human_min": 3.44564628173176e-43,
+    "human_max": 1.0,
+    "human_mean": 0.010121117721772523
+  }
+}

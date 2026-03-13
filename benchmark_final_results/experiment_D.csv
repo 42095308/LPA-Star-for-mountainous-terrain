@@ -1,0 +1,5 @@
+scale,n_block,k_events,b4_mean_cumulative_queue_pushes,b2_mean_cumulative_queue_pushes,b4_mean_cumulative_updated_vertices,b2_mean_cumulative_updated_vertices,b4_mean_cumulative_reopened_states,b2_mean_cumulative_reopened_states,b4_mean_cumulative_expanded,b2_mean_cumulative_expanded
+large,2,5,7546.55,19369.24,16138.69,19364.24,761.98,0.0,1561.6,10757.43
+large,4,5,7173.42,19827.04,15534.23,19822.04,724.45,0.0,1486.77,10972.89
+large,6,5,6522.79,17327.13,14125.37,17322.13,662.4,0.0,1359.73,9652.59
+large,8,5,6419.30303030303,16338.959595959595,13953.90909090909,16333.959595959595,652.10101010101,0.0,1335.6060606060605,9044.444444444445

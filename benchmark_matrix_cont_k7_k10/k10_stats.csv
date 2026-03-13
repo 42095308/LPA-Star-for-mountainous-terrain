@@ -1,3 +1,0 @@
-scale,n_block,k_events,baseline,n,mean_ms,median_ms,p95_ms
-large,4,10,B4_Proposed_LPA_Layered,50,139.46391999721527,117.56085010711104,391.0780102829448
-large,4,10,B2_GlobalAstar_Layered,50,283.58546995092183,290.3540497645736,534.8715448519214

@@ -1,5 +1,0 @@
-scale,n_block,k_events,trials_requested,trials_collected,attempts,max_attempts,graph_nodes,graph_edges
-large,2,3,50,50,50,400,6749,32594
-large,4,3,50,50,50,400,6749,32594
-large,6,3,50,50,50,400,6749,32594
-large,8,3,50,50,50,400,6749,32594

@@ -17,6 +17,8 @@ import heapq
 import json
 import math
 import os
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +32,11 @@ try:
 except Exception:  # pragma: no cover - optional
     ttest_rel = None
 
+try:
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover - optional
+    plt = None
+
 
 ALPHA = 0.3
 BETA = 0.2
@@ -41,6 +48,15 @@ SAFETY_HEIGHT = 30.0
 COLLISION_SAMPLES = 12
 RISK_SAMPLES = 10
 EPS = 1e-9
+
+# OSM-human-risk fusion weights (same idea as lpa_star.py).
+RISK_W_TERRAIN = 0.50
+RISK_W_TRAIL = 0.30
+RISK_W_HOTSPOT = 0.20
+RISK_W_HUMAN_COMBINED = 0.50
+
+BASELINE_B4 = "B4_Proposed_LPA_Layered"
+BASELINE_B2 = "B2_GlobalAstar_Layered"
 
 
 def normalize_pair(u: int, v: int) -> Tuple[int, int]:
@@ -57,6 +73,46 @@ def terrain_at_xy(x_km: float, y_km: float, z_grid: np.ndarray) -> float:
     rows, cols = z_grid.shape
     r, c = km_to_rc(x_km, y_km, rows, cols)
     return float(z_grid[r, c])
+
+
+def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray | str]:
+    rows, cols = int(shape[0]), int(shape[1])
+    risk_trail = np.zeros((rows, cols), dtype=float)
+    risk_hotspot = np.zeros((rows, cols), dtype=float)
+    risk_human = np.zeros((rows, cols), dtype=float)
+    mode = "terrain_only"
+
+    p = root / "risk_trail.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_trail = np.clip(arr, 0.0, 1.0)
+
+    p = root / "risk_hotspot.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_hotspot = np.clip(arr, 0.0, 1.0)
+
+    p = root / "risk_human.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_human = np.clip(arr, 0.0, 1.0)
+
+    has_split = (float(np.max(risk_trail)) > 0.0) or (float(np.max(risk_hotspot)) > 0.0)
+    has_combined = float(np.max(risk_human)) > 0.0
+    if has_split:
+        mode = "terrain_trail_hotspot"
+    elif has_combined:
+        mode = "terrain_human_combined"
+
+    return {
+        "mode": mode,
+        "risk_trail": risk_trail,
+        "risk_hotspot": risk_hotspot,
+        "risk_human": risk_human,
+    }
 
 
 def collision_free_segment(
@@ -170,12 +226,22 @@ def compute_edge_costs(
     nodes: np.ndarray,
     edge_pairs: np.ndarray,
     z_grid: np.ndarray,
+    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float, float]:
     m = edge_pairs.shape[0]
     t_raw = np.zeros(m, dtype=float)
     e_raw = np.zeros(m, dtype=float)
     r_raw = np.zeros(m, dtype=float)
     rows, cols = z_grid.shape
+    risk_mode = "terrain_only"
+    risk_trail = None
+    risk_hotspot = None
+    risk_human = None
+    if risk_fields:
+        risk_mode = str(risk_fields.get("mode", "terrain_only"))
+        risk_trail = risk_fields.get("risk_trail")
+        risk_hotspot = risk_fields.get("risk_hotspot")
+        risk_human = risk_fields.get("risk_human")
 
     for k in range(m):
         i = int(edge_pairs[k, 0])
@@ -194,7 +260,20 @@ def compute_edge_costs(
             z = zi + s * (zj - zi)
             r, c = km_to_rc(float(x), float(y), rows, cols)
             terrain = float(z_grid[r, c])
-            risk += max(0.0, 1.0 - (z - terrain) / 200.0)
+            r_terrain = max(0.0, 1.0 - (z - terrain) / 200.0)
+            if risk_mode == "terrain_trail_hotspot" and risk_trail is not None and risk_hotspot is not None:
+                r_total = (
+                    RISK_W_TERRAIN * r_terrain
+                    + RISK_W_TRAIL * float(risk_trail[r, c])
+                    + RISK_W_HOTSPOT * float(risk_hotspot[r, c])
+                )
+            elif risk_mode == "terrain_human_combined" and risk_human is not None:
+                r_total = (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain + RISK_W_HUMAN_COMBINED * float(
+                    risk_human[r, c]
+                )
+            else:
+                r_total = r_terrain
+            risk += float(np.clip(r_total, 0.0, 1.0))
         risk /= RISK_SAMPLES
         t_raw[k] = t
         e_raw[k] = e
@@ -212,6 +291,7 @@ def build_weighted_graph(
     nodes: np.ndarray,
     edges: np.ndarray,
     z_grid: np.ndarray,
+    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
 ) -> WeightedGraph:
     edge_pairs = np.asarray(edges[:, :2], dtype=int)
     if edges.shape[1] >= 3:
@@ -219,7 +299,9 @@ def build_weighted_graph(
     else:
         edge_types = np.zeros(len(edge_pairs), dtype=int)
 
-    w, t_raw, e_raw, r_raw, t_max, e_max, r_max = compute_edge_costs(nodes, edge_pairs, z_grid)
+    w, t_raw, e_raw, r_raw, t_max, e_max, r_max = compute_edge_costs(
+        nodes, edge_pairs, z_grid, risk_fields=risk_fields
+    )
     n = int(nodes.shape[0])
     adj: List[List[Tuple[int, int]]] = [[] for _ in range(n)]
     pair_to_eid: Dict[Tuple[int, int], int] = {}
@@ -258,6 +340,7 @@ def build_single_layer_graph(
     z_offset_m: float = 75.0,
     intra_dist_m: float = 250.0,
     collision_samples: int = 10,
+    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
 ) -> WeightedGraph:
     nodes = layered_graph.nodes.copy()
     rows, cols = z_grid.shape
@@ -285,7 +368,7 @@ def build_single_layer_graph(
         raise RuntimeError("Single-layer graph construction failed: no edges generated.")
 
     edge_arr = np.asarray(edges, dtype=int)
-    return build_weighted_graph("B3_single_layer", nodes, edge_arr, z_grid)
+    return build_weighted_graph("B3_single_layer", nodes, edge_arr, z_grid, risk_fields=risk_fields)
 
 
 class LPAStarPlanner:
@@ -870,9 +953,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
     z_grid = np.load("Z_crop.npy")
     layered_nodes = np.load("graph_nodes.npy")
     layered_edges = np.load("graph_edges.npy")
+    risk_fields = load_risk_fields(root, z_grid.shape)
+    print(f"[risk] mode={risk_fields['mode']}")
 
     print("[build] loading layered graph...")
-    layered_graph = build_weighted_graph("B4_layered", layered_nodes, layered_edges, z_grid)
+    layered_graph = build_weighted_graph(
+        "B4_layered",
+        layered_nodes,
+        layered_edges,
+        z_grid,
+        risk_fields=risk_fields,
+    )
     print(f"[build] layered graph: |V|={layered_graph.n_nodes}, |E|={layered_graph.n_edges}")
 
     print("[build] building flattened single-layer graph for B3...")
@@ -882,6 +973,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         z_offset_m=args.b3_z_offset_m,
         intra_dist_m=args.b3_intra_dist_m,
         collision_samples=args.b3_collision_samples,
+        risk_fields=risk_fields,
     )
     print(f"[build] B3 graph: |V|={b3_graph.n_nodes}, |E|={b3_graph.n_edges}")
 
@@ -1158,15 +1250,89 @@ def run_benchmark(args: argparse.Namespace) -> None:
     print(f"  - {out_dir / 'benchmark_config.json'}")
 
 
+def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
+    """Run the matrix-style A/B/C/D benchmark into one output directory."""
+    script = Path(__file__).with_name("benchmark_matrix.py")
+    if not script.exists():
+        raise RuntimeError("benchmark_matrix.py is missing; cannot run matrix benchmark mode.")
+
+    cmd = [
+        sys.executable,
+        str(script),
+        "--workdir",
+        str(args.workdir),
+        "--out-dir",
+        str(args.out_dir),
+        "--trials",
+        str(args.trials),
+        "--seed",
+        str(args.seed),
+        "--n-block-grid",
+        str(args.matrix_n_block_grid),
+        "--k-events-grid",
+        str(args.matrix_k_events_grid),
+        "--scales",
+        str(args.matrix_scales),
+        "--scale-fractions",
+        str(args.matrix_scale_fractions),
+        "--focus-scale",
+        str(args.matrix_focus_scale),
+        "--focus-k-intensity",
+        str(args.matrix_focus_k_intensity),
+        "--focus-n-block-cont",
+        str(args.matrix_focus_n_block_cont),
+        "--focus-k-scale",
+        str(args.matrix_focus_k_scale),
+        "--focus-n-block-scale",
+        str(args.matrix_focus_n_block_scale),
+        "--focus-k-distribution",
+        str(args.matrix_focus_k_distribution),
+        "--plot-scale",
+        str(args.matrix_plot_scale),
+        "--plot-k-intensity",
+        str(args.matrix_plot_k_intensity),
+        "--plot-n-block-cont",
+        str(args.matrix_plot_n_block_cont),
+        "--plot-k-distribution",
+        str(args.matrix_plot_k_distribution),
+        "--event-radius-km",
+        str(args.matrix_event_radius_km),
+        "--event-pool-factor",
+        str(args.matrix_event_pool_factor),
+        "--min-start-goal-dist-km",
+        str(args.min_start_goal_dist_km),
+        "--max-attempt-factor",
+        str(args.max_attempt_factor),
+        "--progress-every",
+        str(args.progress_every),
+    ]
+    if args.disable_plots:
+        cmd.append("--disable-plots")
+
+    print("[matrix] dispatching benchmark_matrix.py with unified experiment config...")
+    print("[matrix] command:", " ".join(cmd))
+    proc = subprocess.run(cmd, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(f"matrix benchmark failed with exit code {proc.returncode}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4 baselines.")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["single", "matrix"],
+        default="matrix",
+        help="single: one-shot benchmark; matrix: A/B/C/D final experiment set in one output dir.",
+    )
     parser.add_argument("--workdir", type=str, default=".", help="Project root containing *.npy data files.")
     parser.add_argument("--trials", type=int, default=50, help="Required accepted Monte Carlo trials.")
     parser.add_argument("--seed", type=int, default=20260309, help="Random seed.")
     parser.add_argument("--n-block", type=int, default=2, help="Number of storm-blocked edges per trial.")
     parser.add_argument("--min-start-goal-dist-km", type=float, default=1.5, help="Min XY distance for random start/goal.")
     parser.add_argument("--max-attempt-factor", type=int, default=5, help="Max attempts multiplier to collect valid trials.")
-    parser.add_argument("--out-dir", type=str, default="benchmark_out", help="Output directory.")
+    parser.add_argument("--progress-every", type=int, default=5, help="Progress print interval for matrix mode.")
+    parser.add_argument("--out-dir", type=str, default="benchmark_out_final", help="Output directory.")
 
     parser.add_argument("--b3-z-offset-m", type=float, default=75.0, help="Flattened single-layer altitude offset.")
     parser.add_argument("--b3-intra-dist-m", type=float, default=250.0, help="B3 same-layer edge radius.")
@@ -1180,9 +1346,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--b1-timeout-s", type=float, default=8.0, help="Per-trial timeout for B1 search.")
     parser.add_argument("--b1-max-expansions", type=int, default=2_000_000, help="Hard cap for B1 expansions.")
     parser.add_argument("--storm-radius-m", type=float, default=220.0, help="Storm radius used in B1 voxel blocking.")
+
+    # Matrix mode defaults aligned with final paper experiment settings.
+    parser.add_argument("--matrix-n-block-grid", type=str, default="2,4,6,8")
+    parser.add_argument("--matrix-k-events-grid", type=str, default="1,3,5,7,10")
+    parser.add_argument("--matrix-scales", type=str, default="small,medium,large")
+    parser.add_argument("--matrix-scale-fractions", type=str, default="small:0.55,medium:0.78,large:1.0")
+    parser.add_argument("--matrix-focus-scale", type=str, default="large")
+    parser.add_argument("--matrix-focus-k-intensity", type=int, default=5)
+    parser.add_argument("--matrix-focus-n-block-cont", type=int, default=4)
+    parser.add_argument("--matrix-focus-k-scale", type=int, default=5)
+    parser.add_argument("--matrix-focus-n-block-scale", type=int, default=4)
+    parser.add_argument("--matrix-focus-k-distribution", type=int, default=10)
+    parser.add_argument("--matrix-plot-scale", type=str, default="large")
+    parser.add_argument("--matrix-plot-k-intensity", type=int, default=5)
+    parser.add_argument("--matrix-plot-n-block-cont", type=int, default=4)
+    parser.add_argument("--matrix-plot-k-distribution", type=int, default=10)
+    parser.add_argument("--matrix-event-radius-km", type=float, default=0.8)
+    parser.add_argument("--matrix-event-pool-factor", type=int, default=6)
+    parser.add_argument("--disable-plots", action="store_true", help="Disable matrix plots.")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_benchmark(args)
+    if args.mode == "matrix":
+        run_benchmark_matrix_via_subprocess(args)
+    else:
+        run_benchmark(args)

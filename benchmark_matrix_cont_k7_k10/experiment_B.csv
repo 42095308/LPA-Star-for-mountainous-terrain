@@ -1,3 +1,0 @@
-scale,n_block,k_events,b4_mean_cumulative_ms,b2_mean_cumulative_ms,b2_over_b4_time_ratio,b4_mean_cumulative_expanded,b2_mean_cumulative_expanded,b4_success_rate,b2_success_rate
-large,4,7,148.5590319056064,189.29819596931338,1.274228793370116,2301.38,19640.8,1.0,1.0
-large,4,10,139.46391999721527,283.58546995092183,2.0333966660092755,2161.4,29384.88,1.0,1.0

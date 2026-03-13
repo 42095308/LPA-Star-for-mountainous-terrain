@@ -60,6 +60,12 @@ RESOLUTION = 12.5
 SAFETY_HEIGHT     = 30
 COLLISION_SAMPLES = 20
 
+# Risk fusion weights.
+RISK_W_TERRAIN = 0.50
+RISK_W_TRAIL   = 0.30
+RISK_W_HOTSPOT = 0.20
+RISK_W_HUMAN_COMBINED = 0.50
+
 START_NAME = "北部基地"
 GOAL_NAME  = "南峰"
 
@@ -77,6 +83,34 @@ Z     = np.load("Z_crop.npy")
 rows, cols = Z.shape
 N = len(nodes)
 print(f"[读取] |V|={N}，|E|={len(edges)}")
+
+# ===== Optional OSM human risk rasters =====
+risk_trail = np.zeros((rows, cols), dtype=float)
+risk_hotspot = np.zeros((rows, cols), dtype=float)
+risk_human = np.zeros((rows, cols), dtype=float)
+risk_mode = "terrain_only"
+
+if os.path.exists("risk_trail.npy"):
+    arr = np.load("risk_trail.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_trail = np.clip(arr, 0.0, 1.0)
+if os.path.exists("risk_hotspot.npy"):
+    arr = np.load("risk_hotspot.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_hotspot = np.clip(arr, 0.0, 1.0)
+if os.path.exists("risk_human.npy"):
+    arr = np.load("risk_human.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_human = np.clip(arr, 0.0, 1.0)
+
+has_split = (np.max(risk_trail) > 0.0) or (np.max(risk_hotspot) > 0.0)
+has_combined = np.max(risk_human) > 0.0
+if has_split:
+    risk_mode = "terrain_trail_hotspot"
+elif has_combined:
+    risk_mode = "terrain_human_combined"
+
+print(f"[风险场] mode={risk_mode}")
 
 # ===== 工具函数 =====
 def km_to_rc(x_km, y_km):
@@ -111,7 +145,23 @@ def compute_raw_edge_costs():
             x = xi + t*(xj-xi); y = yi + t*(yj-yi); z = zi + t*(zj-zi)
             r, c = km_to_rc(x, y)
             terrain = float(Z[r, c])
-            risk_samples.append(max(0, 1.0 - (z - terrain)/200.0))
+            r_terrain = max(0.0, 1.0 - (z - terrain) / 200.0)
+
+            if risk_mode == "terrain_trail_hotspot":
+                r_total = (
+                    RISK_W_TERRAIN * r_terrain
+                    + RISK_W_TRAIL * float(risk_trail[r, c])
+                    + RISK_W_HOTSPOT * float(risk_hotspot[r, c])
+                )
+            elif risk_mode == "terrain_human_combined":
+                r_total = (
+                    (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain
+                    + RISK_W_HUMAN_COMBINED * float(risk_human[r, c])
+                )
+            else:
+                r_total = r_terrain
+
+            risk_samples.append(float(np.clip(r_total, 0.0, 1.0)))
         R_raw = float(np.mean(risk_samples))
         raw.append([t_raw, E_raw, R_raw])
     raw = np.array(raw)
