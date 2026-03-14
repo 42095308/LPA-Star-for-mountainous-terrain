@@ -102,10 +102,10 @@ def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray
 
     has_split = (float(np.max(risk_trail)) > 0.0) or (float(np.max(risk_hotspot)) > 0.0)
     has_combined = float(np.max(risk_human)) > 0.0
-    if has_split:
-        mode = "terrain_trail_hotspot"
-    elif has_combined:
+    if has_combined:
         mode = "terrain_human_combined"
+    elif has_split:
+        mode = "terrain_trail_hotspot"
 
     return {
         "mode": mode,

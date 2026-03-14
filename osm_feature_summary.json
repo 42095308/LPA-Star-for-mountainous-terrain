@@ -1,4 +1,5 @@
 {
+  "osm_file": "C:\\Users\\42095\\Desktop\\map.osm",
   "bbox_wgs84": {
     "lat_min": 34.42011722515028,
     "lat_max": 34.51094669081819,
@@ -10,29 +11,140 @@
     800
   ],
   "resolution_m": 12.5,
-  "feature_counts": {
-    "trails": 53,
-    "cable_lines": 1,
-    "cable_stations": 3,
-    "viewpoints": 20,
-    "hotspot_points_rasterized": 23
+  "risk_model": {
+    "L1": {
+      "risk": 1.0,
+      "buffer_m": 50.0
+    },
+    "L2": {
+      "risk": 0.8,
+      "buffer_m": 30.0
+    },
+    "L3": {
+      "risk": 0.5,
+      "gaussian_sigma_m": 120.0
+    },
+    "L4": {
+      "risk": 0.2,
+      "buffer_m": 30.0
+    }
   },
-  "query_fallback": {
-    "used_fallback_query": false,
-    "missing_before_fallback": [],
-    "missing_after_fallback": []
+  "feature_counts_by_level": {
+    "L1": {
+      "lines": 9,
+      "points": 6,
+      "named_features": [
+        "千尺幢",
+        "回心石",
+        "天梯（华山三险之一）",
+        "智取华山路",
+        "百尺峡",
+        "老君犁沟",
+        "苍龙岭",
+        "长空栈道",
+        "鹞子翻身"
+      ]
+    },
+    "L2": {
+      "lines": 53,
+      "points": 13,
+      "named_features": [
+        "下棋亭",
+        "五云峰",
+        "华山",
+        "华山东峰",
+        "华山中峰",
+        "华山北峰",
+        "华山南峰",
+        "华山西峰",
+        "南天门",
+        "君宝新道",
+        "小上方",
+        "白云峰",
+        "自古华山一条路",
+        "金锁关"
+      ]
+    },
+    "L3": {
+      "lines": 2,
+      "points": 19,
+      "named_features": [
+        "东峰太空船",
+        "东峰酒店",
+        "华山北峰索道",
+        "华山北峰索道上站",
+        "华山北峰索道下站",
+        "华山西峰索道",
+        "华山西峰索道上站",
+        "山神庙",
+        "思过崖",
+        "毛仙庙",
+        "群仙观"
+      ]
+    },
+    "L4": {
+      "lines": 11,
+      "points": 16,
+      "named_features": [
+        "06号",
+        "黄甫峪公路"
+      ]
+    }
   },
-  "weights": {
-    "w_trail": 0.6,
-    "w_hotspot": 0.4
+  "requested_label_check": {
+    "L1": {
+      "found": [
+        "天梯",
+        "长空栈道",
+        "智取华山路",
+        "苍龙岭",
+        "百尺峡",
+        "老君犁沟",
+        "千尺幢",
+        "鹞子翻身",
+        "回心石"
+      ],
+      "missing": []
+    },
+    "L2": {
+      "found": [
+        "华山南峰",
+        "华山东峰",
+        "华山西峰",
+        "华山北峰",
+        "华山中峰",
+        "金锁关",
+        "南天门",
+        "下棋亭",
+        "自古华山一条路"
+      ],
+      "missing": []
+    },
+    "L3": {
+      "found": [
+        "东峰酒店",
+        "思过崖",
+        "毛仙庙",
+        "山神庙",
+        "群仙观"
+      ],
+      "missing": []
+    },
+    "L4": {
+      "found": [
+        "瓮峪旅游公路",
+        "黄甫峪公路"
+      ],
+      "missing": []
+    }
   },
   "risk_stats": {
-    "trail_min": 5.742743802886267e-43,
+    "trail_min": 0.0,
     "trail_max": 1.0,
     "hotspot_min": 0.0,
-    "hotspot_max": 1.0,
-    "human_min": 3.44564628173176e-43,
+    "hotspot_max": 0.5,
+    "human_min": 0.0,
     "human_max": 1.0,
-    "human_mean": 0.010121117721772523
+    "human_mean": 0.008415959773057305
   }
 }

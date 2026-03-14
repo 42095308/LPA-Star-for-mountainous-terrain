@@ -196,8 +196,8 @@ for name, c in peak_coords.items():
     ax1.plot(c["x"], c["y"], 'r^', markersize=10, zorder=5)
     ax1.annotate(
         f'{name}  {c["elev"]:.0f}m\n'
-        f'{c["lon"]:.5f}°E\n'
-        f'{c["lat"]:.5f}°N',
+        f'{c["lon"]:.5f}E\n'
+        f'{c["lat"]:.5f}N',
         xy=(c["x"], c["y"]),
         xytext=(c["x"] + 0.5, c["y"] + 0.5),
         fontsize=8, color='darkred',
@@ -251,8 +251,8 @@ def on_hover(event):
     lat = lat_grid[row_idx, col_idx]
 
     text = (
-        f"Lon: {lon:.5f}°E\n"
-        f"Lat: {lat:.5f}°N\n"
+        f"Lon: {lon:.5f}E\n"
+        f"Lat: {lat:.5f}N\n"
         f"Elevation: {elev:.1f} m"
     )
 

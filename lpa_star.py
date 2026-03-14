@@ -115,10 +115,10 @@ if os.path.exists("risk_human.npy"):
 
 has_split = (np.max(risk_trail) > 0.0) or (np.max(risk_hotspot) > 0.0)
 has_combined = np.max(risk_human) > 0.0
-if has_split:
-    risk_mode = "terrain_trail_hotspot"
-elif has_combined:
+if has_combined:
     risk_mode = "terrain_human_combined"
+elif has_split:
+    risk_mode = "terrain_trail_hotspot"
 
 print(f"[风险场] mode={risk_mode}")
 
