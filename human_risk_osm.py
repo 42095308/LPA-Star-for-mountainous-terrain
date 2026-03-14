@@ -20,6 +20,8 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
@@ -281,6 +283,49 @@ def dedup_points(points: Iterable[Tuple[int, int]]) -> List[Tuple[int, int]]:
     return out
 
 
+def configure_geo_axes(ax: plt.Axes, lon_min: float, lon_max: float, lat_min: float, lat_max: float) -> None:
+    ax.set_xlim(lon_min, lon_max)
+    ax.set_ylim(lat_min, lat_max)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.3f}°E"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.3f}°N"))
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.grid(True, alpha=0.22, linestyle="--", linewidth=0.6)
+
+
+def add_scalebar(ax: plt.Axes, lon_min: float, lon_max: float, lat_min: float, lat_max: float) -> None:
+    mid_lat = 0.5 * (lat_min + lat_max)
+    meters_per_deg_lon = max(1.0, 111320.0 * math.cos(math.radians(mid_lat)))
+    width_m = (lon_max - lon_min) * meters_per_deg_lon
+
+    candidates_km = [0.5, 1.0, 2.0, 5.0]
+    target_m = max(400.0, 0.18 * width_m)
+    chosen_km = candidates_km[0]
+    for c in candidates_km:
+        if c * 1000.0 <= target_m:
+            chosen_km = c
+
+    dlon = (chosen_km * 1000.0) / meters_per_deg_lon
+    x0 = lon_min + 0.05 * (lon_max - lon_min)
+    y0 = lat_min + 0.06 * (lat_max - lat_min)
+
+    ax.plot([x0, x0 + dlon], [y0, y0], color="white", lw=4.2, solid_capstyle="butt", zorder=60)
+    ax.plot([x0, x0 + dlon], [y0, y0], color="black", lw=1.2, solid_capstyle="butt", zorder=61)
+    ax.text(
+        x0 + 0.5 * dlon,
+        y0 + 0.012 * (lat_max - lat_min),
+        f"{chosen_km:g} km",
+        ha="center",
+        va="bottom",
+        fontsize=9,
+        color="black",
+        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="black", alpha=0.78),
+        zorder=62,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build OSM-based human risk raster aligned with Z_crop.npy")
     parser.add_argument("--workdir", type=str, default=".")
@@ -391,18 +436,70 @@ def main() -> None:
     np.save(root / args.out_hotspot, risk_hotspot.astype(np.float32))
     np.save(root / args.out_human, risk_human.astype(np.float32))
 
-    # Quick QA figure to visually verify cableway/trail/viewpoint fusion.
-    fig, axs = plt.subplots(1, 3, figsize=(15, 4.8), dpi=150)
-    axs[0].imshow(z, cmap="terrain")
-    axs[0].set_title("DEM")
-    axs[1].imshow(risk_trail, cmap="magma", vmin=0.0, vmax=1.0)
-    axs[1].set_title("Trail + Cable Risk")
-    axs[2].imshow(risk_human, cmap="inferno", vmin=0.0, vmax=1.0)
-    axs[2].set_title("Human Risk (Combined)")
-    for ax in axs:
-        ax.set_xticks([])
-        ax.set_yticks([])
-    plt.tight_layout()
+    # Paper-grade preview with geodetic axes, scale bar and OSM overlays.
+    extent = [lon_min, lon_max, lat_min, lat_max]
+    fig, axs = plt.subplots(1, 2, figsize=(14, 6.2), dpi=260)
+
+    # Panel A: OSM trails/cable/features over DEM.
+    ax0 = axs[0]
+    ax0.imshow(z, cmap="terrain", extent=extent, origin="lower", aspect="auto")
+
+    for line in feats["trails"]:
+        lon = [p[0] for p in line]
+        lat = [p[1] for p in line]
+        ax0.plot(lon, lat, color="black", lw=2.2, alpha=0.65, zorder=10)
+        ax0.plot(lon, lat, color="#D9FF66", lw=1.15, alpha=0.95, zorder=11)
+
+    for line in feats["cable_lines"]:
+        lon = [p[0] for p in line]
+        lat = [p[1] for p in line]
+        ax0.plot(lon, lat, color="black", lw=2.1, alpha=0.65, zorder=12)
+        ax0.plot(lon, lat, color="#00D7FF", lw=1.25, alpha=0.95, ls="--", dashes=(4, 2), zorder=13)
+
+    if feats["viewpoints"]:
+        vv = np.asarray(feats["viewpoints"], dtype=float)
+        ax0.scatter(vv[:, 0], vv[:, 1], s=26, marker="^", c="#FFD600", edgecolors="black", linewidths=0.4, zorder=20)
+    if feats["cable_stations"]:
+        cs = np.asarray(feats["cable_stations"], dtype=float)
+        ax0.scatter(cs[:, 0], cs[:, 1], s=24, marker="s", c="#FF4081", edgecolors="black", linewidths=0.4, zorder=20)
+
+    configure_geo_axes(ax0, lon_min, lon_max, lat_min, lat_max)
+    add_scalebar(ax0, lon_min, lon_max, lat_min, lat_max)
+    ax0.set_title("OSM Trails/Cableways/Hotspots over DEM", fontsize=11)
+
+    legend_items = [
+        Line2D([0], [0], color="#D9FF66", lw=2.0, label="Trails"),
+        Line2D([0], [0], color="#00D7FF", lw=2.0, ls="--", label="Cableway lines"),
+        Line2D([0], [0], marker="^", markersize=7, color="w", markerfacecolor="#FFD600", markeredgecolor="black", lw=0, label="Viewpoints"),
+        Line2D([0], [0], marker="s", markersize=6.5, color="w", markerfacecolor="#FF4081", markeredgecolor="black", lw=0, label="Cableway stations"),
+    ]
+    ax0.legend(handles=legend_items, loc="upper right", fontsize=8, framealpha=0.88)
+
+    # Panel B: Human risk intensity map.
+    ax1 = axs[1]
+    ax1.imshow(z, cmap="gray", extent=extent, origin="lower", alpha=0.30, aspect="auto")
+    im = ax1.imshow(
+        risk_human,
+        cmap="inferno",
+        vmin=0.0,
+        vmax=1.0,
+        extent=extent,
+        origin="lower",
+        alpha=0.90,
+        aspect="auto",
+    )
+    for line in feats["trails"]:
+        lon = [p[0] for p in line]
+        lat = [p[1] for p in line]
+        ax1.plot(lon, lat, color="white", lw=0.75, alpha=0.45, zorder=22)
+    configure_geo_axes(ax1, lon_min, lon_max, lat_min, lat_max)
+    add_scalebar(ax1, lon_min, lon_max, lat_min, lat_max)
+    ax1.set_title("Human Exposure Risk Field", fontsize=11)
+    cbar = fig.colorbar(im, ax=ax1, fraction=0.046, pad=0.02)
+    cbar.set_label("Risk score (0-1)")
+
+    fig.suptitle("Huashan OSM-Derived Human Risk (DEM-Aligned)", fontsize=13, y=0.995)
+    plt.tight_layout(rect=[0, 0.0, 1, 0.97])
     plt.savefig(root / args.out_preview, bbox_inches="tight")
     plt.close(fig)
 

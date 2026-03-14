@@ -46,9 +46,9 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import splprep, splev
 from scipy.spatial import ConvexHull, QhullError
 
-matplotlib.rcParams['font.family'] = ['SimHei', 'DejaVu Sans']
+matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
-font = FontProperties(family='SimHei')
+font = FontProperties(family='DejaVu Sans')
 
 # ===== 配置参数 =====
 ALPHA      = 0.3
@@ -68,6 +68,16 @@ RISK_W_HUMAN_COMBINED = 0.50
 
 START_NAME = "北部基地"
 GOAL_NAME  = "南峰"
+
+DISPLAY_NAMES = {
+    "南峰": "South Peak",
+    "东峰": "East Peak",
+    "西峰": "West Peak",
+    "北峰": "North Peak",
+    "中峰": "Central Peak",
+    "北部基地": "North Depot",
+    "西部基地": "West Depot",
+}
 
 # 触发事件：随机封锁路径上的 N_BLOCK 条边
 N_BLOCK    = 2
@@ -601,10 +611,12 @@ print("\n[可视化] 生成阶段1路径详细图（path_vis.png）...")
 
 fig_pv, (axA, axB) = plt.subplots(1, 2, figsize=(20, 8),
                                    gridspec_kw={'width_ratios': [1, 1.1]})
-fig_pv.suptitle(f'{START_NAME} → {GOAL_NAME}  初始路径（LPA* 阶段1）\n'
-                f'α={ALPHA} β={BETA} γ={GAMMA}  '
-                f'路径长={path1_len:.2f}km  时间={(path1_len*1000/UAV_SPEED/60):.1f}min  '
-                f'节点数: {len(path1_raw)}→{len(path1)}',
+fig_pv.suptitle(
+                f'{DISPLAY_NAMES.get(START_NAME, START_NAME)} -> {DISPLAY_NAMES.get(GOAL_NAME, GOAL_NAME)}  '
+                f'Initial Path (LPA* Stage 1)\n'
+                f'alpha={ALPHA} beta={BETA} gamma={GAMMA}  '
+                f'length={path1_len:.2f} km  time={(path1_len*1000/UAV_SPEED/60):.1f} min  '
+                f'nodes: {len(path1_raw)}->{len(path1)}',
                 fontproperties=font, fontsize=11)
 
 # --- 左：俯视图 ---
@@ -617,7 +629,7 @@ for e in edges:
              color='gray', lw=0.3, alpha=0.15, zorder=1)
 for lid, (color, marker) in enumerate(zip(["#2196F3","#4CAF50","#FF5722"], ["o","s","^"])):
     mask = nodes[:,3] == lid
-    label = ["末端进近层","区域支路层","骨干航路层"][lid]
+    label = ["Terminal Layer", "Regional Layer", "Backbone Layer"][lid]
     axA.scatter(nodes[mask,0], nodes[mask,1], c=color, marker=marker,
                 s=18, alpha=0.35, zorder=2, edgecolors='none', label=label)
 if path1:
@@ -628,7 +640,7 @@ if path1:
              linestyle=':', alpha=0.9, label='raw polyline')
     # B 样条平滑曲线（红色虚线）
     axA.plot(curve1[:,0], curve1[:,1], color='red', lw=2.0, zorder=5,
-             linestyle='--', dashes=(6,3), label='B样条平滑路径')
+             linestyle='--', dashes=(6,3), label='B-spline path')
     # 剪枝后的锚点（小圆点）
     px = [nodes[n,0] for n in path1]
     py = [nodes[n,1] for n in path1]
@@ -650,9 +662,9 @@ axA.annotate('S', xy=(nodes[start_node,0], nodes[start_node,1]),
 axA.annotate('G', xy=(nodes[goal_node,0], nodes[goal_node,1]),
              fontsize=8, color='goldenrod', fontweight='bold',
              xytext=(4,4), textcoords='offset points', zorder=10)
-axA.set_xlabel('东西方向 (km)', fontproperties=font)
-axA.set_ylabel('南北方向 (km)', fontproperties=font)
-axA.set_title('俯视航路图', fontproperties=font, fontsize=10)
+axA.set_xlabel('East-West (km)', fontproperties=font)
+axA.set_ylabel('South-North (km)', fontproperties=font)
+axA.set_title('Top-View Route', fontproperties=font, fontsize=10)
 axA.legend(prop=font, loc='upper right', fontsize=7)
 axA.grid(True, alpha=0.3, linestyle='--')
 
@@ -700,10 +712,10 @@ axB.scatter([nodes[start_node,0]], [nodes[start_node,1]], [nodes[start_node,2]],
 axB.scatter([nodes[goal_node,0]],  [nodes[goal_node,1]],  [nodes[goal_node,2]],
             c='yellow', s=150, marker='o', zorder=7)
 axB.view_init(elev=28, azim=225)
-axB.set_xlabel('东西 (km)', fontproperties=font, labelpad=6)
-axB.set_ylabel('南北 (km)', fontproperties=font, labelpad=6)
-axB.set_zlabel('高度 (m)',  fontproperties=font, labelpad=6)
-axB.set_title('3D航路图（含地面投影）', fontproperties=font, fontsize=10)
+axB.set_xlabel('East-West (km)', fontproperties=font, labelpad=6)
+axB.set_ylabel('South-North (km)', fontproperties=font, labelpad=6)
+axB.set_zlabel('Elevation (m)',  fontproperties=font, labelpad=6)
+axB.set_title('3D Route with Terrain Projection', fontproperties=font, fontsize=10)
 
 fig_pv.tight_layout()
 fig_pv.savefig('path_vis.png', dpi=150, bbox_inches='tight')
@@ -717,9 +729,17 @@ print("\n[可视化] 生成三阶段对比图...")
 LAYER_COLORS  = ["#2196F3", "#4CAF50", "#FF5722"]
 LAYER_MARKERS = ["o", "s", "^"]
 
-fig, axes = plt.subplots(1, 3, figsize=(22, 8))
-fig.suptitle(f'LPA* 动态增量重规划  {START_NAME} → {GOAL_NAME}',
-             fontproperties=font, fontsize=13)
+fig = plt.figure(figsize=(16, 11), dpi=200)
+gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.08], hspace=0.18, wspace=0.12)
+ax1 = fig.add_subplot(gs[0, 0])
+ax2 = fig.add_subplot(gs[0, 1])
+ax3 = fig.add_subplot(gs[1, :])
+fig.suptitle(
+    f"LPA* Incremental Replanning  "
+    f"{DISPLAY_NAMES.get(START_NAME, START_NAME)} -> {DISPLAY_NAMES.get(GOAL_NAME, GOAL_NAME)}",
+    fontproperties=font,
+    fontsize=14,
+)
 
 def draw_base(ax, title):
     ax.imshow(Z, cmap='terrain', alpha=0.45,
@@ -748,8 +768,8 @@ def draw_base(ax, title):
                 fontsize=7, color='goldenrod', fontweight='bold',
                 xytext=(4, 4), textcoords='offset points', zorder=10)
     ax.set_title(title, fontproperties=font, fontsize=9.5, pad=6)
-    ax.set_xlabel('东西 (km)', fontproperties=font, fontsize=8)
-    ax.set_ylabel('南北 (km)', fontproperties=font, fontsize=8)
+    ax.set_xlabel('East-West (km)', fontproperties=font, fontsize=8)
+    ax.set_ylabel('South-North (km)', fontproperties=font, fontsize=8)
     ax.grid(True, alpha=0.2, linestyle='--')
 
 def draw_blocked_topology(ax, blocked_edges, color='#E53935'):
@@ -776,7 +796,7 @@ def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
     py_raw = [nodes[n,1] for n in raw_path]
     ax.plot(px_raw, py_raw, color='#B0BEC5', lw=1.8, zorder=6.0,
             alpha=path_alpha, linestyle='-',
-            label='原路径(离散)')
+            label='Original path (raw polyline)')
 
     blocked_set = {(min(u, v), max(u, v)) for u, v in blocked_edges}
     first_hit = True
@@ -785,7 +805,7 @@ def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
         key = (min(u, v), max(u, v))
         if key not in blocked_set:
             continue
-        label = '原路径受阻段' if first_hit else None
+        label = 'Blocked segment on original path' if first_hit else None
         ax.plot([nodes[u,0], nodes[v,0]], [nodes[u,1], nodes[v,1]],
                 color='#D50000', lw=4.2, zorder=8.6, alpha=blocked_alpha,
                 solid_capstyle='round', label=label)
@@ -824,7 +844,7 @@ def draw_update_ripple(ax, expanded_order, cmap='magma'):
     # 核心节点（顺序着色 + 描边增强对比度）
     ax.scatter(x, y, c=order, cmap=cmap, s=30, alpha=0.93,
                zorder=5.8, edgecolors='black', linewidths=0.45,
-               label='LPA*更新节点')
+               label='LPA* updated states')
 
     # 起/止展开节点标记，帮助审稿人读取传播方向
     s0, s1 = int(idx[0]), int(idx[-1])
@@ -854,14 +874,17 @@ def apply_compact_legend(ax, ordered_labels, loc='upper left'):
               frameon=True, framealpha=0.82,
               borderpad=0.25, labelspacing=0.22, handlelength=1.7)
 
-# --- 子图1：初始路径 ---
-ax1 = axes[0]
-draw_base(ax1, f'阶段1：初始规划\n遍历 {phase1_expanded} 节点  {phase1_time_ms:.1f} ms  {path1_len:.2f} km')
+# --- Subplot 1: initial planning ---
+draw_base(
+    ax1,
+    f"Stage 1: Initial planning\nexpanded {phase1_expanded} nodes  "
+    f"{phase1_time_ms:.1f} ms  {path1_len:.2f} km",
+)
 if path1:
     px = [nodes[n,0] for n in path1]
     py = [nodes[n,1] for n in path1]
     ax1.plot(curve1[:,0], curve1[:,1], color='red', lw=2.0, zorder=5,
-             linestyle='--', dashes=(6,3), label='初始路径（B样条）')
+             linestyle='--', dashes=(6,3), label='Initial path (B-spline)')
     ax1.scatter(px[1:-1], py[1:-1], c='red', s=20, zorder=6, alpha=0.6)
     # 方向箭头沿 B 样条曲线放置
     n_arr1 = min(4, len(curve1)-1)
@@ -873,41 +896,55 @@ if path1:
                                      alpha=0.5), zorder=7)
 ax1.legend(prop=font, fontsize=7, loc='lower right')
 
-# --- 子图2：触发事件 ---
-ax2 = axes[1]
-draw_base(ax2, (f'阶段2：事件触发（离散拓扑层）与局部影响范围\n'
-                f'封锁 {len(blocked_edges)} 条底层拓扑边  |  '
-                f'后续重规划展开 {phase3_expanded} 节点'))
+# --- Subplot 2: event trigger ---
+draw_base(
+    ax2,
+    (
+        f"Stage 2: Event trigger on discrete topology\n"
+        f"blocked edges: {len(blocked_edges)}  |  "
+        f"next replanning expanded: {phase3_expanded} nodes"
+    ),
+)
 if path1:
     draw_raw_path_with_blocked_segments(ax2, path1_raw, blocked_edges,
                                         path_alpha=0.90, blocked_alpha=0.95)
     ax2.plot(curve1[:,0], curve1[:,1], color='red', lw=1.7, zorder=4.0, alpha=0.40,
-             linestyle='--', label='原路径(平滑)')
+             linestyle='--', label='Original path (smoothed)')
 draw_update_ripple(ax2, phase3_expanded_nodes_order)
 draw_blocked_topology(ax2, blocked_edges)
 apply_compact_legend(
     ax2,
-    ['LPA Local Update Area', 'LPA*更新节点', '原路径受阻段', '原路径(离散)', '原路径(平滑)'],
+    [
+        'LPA Local Update Area',
+        'LPA* updated states',
+        'Blocked segment on original path',
+        'Original path (raw polyline)',
+        'Original path (smoothed)',
+    ],
     loc='upper left'
 )
 
-# --- 子图3：重规划路径 ---
-ax3 = axes[2]
-draw_base(ax3, (f'阶段3：增量重规划\n' 
-                f'遍历 {phase3_expanded} 节点  {phase3_time_ms:.1f} ms  {path3_len:.2f} km\n'
-                f'加速比  节点 {ratio_nodes:.1f}×    时间 {ratio_time:.1f}×'))
+# --- Subplot 3: incremental replanning ---
+draw_base(
+    ax3,
+    (
+        f"Stage 3: Incremental replanning\n"
+        f"expanded {phase3_expanded} nodes  {phase3_time_ms:.1f} ms  {path3_len:.2f} km\n"
+        f"speedup: nodes {ratio_nodes:.1f}x    wall-clock {ratio_time:.1f}x"
+    ),
+)
 if path1:
     draw_raw_path_with_blocked_segments(ax3, path1_raw, blocked_edges,
                                         path_alpha=0.45, blocked_alpha=0.70)
     ax3.plot(curve1[:,0], curve1[:,1], color='red', lw=1.5, zorder=3.3, alpha=0.28,
-             linestyle='--', dashes=(5,3), label='原路径(平滑受阻)')
+             linestyle='--', dashes=(5,3), label='Original smoothed path (blocked)')
 draw_update_ripple(ax3, phase3_expanded_nodes_order)
 draw_blocked_topology(ax3, blocked_edges)
 if path3:
     spx = [nodes[n,0] for n in path3]
     spy = [nodes[n,1] for n in path3]
     ax3.plot(curve3[:,0], curve3[:,1], color='royalblue', lw=2.0, zorder=5,
-             linestyle='--', dashes=(6,3), label='重规划路径（B样条）')
+             linestyle='--', dashes=(6,3), label='Replanned path (B-spline)')
     ax3.scatter(spx[1:-1], spy[1:-1], c='royalblue', s=20, zorder=6, alpha=0.6)
     n_arr3 = min(4, len(curve3)-1)
     for k in np.linspace(0, len(curve3)-2, n_arr3, dtype=int):
@@ -918,11 +955,17 @@ if path3:
                                      alpha=0.5), zorder=7)
 apply_compact_legend(
     ax3,
-    ['LPA Local Update Area', 'LPA*更新节点', '原路径受阻段', '重规划路径（B样条）', '原路径(平滑受阻)'],
+    [
+        'LPA Local Update Area',
+        'LPA* updated states',
+        'Blocked segment on original path',
+        'Replanned path (B-spline)',
+        'Original smoothed path (blocked)',
+    ],
     loc='upper left'
 )
 
-plt.tight_layout()
-plt.savefig('lpa_result.png', dpi=150, bbox_inches='tight')
+fig.subplots_adjust(left=0.045, right=0.985, bottom=0.045, top=0.93, wspace=0.12, hspace=0.18)
+plt.savefig('lpa_result.png', dpi=220, bbox_inches='tight')
 print("[完成] lpa_result.png 已保存")
 plt.show()

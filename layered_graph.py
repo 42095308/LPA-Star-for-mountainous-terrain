@@ -46,9 +46,9 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
 from scipy.spatial import cKDTree
 
-matplotlib.rcParams['font.family'] = ['SimHei', 'DejaVu Sans']
+matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
-font = FontProperties(family='SimHei')
+font = FontProperties(family='DejaVu Sans')
 
 # ===== 配置参数 =====
 RESOLUTION        = 12.5   # 米/像元
@@ -362,24 +362,34 @@ for e in edges:
 for lid, (color, marker, size) in enumerate(
         zip(LAYER_COLORS, LAYER_MARKERS, LAYER_SIZES)):
     mask  = nodes[:,3] == lid
-    label = ["末端进近层","区域支路层","骨干航路层"][lid]
+    label = ["Terminal Layer", "Regional Layer", "Backbone Layer"][lid]
     ax1.scatter(nodes[mask,0], nodes[mask,1],
                 c=color, marker=marker, s=size, label=label,
                 zorder=3, edgecolors='white', linewidths=0.5)
 
+display_name = {
+    "南峰": "South Peak",
+    "东峰": "East Peak",
+    "西峰": "West Peak",
+    "北峰": "North Peak",
+    "中峰": "Central Peak",
+    "北部基地": "North Depot",
+    "西部基地": "West Depot",
+}
+
 for name, pillar in terminal_pillars.items():
     idx = pillar[0]
-    ax1.annotate(name,
+    ax1.annotate(display_name.get(name, name),
                  xy=(nodes[idx,0], nodes[idx,1]),
                  xytext=(nodes[idx,0]+0.3, nodes[idx,1]+0.3),
                  fontproperties=font, fontsize=8, color='darkred',
                  arrowprops=dict(arrowstyle='->', color='red', lw=1.2),
                  bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.8))
 
-ax1.set_xlabel('东西方向 (km)', fontproperties=font)
-ax1.set_ylabel('南北方向 (km)', fontproperties=font)
-ax1.set_title(f'分层拓扑航路网络 俯视图\n'
-              f'|V|={len(nodes)}，|E|={len(edges)}（含碰撞检测）',
+ax1.set_xlabel('East-West (km)', fontproperties=font)
+ax1.set_ylabel('South-North (km)', fontproperties=font)
+ax1.set_title(f'Layered Airway Topology (Top View)\n'
+              f'|V|={len(nodes)}, |E|={len(edges)} (collision-checked)',
               fontproperties=font, fontsize=11)
 ax1.legend(prop=font, loc='upper right', fontsize=8)
 ax1.grid(True, alpha=0.3, linestyle='--')
@@ -411,10 +421,10 @@ for lid, (color, marker, size) in enumerate(
                 depthshade=True, edgecolors='white', linewidths=0.3)
 
 ax2.view_init(elev=28, azim=225)
-ax2.set_xlabel('东西 (km)', fontproperties=font, labelpad=6)
-ax2.set_ylabel('南北 (km)', fontproperties=font, labelpad=6)
-ax2.set_zlabel('高度 (m)',  fontproperties=font, labelpad=6)
-ax2.set_title('分层拓扑航路网络 3D视图', fontproperties=font, fontsize=11)
+ax2.set_xlabel('East-West (km)', fontproperties=font, labelpad=6)
+ax2.set_ylabel('South-North (km)', fontproperties=font, labelpad=6)
+ax2.set_zlabel('Elevation (m)',  fontproperties=font, labelpad=6)
+ax2.set_title('Layered Airway Topology (3D View)', fontproperties=font, fontsize=11)
 
 plt.tight_layout()
 plt.savefig('graph_vis.png', dpi=150, bbox_inches='tight')

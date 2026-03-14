@@ -1,182 +1,142 @@
 """
-================================================================================
-文件名：safe_corridor.py
-用    途：生成可飞走廊并分层，为后续路网构建提供输入
-================================================================================
+Build flyable corridor bounds and three layered flight decks from DEM.
 
-【功能说明】
-    Step 2：基于 DEM 高程矩阵，生成每个(x,y)点的可飞高度走廊
-    Step 3：将走廊切分为三层（末端进近 / 区域支路 / 骨干航路）
+Inputs:
+    Z_crop.npy
 
-【飞行参数】
-    下限偏移 H_MIN_OFFSET = 30m
-        依据：避开华山地表茂密树冠层与潜在低空索道
-    上限偏移 H_MAX_OFFSET = 120m
-        依据：中国民航局《无人驾驶航空器飞行管理暂行条例》
-              规定微轻小无人机真高上限为 120m
-
-【三层定义（相对地面高度）】
-    Layer 1 末端进近层 Terminal Layer  ：30 ~  60m
-        用途：无人机起飞/降落爬升下降阶段，接驳华山各峰顶站点
-    Layer 2 区域支路层 Regional Branch ：60 ~  90m
-        用途：连接各山峰与主干道的接驳转运
-    Layer 3 骨干航路层 Backbone Layer  ：90 ~ 120m
-        用途：高速巡航层，视野开阔，通信受遮挡概率最小
-
-【输入文件】
-    Z_crop.npy          裁剪后的高程矩阵（由 huashan_dem.py 生成）
-
-【输出文件】
-    floor.npy           飞行下限绝对高度矩阵（Z + 50m），单位：米
-    ceiling.npy         飞行上限绝对高度矩阵（Z + 120m），单位：米
-    layer_mid.npy       三层中心高度矩阵，shape=(3, H, W)，单位：米
-                            layer_mid[0]：末端进近层中心（Z + 60m）
-                            layer_mid[1]：区域支路层中心（Z + 82.5m）
-                            layer_mid[2]：骨干航路层中心（Z + 107.5m）
-    corridor_vis.png    可视化结果图（走廊剖面 + 三层俯视图）
-
-【后续步骤】
-    Step 4：分层拓扑路网构建（layered_graph.py）
-        输入：layer_mid.npy、Z_crop.npy
-================================================================================
+Outputs:
+    floor.npy
+    ceiling.npy
+    layer_mid.npy
+    corridor_vis.png
 """
 
-import numpy as np
+from __future__ import annotations
+
 import os
+
 import matplotlib.pyplot as plt
-import matplotlib
-from matplotlib.font_manager import FontProperties
-from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-matplotlib.rcParams['font.family'] = ['SimHei', 'DejaVu Sans']
-matplotlib.rcParams['axes.unicode_minus'] = False
-font = FontProperties(family='SimHei')
 
-# ===== 配置参数（修改这里即可）=====
-CACHE_DEM   = "Z_crop.npy"
-RESOLUTION  = 12.5          # 米/像元
+CACHE_DEM = "Z_crop.npy"
+RESOLUTION = 12.5  # m/pixel
 
-H_MIN_OFFSET = 30           # 距地面最低安全高度（米）：避开树冠层与低空索道
-H_MAX_OFFSET = 120          # 距地面最高限制（米）
+H_MIN_OFFSET = 30.0
+H_MAX_OFFSET = 120.0
 
-# 三层边界（相对地面高度，单位：米）
-LAYERS = {
-    "末端进近层": {"low": 30,  "high": 60,  "color": "#2196F3"},  # 蓝  30~60m  起降阶段
-    "区域支路层": {"low": 60,  "high": 90,  "color": "#4CAF50"},  # 绿  60~90m  节点接驳
-    "骨干航路层": {"low": 90,  "high": 120, "color": "#FF5722"},  # 红橙 90~120m 高速巡航
-}
+LAYERS = [
+    {"name": "Terminal Approach Layer", "low": 30.0, "high": 60.0, "color": "#2196F3", "cmap": "Blues"},
+    {"name": "Regional Branch Layer", "low": 60.0, "high": 90.0, "color": "#4CAF50", "cmap": "Greens"},
+    {"name": "Backbone Layer", "low": 90.0, "high": 120.0, "color": "#FF5722", "cmap": "Oranges"},
+]
 
-# ===== 读取 DEM =====
-assert os.path.exists(CACHE_DEM), f"找不到 {CACHE_DEM}，请先运行 huashan_dem.py"
-Z = np.load(CACHE_DEM)
-rows, cols = Z.shape
-print(f"[读取] DEM shape={Z.shape}，高程范围: {np.nanmin(Z):.0f}~{np.nanmax(Z):.0f}m")
 
-# ===== Step 2：生成可飞走廊 =====
-floor   = Z + H_MIN_OFFSET   # 飞行下限（绝对高度）
-ceiling = Z + H_MAX_OFFSET   # 飞行上限（绝对高度）
+def main() -> None:
+    if not os.path.exists(CACHE_DEM):
+        raise FileNotFoundError(f"Missing {CACHE_DEM}. Run init_graph.py first.")
 
-np.save("floor.npy",   floor)
-np.save("ceiling.npy", ceiling)
-print(f"[Step2] 飞行下限范围: {floor.min():.0f}~{floor.max():.0f}m")
-print(f"[Step2] 飞行上限范围: {ceiling.min():.0f}~{ceiling.max():.0f}m")
+    z = np.asarray(np.load(CACHE_DEM), dtype=float)
+    rows, cols = z.shape
+    print(f"[load] DEM shape={z.shape}, elevation={np.nanmin(z):.0f}~{np.nanmax(z):.0f} m")
 
-# ===== Step 3：生成三层中心高度矩阵 =====
-layer_names = list(LAYERS.keys())
-layer_mid_list = []
+    floor = z + H_MIN_OFFSET
+    ceiling = z + H_MAX_OFFSET
+    np.save("floor.npy", floor.astype(np.float32))
+    np.save("ceiling.npy", ceiling.astype(np.float32))
+    print(f"[step2] floor={np.min(floor):.0f}~{np.max(floor):.0f} m")
+    print(f"[step2] ceiling={np.min(ceiling):.0f}~{np.max(ceiling):.0f} m")
 
-for name, cfg in LAYERS.items():
-    mid = Z + (cfg["low"] + cfg["high"]) / 2.0
-    layer_mid_list.append(mid)
-    print(f"[Step3] {name}（{cfg['low']}~{cfg['high']}m）"
-          f" 中心高度: {mid.min():.0f}~{mid.max():.0f}m")
+    layer_mid = []
+    for cfg in LAYERS:
+        mid = z + 0.5 * (cfg["low"] + cfg["high"])
+        layer_mid.append(mid)
+        print(
+            f"[step3] {cfg['name']}: +{cfg['low']:.0f}~+{cfg['high']:.0f} m AGL, "
+            f"abs={np.min(mid):.0f}~{np.max(mid):.0f} m"
+        )
+    layer_mid_arr = np.stack(layer_mid, axis=0).astype(np.float32)
+    np.save("layer_mid.npy", layer_mid_arr)
+    print(f"[step3] layer_mid.npy saved, shape={layer_mid_arr.shape}")
 
-layer_mid = np.stack(layer_mid_list, axis=0)   # shape=(3, H, W)
-np.save("layer_mid.npy", layer_mid)
-print(f"[Step3] layer_mid.npy 已保存，shape={layer_mid.shape}")
+    x_km = np.arange(cols) * RESOLUTION / 1000.0
+    y_km = np.arange(rows) * RESOLUTION / 1000.0
+    extent = [0.0, cols * RESOLUTION / 1000.0, 0.0, rows * RESOLUTION / 1000.0]
 
-# ===== 可视化 =====
-fig = plt.figure(figsize=(22, 14))
-fig.suptitle('华山可飞走廊与三层分层结果', fontproperties=font, fontsize=14, y=0.98)
+    fig = plt.figure(figsize=(22, 12), dpi=160)
+    fig.suptitle("Huashan Flyable Corridor and Layered Decks", fontsize=15, y=0.98)
 
-# ---------- 图1：走廊剖面图（取中间一行的东西向剖面）----------
-ax1 = fig.add_subplot(231)
-mid_row = rows // 2
-x_km = np.arange(cols) * RESOLUTION / 1000
+    # 1) East-west profile
+    ax1 = fig.add_subplot(2, 3, 1)
+    mid_row = rows // 2
+    ax1.fill_between(x_km, z[mid_row], floor[mid_row], color="#8B4513", alpha=0.75, label="Terrain (No-Fly)")
+    ax1.fill_between(x_km, floor[mid_row], ceiling[mid_row], color="#87CEEB", alpha=0.55, label="Flyable Corridor")
+    for cfg in LAYERS:
+        ax1.plot(
+            x_km,
+            z[mid_row] + cfg["high"],
+            color=cfg["color"],
+            lw=1.3,
+            ls="--",
+            label=f"{cfg['name']} upper bound (+{cfg['high']:.0f}m)",
+        )
+    ax1.set_xlabel("East-West (km)")
+    ax1.set_ylabel("Absolute Elevation (m)")
+    ax1.set_title("Corridor Cross-Section (Middle Row)")
+    ax1.grid(True, alpha=0.25)
+    ax1.legend(fontsize=7, loc="upper right")
 
-ax1.fill_between(x_km, Z[mid_row], floor[mid_row],
-                 color='#8B4513', alpha=0.8, label='地形（不可飞）')
-ax1.fill_between(x_km, floor[mid_row], ceiling[mid_row],
-                 color='#87CEEB', alpha=0.5, label='可飞走廊')
+    # 2) Corridor thickness
+    ax2 = fig.add_subplot(2, 3, 2)
+    thickness = ceiling - floor
+    im2 = ax2.imshow(thickness, cmap="YlOrRd", extent=extent, origin="lower", aspect="equal")
+    plt.colorbar(im2, ax=ax2, label="Corridor Thickness (m)", shrink=0.82)
+    ax2.set_xlabel("East-West (km)")
+    ax2.set_ylabel("South-North (km)")
+    ax2.set_title(f"Corridor Thickness (constant {H_MAX_OFFSET - H_MIN_OFFSET:.0f} m)")
+    ax2.grid(True, alpha=0.25, ls="--")
 
-# 三层边界线
-colors_line = ['#2196F3', '#4CAF50', '#FF5722']
-for i, (name, cfg) in enumerate(LAYERS.items()):
-    ax1.plot(x_km, Z[mid_row] + cfg["high"],
-             color=colors_line[i], lw=1.5, linestyle='--',
-             label=f'{name}上界（+{cfg["high"]}m）')
+    # 3) 3D corridor
+    ax3 = fig.add_subplot(2, 3, 3, projection="3d")
+    step = 10
+    z_s = z[::step, ::step]
+    f_s = floor[::step, ::step]
+    c_s = ceiling[::step, ::step]
+    rs, cs = z_s.shape
+    xg = np.arange(cs) * step * RESOLUTION / 1000.0
+    yg = np.arange(rs) * step * RESOLUTION / 1000.0
+    xg, yg = np.meshgrid(xg, yg)
+    ax3.plot_surface(xg, yg, z_s, color="#8B4513", alpha=0.68, linewidth=0)
+    ax3.plot_surface(xg, yg, f_s, color="#2196F3", alpha=0.20, linewidth=0)
+    ax3.plot_surface(xg, yg, c_s, color="#FF5722", alpha=0.14, linewidth=0)
+    ax3.view_init(elev=25, azim=225)
+    ax3.set_xlabel("East-West (km)", labelpad=6)
+    ax3.set_ylabel("South-North (km)", labelpad=6)
+    ax3.set_zlabel("Elevation (m)", labelpad=6)
+    ax3.set_title("3D Corridor Envelope")
 
-ax1.set_xlabel('东西方向 (km)', fontproperties=font)
-ax1.set_ylabel('绝对高度 (m)', fontproperties=font)
-ax1.set_title('走廊剖面图（中间行东西向）', fontproperties=font)
-ax1.legend(prop=font, fontsize=7, loc='upper right')
-ax1.grid(True, alpha=0.3)
+    # 4-6) Layer mid-height maps
+    for i, cfg in enumerate(LAYERS):
+        ax = fig.add_subplot(2, 3, 4 + i)
+        im = ax.imshow(layer_mid_arr[i], cmap=cfg["cmap"], extent=extent, origin="lower", aspect="equal")
+        plt.colorbar(im, ax=ax, label="Absolute Elevation (m)", shrink=0.82)
+        ax.set_xlabel("East-West (km)")
+        ax.set_ylabel("South-North (km)")
+        ax.set_title(
+            f"Layer {i + 1}: {cfg['name']}\nAGL +{cfg['low']:.0f}~+{cfg['high']:.0f} m",
+            fontsize=9,
+        )
+        ax.grid(True, alpha=0.25, ls="--")
 
-# ---------- 图2：可飞走廊厚度图（ceiling - floor = 常数70m）----------
-ax2 = fig.add_subplot(232)
-thickness = ceiling - floor
-im2 = ax2.imshow(thickness, cmap='YlOrRd',
-                 extent=[0, cols*RESOLUTION/1000, 0, rows*RESOLUTION/1000],
-                 origin='upper', aspect='equal')
-plt.colorbar(im2, ax=ax2, label='走廊厚度 (m)', shrink=0.8)
-ax2.set_xlabel('东西方向 (km)', fontproperties=font)
-ax2.set_ylabel('南北方向 (km)', fontproperties=font)
-ax2.set_title(f'可飞走廊厚度（固定 {H_MAX_OFFSET-H_MIN_OFFSET}m）',
-              fontproperties=font)
-ax2.grid(True, alpha=0.3, linestyle='--')
+    plt.tight_layout()
+    plt.savefig("corridor_vis.png", dpi=220, bbox_inches="tight")
+    plt.close(fig)
 
-# ---------- 图3/4/5：三层中心高度俯视图 ----------
-cmaps = ['Blues', 'Greens', 'Oranges']
-positions = [234, 235, 236]
+    print("[done] corridor_vis.png saved")
+    print("[done] outputs: floor.npy / ceiling.npy / layer_mid.npy")
+    print("[next] run layered_graph.py")
 
-for i, (name, cfg) in enumerate(LAYERS.items()):
-    ax = fig.add_subplot(positions[i])
-    im = ax.imshow(layer_mid[i], cmap=cmaps[i],
-                   extent=[0, cols*RESOLUTION/1000,
-                           0, rows*RESOLUTION/1000],
-                   origin='upper', aspect='equal')
-    plt.colorbar(im, ax=ax, label='绝对高度 (m)', shrink=0.8)
-    ax.set_xlabel('东西方向 (km)', fontproperties=font)
-    ax.set_ylabel('南北方向 (km)', fontproperties=font)
-    ax.set_title(f'Layer {i+1}：{name}\n（地面 +{cfg["low"]}~+{cfg["high"]}m）',
-                 fontproperties=font, fontsize=9)
-    ax.grid(True, alpha=0.3, linestyle='--')
 
-# ---------- 图6：3D 走廊可视化（抽样）----------
-ax6 = fig.add_subplot(233, projection='3d')
-step = 10
-Z_s = Z[::step, ::step]
-f_s = floor[::step, ::step]
-c_s = ceiling[::step, ::step]
-rs, cs = Z_s.shape
-xg = np.arange(cs) * step * RESOLUTION / 1000
-yg = np.arange(rs) * step * RESOLUTION / 1000
-Xg, Yg = np.meshgrid(xg, yg)
-
-ax6.plot_surface(Xg, Yg, Z_s,   color='#8B4513', alpha=0.7)
-ax6.plot_surface(Xg, Yg, f_s,   color='#2196F3', alpha=0.2)
-ax6.plot_surface(Xg, Yg, c_s,   color='#FF5722', alpha=0.15)
-
-ax6.view_init(elev=25, azim=225)
-ax6.set_xlabel('东西 (km)', fontproperties=font, labelpad=6)
-ax6.set_ylabel('南北 (km)', fontproperties=font, labelpad=6)
-ax6.set_zlabel('高度 (m)', fontproperties=font, labelpad=6)
-ax6.set_title('3D 可飞走廊示意\n（棕：地形，蓝：下限，橙：上限）',
-              fontproperties=font, fontsize=9)
-
-plt.tight_layout()
-plt.savefig('corridor_vis.png', dpi=150, bbox_inches='tight')
-print("\n[完成] corridor_vis.png 已保存")
-print("[完成] 输出文件：floor.npy / ceiling.npy / layer_mid.npy")
-print("[下一步] 运行 layered_graph.py 进行分层路网构建")
-plt.show()
+if __name__ == "__main__":
+    main()

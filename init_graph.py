@@ -54,7 +54,6 @@ import os
 import sys
 import matplotlib.pyplot as plt
 import matplotlib
-from matplotlib.font_manager import FontProperties
 from mpl_toolkits.mplot3d import Axes3D
 
 try:
@@ -72,9 +71,8 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(errors="backslashreplace")
 
-matplotlib.rcParams['font.family'] = ['SimHei', 'DejaVu Sans']
+matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
-font = FontProperties(family='SimHei')
 
 # ===== 閰嶇疆鍙傛暟 =====
 TIF_FILE   = "AP_19438_FBD_F0680_RT1.dem.tif"
@@ -83,11 +81,11 @@ CACHE_GEO  = "Z_crop_geo.npz"
 RESOLUTION = 12.5
 
 PEAKS = {
-    "鍗楀嘲": {"row": 4609, "col": 1938, "elev": 2154.0},
-    "涓滃嘲": {"row": 4642, "col": 1985, "elev": 2096.0},
-    "瑗垮嘲": {"row": 4600, "col": 1949, "elev": 2082.0},
-    "鍖楀嘲": {"row": 4468, "col": 2004, "elev": 1615.0},
-    "涓嘲": {"row": 4594, "col": 1951, "elev": 2038.0},
+    "South Peak": {"row": 4609, "col": 1938, "elev": 2154.0},
+    "East Peak": {"row": 4642, "col": 1985, "elev": 2096.0},
+    "West Peak": {"row": 4600, "col": 1949, "elev": 2082.0},
+    "North Peak": {"row": 4468, "col": 2004, "elev": 1615.0},
+    "Central Peak": {"row": 4594, "col": 1951, "elev": 2038.0},
 }
 
 # ===== 瑁佸壀鑼冨洿璁＄畻 =====
@@ -191,28 +189,27 @@ extent = [0, total_cols * RESOLUTION / 1000,
           0, total_rows * RESOLUTION / 1000]
 im = ax1.imshow(Z_crop, cmap='terrain',
                 extent=extent, origin='upper', aspect='equal')
-plt.colorbar(im, ax=ax1, label='楂樼▼ (m)', shrink=0.8)
+plt.colorbar(im, ax=ax1, label='Elevation (m)', shrink=0.8)
 
 # 鏍囨敞宄板€?
 for name, c in peak_coords.items():
     ax1.plot(c["x"], c["y"], 'r^', markersize=10, zorder=5)
     ax1.annotate(
         f'{name}  {c["elev"]:.0f}m\n'
-        f'{c["lon"]:.5f}掳E\n'
-        f'{c["lat"]:.5f}掳N',
+        f'{c["lon"]:.5f}°E\n'
+        f'{c["lat"]:.5f}°N',
         xy=(c["x"], c["y"]),
         xytext=(c["x"] + 0.5, c["y"] + 0.5),
-        fontproperties=font, fontsize=8, color='darkred',
+        fontsize=8, color='darkred',
         arrowprops=dict(arrowstyle='->', color='red', lw=1.5),
         bbox=dict(boxstyle='round,pad=0.3',
                   facecolor='white', edgecolor='red', alpha=0.85)
     )
 
-ax1.set_xlabel('涓滆タ鏂瑰悜 (km)', fontproperties=font)
-ax1.set_ylabel('鍗楀寳鏂瑰悜 (km)', fontproperties=font)
+ax1.set_xlabel('East-West (km)')
+ax1.set_ylabel('South-North (km)')
 ax1.set_title(
     "Huashan Core DEM (Top View with Peak Labels)",
-    fontproperties=font,
     fontsize=11,
 )
 ax1.grid(True, alpha=0.3, linestyle='--')
@@ -253,9 +250,11 @@ def on_hover(event):
     lon = lon_grid[row_idx, col_idx]
     lat = lat_grid[row_idx, col_idx]
 
-    text = (f"缁忓害: {lon:.5f}掳E\n"
-            f"绾害: {lat:.5f}掳N\n"
-            f"楂樼▼: {elev:.1f} m")
+    text = (
+        f"Lon: {lon:.5f}°E\n"
+        f"Lat: {lat:.5f}°N\n"
+        f"Elevation: {elev:.1f} m"
+    )
 
     annot.xy = (x_km, y_km)
     annot.set_text(text)
@@ -281,13 +280,13 @@ for name, c in peak_coords.items():
                 color='red', s=60, zorder=5)
     ax2.text(c["x"], c["y"], c["elev"] + 260,
              name, fontsize=8, color='red',
-             fontproperties=font, ha='center')
+             ha='center')
 
 ax2.view_init(elev=30, azim=225)
-ax2.set_xlabel('涓滆タ (km)', fontproperties=font, labelpad=8)
-ax2.set_ylabel('鍗楀寳 (km)', fontproperties=font, labelpad=8)
-ax2.set_zlabel('楂樺害 (m)', fontproperties=font, labelpad=8)
-ax2.set_title('鍗庡北鏍稿績鍖哄煙 3D瑙嗗浘', fontproperties=font, fontsize=12)
+ax2.set_xlabel('East-West (km)', labelpad=8)
+ax2.set_ylabel('South-North (km)', labelpad=8)
+ax2.set_zlabel('Elevation (m)', labelpad=8)
+ax2.set_title('Huashan Core DEM (3D View)', fontsize=12)
 
 plt.tight_layout()
 plt.savefig('huashan_final.png', dpi=150, bbox_inches='tight')
