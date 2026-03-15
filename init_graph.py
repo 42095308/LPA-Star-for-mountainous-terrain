@@ -1,295 +1,351 @@
-﻿"""
-================================================================================
-鏂囦欢鍚嶏細huashan_dem.py
-鐢?   閫旓細鍗庡北鏅尯 DEM 鏁版嵁瑁佸壀銆佸潗鏍囪浆鎹笌鍙鍖?
-================================================================================
+"""
+Crop Huashan DEM to the study area and export aligned geo grids.
 
-銆愬姛鑳借鏄庛€?
-    1. 浠庡師濮?ALOS PALSAR DEM锛?tif锛変腑锛屼互鍗庡北浜斿嘲涓轰腑蹇冭鍓?10km x 10km 鍖哄煙
-    2. 灏?UTM 鎶曞奖鍧愭爣绯昏浆鎹负 WGS84 缁忕含搴﹀潗鏍囩郴
-    3. 鐢熸垚骞舵帓鍙鍖栧浘锛堝乏锛氫刊瑙嗙儹鍔涘浘锛屽彸锛?D 鍦板舰鍥撅級
-    4. 宸﹀浘鏀寔榧犳爣鎮仠锛屽疄鏃舵樉绀哄綋鍓嶄綅缃殑缁忕含搴﹀拰楂樼▼
-
-銆愮紦瀛樻満鍒躲€?
-    棣栨杩愯锛氫粠 .tif 瑁佸壀鏁版嵁锛岀敓鎴愮粡绾害鏌ユ壘琛紝鑰楁椂绾?10~30 绉?
-    鍚庣画杩愯锛氱洿鎺ヨ鍙栫紦瀛樻枃浠讹紝绉掔骇鍚姩
-    閲嶇疆缂撳瓨锛氭墜鍔ㄥ垹闄や互涓嬩袱涓紦瀛樻枃浠跺嵆鍙己鍒堕噸鏂拌鍓?
-
-銆愯緭鍏ユ枃浠躲€?
-    AP_19438_FBD_F0680_RT1.dem.tif
-        鍘熷 ALOS PALSAR DEM 鏁版嵁锛屽垎杈ㄧ巼 12.5m/鍍忓厓
-        鍧愭爣绯伙細UTM 鎶曞奖锛堥渶杞崲涓?WGS84锛?
-        涓嬭浇鏉ユ簮锛歂ASA EarthData锛坔ttps://earthdata.nasa.gov锛?
-
-銆愯緭鍑烘枃浠躲€?
-    huashan_final.png
-        鍙鍖栫粨鏋滃浘锛堜刊瑙嗙儹鍔涘浘 + 3D 鍦板舰鍥撅級锛岀敤浜庤鏂囨彃鍥?
-
-    Z_crop.npy
-        瑁佸壀鍚庣殑楂樼▼鐭╅樀锛宻hape=(800, 800)锛屽崟浣嶏細绫?
-        flipud 澶勭悊鍚庤鏂瑰悜涓哄崡鍒板寳锛屼笌鍦板浘鏂瑰悜涓€鑷?
-        渚涘悗缁楠わ紙鍙绌洪棿鐢熸垚銆佸垎灞傚缓鍥撅級鐩存帴璇诲彇
-
-    Z_crop_geo.npz
-        缁忕含搴︽煡鎵捐〃锛屽寘鍚袱涓暟缁勶細
-            lon_grid[row, col]锛氭瘡涓儚绱犵殑缁忓害锛堝崟浣嶏細搴锛?
-            lat_grid[row, col]锛氭瘡涓儚绱犵殑绾害锛堝崟浣嶏細搴锛?
-        涓?Z_crop.npy 鐨勮鍒楃储寮曚竴涓€瀵瑰簲
-
-銆愪緷璧栧簱銆?
-    pip install numpy rasterio pyproj matplotlib
-
-銆愬悗缁楠ゃ€?
-    Step 2锛氱敓鎴愬彲椋炵┖闂达紙safe_corridor.py锛?
-        杈撳叆锛歓_crop.npy
-        杈撳嚭锛歠loor_height.npy锛堥琛屼笅闄愰潰锛?
-               ceiling_height.npy锛堥琛屼笂闄愰潰锛?
-    Step 3锛氬垎灞傛嫇鎵戣矾缃戞瀯寤猴紙layered_graph.py锛?
-    Step 4锛歀PA* 鍔ㄦ€佸閲忛噸瑙勫垝锛坙pa_star.py锛?
-================================================================================
+This version supports center correction using a WGS84 coordinate:
+default center (from user): lon=110.0798, lat=34.4829.
 """
 
-import numpy as np
+from __future__ import annotations
+
+import argparse
+import json
 import os
-import sys
+from pathlib import Path
+from typing import Dict, Tuple
+
 import matplotlib.pyplot as plt
-import matplotlib
-from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import tifffile
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+from pyproj import Transformer
 
-try:
-    import rasterio
-except Exception:
-    rasterio = None
 
-try:
-    from pyproj import Transformer
-except Exception:
-    Transformer = None
-
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(errors="backslashreplace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(errors="backslashreplace")
-
-matplotlib.rcParams['font.family'] = ['DejaVu Sans']
-matplotlib.rcParams['axes.unicode_minus'] = False
-
-# ===== 閰嶇疆鍙傛暟 =====
-TIF_FILE   = "AP_19438_FBD_F0680_RT1.dem.tif"
+TIF_FILE = "AP_19438_FBD_F0680_RT1.dem.tif"
 CACHE_FILE = "Z_crop.npy"
-CACHE_GEO  = "Z_crop_geo.npz"
-RESOLUTION = 12.5
+CACHE_GEO = "Z_crop_geo.npz"
+CACHE_META = "Z_crop_meta.json"
 
-PEAKS = {
-    "South Peak": {"row": 4609, "col": 1938, "elev": 2154.0},
-    "East Peak": {"row": 4642, "col": 1985, "elev": 2096.0},
-    "West Peak": {"row": 4600, "col": 1949, "elev": 2082.0},
-    "North Peak": {"row": 4468, "col": 2004, "elev": 1615.0},
-    "Central Peak": {"row": 4594, "col": 1951, "elev": 2038.0},
+EPSG_SRC = "EPSG:32649"  # from GeoKeyDirectoryTag (WGS84 / UTM zone 49N)
+EPSG_WGS84 = "EPSG:4326"
+
+DEFAULT_CENTER_LON = 110.0798
+DEFAULT_CENTER_LAT = 34.4829
+DEFAULT_CROP_SIZE_M = 10_000.0
+RESOLUTION_M = 12.5
+
+# Legacy pixel peaks used only for debugging current-center offset.
+LEGACY_PEAK_PIXELS = {
+    "South": {"row": 4609, "col": 1938},
+    "East": {"row": 4642, "col": 1985},
+    "West": {"row": 4600, "col": 1949},
+    "North": {"row": 4468, "col": 2004},
+    "Central": {"row": 4594, "col": 1951},
 }
 
-# ===== 瑁佸壀鑼冨洿璁＄畻 =====
-center_row = int(np.mean([p["row"] for p in PEAKS.values()]))
-center_col = int(np.mean([p["col"] for p in PEAKS.values()]))
-half       = int(10000 / 2 / RESOLUTION)
-row_min    = center_row - half
-row_max    = center_row + half
-col_min    = center_col - half
-col_max    = center_col + half
-total_rows = row_max - row_min
-total_cols = col_max - col_min
+# Peak labels for plotting (WGS84).
+PEAKS_WGS84 = {
+    "South Peak": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0},
+    "East Peak": {"lon": 110.0820, "lat": 34.4811, "elev": 2100.0},
+    "West Peak": {"lon": 110.0768, "lat": 34.4816, "elev": 2038.0},
+    "North Peak": {"lon": 110.0813, "lat": 34.4934, "elev": 1615.0},
+    "Central Peak": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0},
+}
 
-# ===== 缂撳瓨閫昏緫 =====
-if os.path.exists(CACHE_FILE) and os.path.exists(CACHE_GEO):
-    print("[缂撳瓨] 妫€娴嬪埌缂撳瓨鏂囦欢锛岀洿鎺ヨ鍙?..")
-    Z_crop = np.load(CACHE_FILE)
-    geo = np.load(CACHE_GEO)
-    # 姣忎釜鍍忕礌鐨勭粡绾害鏌ユ壘琛紙flipud鍚庣殑锛?
-    lon_grid = geo["lon_grid"]
-    lat_grid = geo["lat_grid"]
-    print(f"[缂撳瓨] 璇诲彇瀹屾垚锛宻hape={Z_crop.shape}")
 
-else:
-    if rasterio is None:
-        raise RuntimeError('rasterio is not installed and cache files are missing. Install rasterio or prepare Z_crop.npy and Z_crop_geo.npz.')
-    if Transformer is None:
-        raise RuntimeError("pyproj is not installed and cache files are missing.")
-    print(f"[瑁佸壀] 鏈壘鍒扮紦瀛橈紝浠?{TIF_FILE} 瑁佸壀...")
+def read_tiff_with_georef(tif_path: Path) -> Tuple[np.ndarray, float, float, float, float]:
+    with tifffile.TiffFile(tif_path) as tif:
+        page = tif.pages[0]
+        dem = page.asarray().astype(float)
+        scale = page.tags["ModelPixelScaleTag"].value
+        tie = page.tags["ModelTiepointTag"].value
 
-    with rasterio.open(TIF_FILE) as src:
-        Z_full = src.read(1).astype(float)
-        Z_full[Z_full < -9000] = np.nan
-        transform = src.transform
-        src_crs   = src.crs
+    sx = float(scale[0])
+    sy = float(scale[1])
+    x0 = float(tie[3])  # upper-left corner x
+    y0 = float(tie[4])  # upper-left corner y
+    return dem, x0, y0, sx, sy
 
-    print(f"[淇℃伅] 鍘熷鍧愭爣绯? {src_crs}")
 
-    # 寤虹珛 UTM 鈫?WGS84 杞崲鍣?
-    transformer = Transformer.from_crs(
-        src_crs, "EPSG:4326", always_xy=True
+def pixel_to_xy(row: float, col: float, x0: float, y0: float, sx: float, sy: float) -> Tuple[float, float]:
+    x = x0 + col * sx
+    y = y0 - row * sy
+    return x, y
+
+
+def xy_to_pixel(x: float, y: float, x0: float, y0: float, sx: float, sy: float) -> Tuple[int, int]:
+    col = int(round((x - x0) / sx))
+    row = int(round((y0 - y) / sy))
+    return row, col
+
+
+def bounded_crop_window(
+    row_center: int,
+    col_center: int,
+    half: int,
+    n_rows: int,
+    n_cols: int,
+) -> Tuple[int, int, int, int]:
+    row_min = row_center - half
+    row_max = row_center + half
+    col_min = col_center - half
+    col_max = col_center + half
+
+    if row_min < 0:
+        row_max -= row_min
+        row_min = 0
+    if col_min < 0:
+        col_max -= col_min
+        col_min = 0
+    if row_max > n_rows:
+        shift = row_max - n_rows
+        row_min -= shift
+        row_max = n_rows
+    if col_max > n_cols:
+        shift = col_max - n_cols
+        col_min -= shift
+        col_max = n_cols
+
+    row_min = max(0, row_min)
+    col_min = max(0, col_min)
+    row_max = min(n_rows, row_max)
+    col_max = min(n_cols, col_max)
+    return row_min, row_max, col_min, col_max
+
+
+def build_lonlat_grids(
+    row_min: int,
+    row_max: int,
+    col_min: int,
+    col_max: int,
+    x0: float,
+    y0: float,
+    sx: float,
+    sy: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    rows = row_max - row_min
+    cols = col_max - col_min
+    rr = np.arange(row_min, row_max, dtype=float)
+    cc = np.arange(col_min, col_max, dtype=float)
+    rr2, cc2 = np.meshgrid(rr, cc, indexing="ij")
+    x2 = x0 + cc2 * sx
+    y2 = y0 - rr2 * sy
+
+    tf_to_wgs = Transformer.from_crs(EPSG_SRC, EPSG_WGS84, always_xy=True)
+    lon_flat, lat_flat = tf_to_wgs.transform(x2.ravel(), y2.ravel())
+    lon_grid = lon_flat.reshape(rows, cols)
+    lat_grid = lat_flat.reshape(rows, cols)
+    return lon_grid, lat_grid
+
+
+def nearest_rc_from_lonlat(lon_grid: np.ndarray, lat_grid: np.ndarray, lon: float, lat: float) -> Tuple[int, int]:
+    d2 = (lon_grid - lon) ** 2 + (lat_grid - lat) ** 2
+    idx = int(np.argmin(d2))
+    r, c = np.unravel_index(idx, lon_grid.shape)
+    return int(r), int(c)
+
+
+def cache_matches(meta_path: Path, center_lon: float, center_lat: float, crop_size_m: float) -> bool:
+    if not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return (
+        abs(float(meta.get("center_lon", 0.0)) - center_lon) < 1e-9
+        and abs(float(meta.get("center_lat", 0.0)) - center_lat) < 1e-9
+        and abs(float(meta.get("crop_size_m", 0.0)) - crop_size_m) < 1e-9
+        and meta.get("row0_orientation", "") == "north"
     )
 
-    # 瑁佸壀
-    Z_crop = Z_full[row_min:row_max, col_min:col_max]
-    Z_crop = np.flipud(Z_crop)
 
-    # ===== 涓烘瘡涓儚绱犺绠楃粡绾害鏌ユ壘琛?=====
-    print("[璁＄畻] 姝ｅ湪鐢熸垚缁忕含搴︽煡鎵捐〃锛堢害闇€10绉掞級...")
-    rows_idx = np.arange(total_rows)
-    cols_idx = np.arange(total_cols)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Crop Huashan DEM and export geo-aligned cache.")
+    parser.add_argument("--center-lon", type=float, default=DEFAULT_CENTER_LON)
+    parser.add_argument("--center-lat", type=float, default=DEFAULT_CENTER_LAT)
+    parser.add_argument("--crop-size-m", type=float, default=DEFAULT_CROP_SIZE_M)
+    parser.add_argument("--force-recrop", action="store_true")
+    args = parser.parse_args()
 
-    # 姣忎釜鍍忕礌鍦ㄥ師濮媡if涓殑琛屽垪鍙?
-    orig_rows = (row_min + (total_rows - 1 - rows_idx)).astype(int)  # flipud
-    orig_cols = (col_min + cols_idx).astype(int)
+    center_lon = float(args.center_lon)
+    center_lat = float(args.center_lat)
+    crop_size_m = float(args.crop_size_m)
 
-    # 鍚戦噺鍖栬绠楁墍鏈夊儚绱犵殑 UTM 鍧愭爣
-    orig_rows_2d, orig_cols_2d = np.meshgrid(orig_rows, orig_cols, indexing='ij')
-    utm_x_2d = transform.c + orig_cols_2d * transform.a + orig_rows_2d * transform.b
-    utm_y_2d = transform.f + orig_cols_2d * transform.d + orig_rows_2d * transform.e
+    tif_path = Path(TIF_FILE)
+    if not tif_path.exists():
+        raise FileNotFoundError(f"Missing DEM file: {tif_path.resolve()}")
 
-    # 鎵归噺杞崲涓虹粡绾害
-    lon_flat, lat_flat = transformer.transform(
-        utm_x_2d.ravel(), utm_y_2d.ravel()
-    )
-    lon_grid = lon_flat.reshape(total_rows, total_cols)
-    lat_grid = lat_flat.reshape(total_rows, total_cols)
-
-    # 淇濆瓨缂撳瓨
-    np.save(CACHE_FILE, Z_crop)
-    np.savez(CACHE_GEO, lon_grid=lon_grid, lat_grid=lat_grid)
-    print(f"[瑁佸壀] 瀹屾垚锛岀紦瀛樺凡淇濆瓨")
-
-print(f"楂樼▼鑼冨洿: {np.nanmin(Z_crop):.0f}m ~ {np.nanmax(Z_crop):.0f}m")
-print(f"缁忓害鑼冨洿: {lon_grid.min():.4f}掳E ~ {lon_grid.max():.4f}掳E")
-print(f"绾害鑼冨洿: {lat_grid.min():.4f}掳N ~ {lat_grid.max():.4f}掳N")
-
-# ===== 璁＄畻宄板€?km 鍧愭爣 =====
-peak_coords = {}
-for name, p in PEAKS.items():
-    r_in_crop = p["row"] - row_min
-    c_in_crop = p["col"] - col_min
-    r_flipped = total_rows - 1 - r_in_crop
-    x_km = c_in_crop * RESOLUTION / 1000
-    y_km = r_flipped * RESOLUTION / 1000
-    lon  = lon_grid[r_flipped, c_in_crop]
-    lat  = lat_grid[r_flipped, c_in_crop]
-    peak_coords[name] = {
-        "x": x_km, "y": y_km,
-        "elev": p["elev"],
-        "lon": lon, "lat": lat
-    }
-    print(f"  {name}: {lon:.5f}掳E, {lat:.5f}掳N, 娴锋嫈={p['elev']}m")
-
-# ===== 缁樺浘 =====
-fig = plt.figure(figsize=(20, 8))
-
-# ---------- 宸﹀浘锛氫刊瑙嗙儹鍔涘浘 ----------
-ax1 = fig.add_subplot(121)
-extent = [0, total_cols * RESOLUTION / 1000,
-          0, total_rows * RESOLUTION / 1000]
-im = ax1.imshow(Z_crop, cmap='terrain',
-                extent=extent, origin='upper', aspect='equal')
-plt.colorbar(im, ax=ax1, label='Elevation (m)', shrink=0.8)
-
-# 鏍囨敞宄板€?
-for name, c in peak_coords.items():
-    ax1.plot(c["x"], c["y"], 'r^', markersize=10, zorder=5)
-    ax1.annotate(
-        f'{name}  {c["elev"]:.0f}m\n'
-        f'{c["lon"]:.5f}E\n'
-        f'{c["lat"]:.5f}N',
-        xy=(c["x"], c["y"]),
-        xytext=(c["x"] + 0.5, c["y"] + 0.5),
-        fontsize=8, color='darkred',
-        arrowprops=dict(arrowstyle='->', color='red', lw=1.5),
-        bbox=dict(boxstyle='round,pad=0.3',
-                  facecolor='white', edgecolor='red', alpha=0.85)
+    use_cache = (
+        Path(CACHE_FILE).exists()
+        and Path(CACHE_GEO).exists()
+        and cache_matches(Path(CACHE_META), center_lon, center_lat, crop_size_m)
+        and (not args.force_recrop)
     )
 
-ax1.set_xlabel('East-West (km)')
-ax1.set_ylabel('South-North (km)')
-ax1.set_title(
-    "Huashan Core DEM (Top View with Peak Labels)",
-    fontsize=11,
-)
-ax1.grid(True, alpha=0.3, linestyle='--')
+    if use_cache:
+        print("[cache] using existing crop cache (center and size match).")
+        z_crop = np.asarray(np.load(CACHE_FILE), dtype=float)
+        geo = np.load(CACHE_GEO)
+        lon_grid = np.asarray(geo["lon_grid"], dtype=float)
+        lat_grid = np.asarray(geo["lat_grid"], dtype=float)
+        meta = json.loads(Path(CACHE_META).read_text(encoding="utf-8"))
+        row_min = int(meta["row_min"])
+        row_max = int(meta["row_max"])
+        col_min = int(meta["col_min"])
+        col_max = int(meta["col_max"])
+    else:
+        print("[crop] reading source DEM and recropping...")
+        dem, x0, y0, sx, sy = read_tiff_with_georef(tif_path)
+        dem[dem < -9000] = np.nan
+        n_rows, n_cols = dem.shape
+        half = int(round((crop_size_m / 2.0) / RESOLUTION_M))
 
-# ===== 榧犳爣鎮仠浜や簰 =====
-annot = ax1.annotate(
-    "", xy=(0, 0), xytext=(15, 15),
-    textcoords="offset points",
-    bbox=dict(boxstyle="round,pad=0.4", fc="yellow", alpha=0.9),
-    arrowprops=dict(arrowstyle="->"),
-    fontsize=9
-)
-annot.set_visible(False)
+        # Print legacy center and corresponding WGS84 (for diagnosis).
+        legacy_row = int(np.mean([v["row"] for v in LEGACY_PEAK_PIXELS.values()]))
+        legacy_col = int(np.mean([v["col"] for v in LEGACY_PEAK_PIXELS.values()]))
+        tf_to_wgs = Transformer.from_crs(EPSG_SRC, EPSG_WGS84, always_xy=True)
+        tf_to_utm = Transformer.from_crs(EPSG_WGS84, EPSG_SRC, always_xy=True)
+        x_old, y_old = pixel_to_xy(legacy_row, legacy_col, x0, y0, sx, sy)
+        lon_old, lat_old = tf_to_wgs.transform(x_old, y_old)
 
-def on_hover(event):
-    if event.inaxes != ax1:
-        annot.set_visible(False)
+        x_new, y_new = tf_to_utm.transform(center_lon, center_lat)
+        center_row, center_col = xy_to_pixel(x_new, y_new, x0, y0, sx, sy)
+        x_new_chk, y_new_chk = pixel_to_xy(center_row, center_col, x0, y0, sx, sy)
+        lon_new_chk, lat_new_chk = tf_to_wgs.transform(x_new_chk, y_new_chk)
+
+        d_lon = lon_new_chk - lon_old
+        d_lat = lat_new_chk - lat_old
+        print(f"[debug] legacy center pixel: row={legacy_row}, col={legacy_col}")
+        print(f"[debug] legacy center lon/lat: lon={lon_old:.6f}, lat={lat_old:.6f}")
+        print(f"[debug] target center lon/lat: lon={center_lon:.6f}, lat={center_lat:.6f}")
+        print(f"[debug] target center pixel: row={center_row}, col={center_col}")
+        print(f"[debug] snapped target lon/lat: lon={lon_new_chk:.6f}, lat={lat_new_chk:.6f}")
+        print(f"[debug] offset from legacy to target: dlon={d_lon:+.6f}, dlat={d_lat:+.6f}")
+
+        row_min, row_max, col_min, col_max = bounded_crop_window(center_row, center_col, half, n_rows, n_cols)
+        z_crop = dem[row_min:row_max, col_min:col_max]
+        lon_grid, lat_grid = build_lonlat_grids(row_min, row_max, col_min, col_max, x0, y0, sx, sy)
+
+        np.save(CACHE_FILE, z_crop.astype(np.float32))
+        np.savez(CACHE_GEO, lon_grid=lon_grid.astype(np.float64), lat_grid=lat_grid.astype(np.float64))
+        meta = {
+            "center_lon": center_lon,
+            "center_lat": center_lat,
+            "crop_size_m": crop_size_m,
+            "row_min": row_min,
+            "row_max": row_max,
+            "col_min": col_min,
+            "col_max": col_max,
+            "row0_orientation": "north",
+        }
+        Path(CACHE_META).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        print("[crop] cache saved: Z_crop.npy / Z_crop_geo.npz / Z_crop_meta.json")
+
+    rows, cols = z_crop.shape
+    print(f"[info] DEM shape: {rows} x {cols}")
+    print(f"[info] elevation range: {np.nanmin(z_crop):.1f} m .. {np.nanmax(z_crop):.1f} m")
+    print(f"[info] lon range: {lon_grid.min():.6f} .. {lon_grid.max():.6f}")
+    print(f"[info] lat range: {lat_grid.min():.6f} .. {lat_grid.max():.6f}")
+    print(f"[info] center (grid mean): lon={np.mean(lon_grid):.6f}, lat={np.mean(lat_grid):.6f}")
+
+    # Peak marker coordinates in current crop.
+    peak_plot: Dict[str, Dict[str, float]] = {}
+    for name, p in PEAKS_WGS84.items():
+        r, c = nearest_rc_from_lonlat(lon_grid, lat_grid, p["lon"], p["lat"])
+        x_km = c * RESOLUTION_M / 1000.0
+        y_km = (rows - 1 - r) * RESOLUTION_M / 1000.0
+        peak_plot[name] = {
+            "x": x_km,
+            "y": y_km,
+            "lon": float(lon_grid[r, c]),
+            "lat": float(lat_grid[r, c]),
+            "elev": float(p["elev"]),
+        }
+
+    # Plot
+    fig = plt.figure(figsize=(20, 8))
+    ax1 = fig.add_subplot(121)
+    extent = [0.0, cols * RESOLUTION_M / 1000.0, 0.0, rows * RESOLUTION_M / 1000.0]
+    im = ax1.imshow(z_crop, cmap="terrain", extent=extent, origin="upper", aspect="equal")
+    plt.colorbar(im, ax=ax1, label="Elevation (m)", shrink=0.8)
+
+    for name, p in peak_plot.items():
+        ax1.plot(p["x"], p["y"], "r^", markersize=10, zorder=5)
+        ax1.annotate(
+            f"{name} {p['elev']:.0f}m\n{p['lon']:.5f}E\n{p['lat']:.5f}N",
+            xy=(p["x"], p["y"]),
+            xytext=(p["x"] + 0.30, p["y"] + 0.30),
+            fontsize=8,
+            color="darkred",
+            arrowprops=dict(arrowstyle="->", color="red", lw=1.2),
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="red", alpha=0.85),
+        )
+
+    ax1.set_xlabel("East-West (km)")
+    ax1.set_ylabel("South-North (km)")
+    ax1.set_title("Huashan Core DEM (Top View)")
+    ax1.grid(True, alpha=0.3, linestyle="--")
+
+    annot = ax1.annotate(
+        "",
+        xy=(0, 0),
+        xytext=(15, 15),
+        textcoords="offset points",
+        bbox=dict(boxstyle="round,pad=0.4", fc="yellow", alpha=0.9),
+        arrowprops=dict(arrowstyle="->"),
+        fontsize=9,
+    )
+    annot.set_visible(False)
+
+    def on_hover(event):
+        if event.inaxes != ax1:
+            annot.set_visible(False)
+            fig.canvas.draw_idle()
+            return
+        x_km = event.xdata
+        y_km = event.ydata
+        if x_km is None or y_km is None:
+            return
+        c = int(np.clip(x_km * 1000.0 / RESOLUTION_M, 0, cols - 1))
+        r = int(np.clip((rows - 1) - y_km * 1000.0 / RESOLUTION_M, 0, rows - 1))
+        elev = z_crop[r, c]
+        if np.isnan(elev):
+            annot.set_visible(False)
+            fig.canvas.draw_idle()
+            return
+        lon = float(lon_grid[r, c])
+        lat = float(lat_grid[r, c])
+        annot.xy = (x_km, y_km)
+        annot.set_text(f"Lon: {lon:.5f}E\nLat: {lat:.5f}N\nElevation: {elev:.1f} m")
+        annot.set_visible(True)
         fig.canvas.draw_idle()
-        return
 
-    x_km = event.xdata
-    y_km = event.ydata
-    if x_km is None or y_km is None:
-        return
+    fig.canvas.mpl_connect("motion_notify_event", on_hover)
 
-    col_idx = int(x_km * 1000 / RESOLUTION)
-    row_idx = int(y_km * 1000 / RESOLUTION)
-    col_idx = np.clip(col_idx, 0, total_cols - 1)
-    row_idx = np.clip(row_idx, 0, total_rows - 1)
+    ax2 = fig.add_subplot(122, projection="3d")
+    step = 6
+    r_idx = np.arange(0, rows, step, dtype=int)
+    c_idx = np.arange(0, cols, step, dtype=int)
+    z_s = z_crop[np.ix_(r_idx, c_idx)]
+    x_vals = c_idx * RESOLUTION_M / 1000.0
+    y_vals = (rows - 1 - r_idx) * RESOLUTION_M / 1000.0
+    xg, yg = np.meshgrid(x_vals, y_vals)
+    ax2.plot_surface(xg, yg, z_s, cmap="terrain", alpha=0.85, linewidth=0)
+    for name, p in peak_plot.items():
+        ax2.scatter(p["x"], p["y"], p["elev"] + 80.0, color="red", s=55, zorder=5)
+        ax2.text(p["x"], p["y"], p["elev"] + 190.0, name, fontsize=8, color="red", ha="center")
 
-    elev = Z_crop[row_idx, col_idx]
-    if np.isnan(elev):
-        annot.set_visible(False)
-        fig.canvas.draw_idle()
-        return
+    ax2.view_init(elev=30, azim=225)
+    ax2.set_xlabel("East-West (km)", labelpad=8)
+    ax2.set_ylabel("South-North (km)", labelpad=8)
+    ax2.set_zlabel("Elevation (m)", labelpad=8)
+    ax2.set_title("Huashan Core DEM (3D View)")
 
-    # 鐩存帴浠庢煡鎵捐〃鍙栫粡绾害
-    lon = lon_grid[row_idx, col_idx]
-    lat = lat_grid[row_idx, col_idx]
+    plt.tight_layout()
+    plt.savefig("huashan_final.png", dpi=160, bbox_inches="tight")
+    print("[done] huashan_final.png")
+    plt.show()
 
-    text = (
-        f"Lon: {lon:.5f}E\n"
-        f"Lat: {lat:.5f}N\n"
-        f"Elevation: {elev:.1f} m"
-    )
 
-    annot.xy = (x_km, y_km)
-    annot.set_text(text)
-    annot.set_visible(True)
-    fig.canvas.draw_idle()
-
-fig.canvas.mpl_connect("motion_notify_event", on_hover)
-
-# ---------- 鍙冲浘锛?D 瑙嗗浘 ----------
-ax2 = fig.add_subplot(122, projection='3d')
-step   = 5
-Z_show = Z_crop[::step, ::step]
-rows_s, cols_s = Z_show.shape
-xg = np.arange(cols_s) * step * RESOLUTION / 1000
-yg = np.arange(rows_s) * step * RESOLUTION / 1000
-X_grid, Y_grid = np.meshgrid(xg, yg)
-
-surf = ax2.plot_surface(X_grid, Y_grid, Z_show,
-                        cmap='terrain', alpha=0.85, linewidth=0)
-
-for name, c in peak_coords.items():
-    ax2.scatter(c["x"], c["y"], c["elev"] + 100,
-                color='red', s=60, zorder=5)
-    ax2.text(c["x"], c["y"], c["elev"] + 260,
-             name, fontsize=8, color='red',
-             ha='center')
-
-ax2.view_init(elev=30, azim=225)
-ax2.set_xlabel('East-West (km)', labelpad=8)
-ax2.set_ylabel('South-North (km)', labelpad=8)
-ax2.set_zlabel('Elevation (m)', labelpad=8)
-ax2.set_title('Huashan Core DEM (3D View)', fontsize=12)
-
-plt.tight_layout()
-plt.savefig('huashan_final.png', dpi=150, bbox_inches='tight')
-print("\n闈欐€佸浘宸蹭繚瀛樹负 huashan_final.png")
-print("浜や簰绐楀彛宸叉墦寮€锛岄紶鏍囨偓鍋滃湪宸﹀浘鏌ョ湅缁忕含搴﹀拰楂樼▼")
-plt.show()
+if __name__ == "__main__":
+    main()

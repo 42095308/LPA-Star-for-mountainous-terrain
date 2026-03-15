@@ -1,0 +1,10 @@
+{
+  "center_lon": 110.0798,
+  "center_lat": 34.4829,
+  "crop_size_m": 10000.0,
+  "row_min": 4023,
+  "row_max": 4823,
+  "col_min": 1166,
+  "col_max": 1966,
+  "row0_orientation": "north"
+}

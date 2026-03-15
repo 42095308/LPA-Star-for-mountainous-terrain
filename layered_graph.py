@@ -76,37 +76,31 @@ SAFETY_HEIGHT     = 30     # 碰撞检测安全高度（米）
 COLLISION_SAMPLES = 20     # 碰撞检测采样点数
 
 PEAKS = {
-    "南峰": {"row": 4609, "col": 1938, "elev": 2154.0},
-    "东峰": {"row": 4642, "col": 1985, "elev": 2096.0},
-    "西峰": {"row": 4600, "col": 1949, "elev": 2082.0},
-    "北峰": {"row": 4468, "col": 2004, "elev": 1615.0},
-    "中峰": {"row": 4594, "col": 1951, "elev": 2038.0},
+    "南峰": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0},
+    "东峰": {"lon": 110.0820, "lat": 34.4811, "elev": 2100.0},
+    "西峰": {"lon": 110.0768, "lat": 34.4816, "elev": 2038.0},
+    "北峰": {"lon": 110.0813, "lat": 34.4934, "elev": 1615.0},
+    "中峰": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0},
 }
-# DEPOTS 使用原始 TIF 坐标（与 PEAKS 一致，代码会统一减去 row_min/col_min）
-# row_min ≈ 4183, col_min ≈ 1565
-# 北部基地：裁剪区北侧平原，原始坐标 = row_min+200, col_min+400
-# 西部基地：裁剪区西侧山麓，原始坐标 = row_min+400, col_min+100
 DEPOTS = {
-    "北部基地": {"row": 4383, "col": 1965},
-    "西部基地": {"row": 4583, "col": 1665},
+    "北部基地": {"row_frac": 0.25, "col_frac": 0.50},
+    "西部基地": {"row_frac": 0.50, "col_frac": 0.125},
 }
 
 # ===== 读取数据 =====
 assert os.path.exists("Z_crop.npy"),    "缺少 Z_crop.npy，请先运行 huashan_dem.py"
 assert os.path.exists("layer_mid.npy"), "缺少 layer_mid.npy，请先运行 safe_corridor.py"
+assert os.path.exists("Z_crop_geo.npz"), "缺少 Z_crop_geo.npz，请先运行 init_graph.py"
 
 Z          = np.load("Z_crop.npy")
 layer_mid  = np.load("layer_mid.npy")
+geo        = np.load("Z_crop_geo.npz")
+lon_grid   = np.asarray(geo["lon_grid"], dtype=float)
+lat_grid   = np.asarray(geo["lat_grid"], dtype=float)
 rows, cols = Z.shape
 print(f"[读取] DEM shape={Z.shape}，高程范围: {Z.min():.0f}~{Z.max():.0f}m")
 
 # ===== 工具函数 =====
-center_row = int(np.mean([p["row"] for p in PEAKS.values()]))
-center_col = int(np.mean([p["col"] for p in PEAKS.values()]))
-half       = int(10000 / 2 / RESOLUTION)
-row_min    = center_row - half
-col_min    = center_col - half
-
 def pixel_to_km(r, c):
     """裁剪后像素坐标 → km坐标"""
     x_km = c * RESOLUTION / 1000
@@ -124,6 +118,12 @@ def km_to_rc(x_km, y_km):
     c = int(np.clip(x_km * 1000 / RESOLUTION, 0, cols - 1))
     r = int(np.clip((rows - 1) - y_km * 1000 / RESOLUTION, 0, rows - 1))
     return r, c
+
+def nearest_rc_by_lonlat(lon, lat):
+    d2 = (lon_grid - lon) ** 2 + (lat_grid - lat) ** 2
+    idx = int(np.argmin(d2))
+    r, c = np.unravel_index(idx, lon_grid.shape)
+    return int(r), int(c)
 
 # ===== 补丁1：碰撞检测函数 =====
 def collision_free(n1, n2, n_samples=COLLISION_SAMPLES):
@@ -175,12 +175,21 @@ print("\n[Step3] 构建节点表...")
 nodes = []
 
 # --- 补丁2：Terminal Pillars 末端锚点（贯穿三层）---
-all_terminals   = {**PEAKS, **DEPOTS}
+terminal_specs = {}
+for name, p in PEAKS.items():
+    r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
+    terminal_specs[name] = {"row": r, "col": c}
+for name, p in DEPOTS.items():
+    r = int(np.clip(round(rows * float(p["row_frac"])), 0, rows - 1))
+    c = int(np.clip(round(cols * float(p["col_frac"])), 0, cols - 1))
+    terminal_specs[name] = {"row": r, "col": c}
+
+all_terminals   = terminal_specs
 terminal_pillars = {}   # name -> [layer0_idx, layer1_idx, layer2_idx]
 
 for name, p in all_terminals.items():
-    r_crop = int(np.clip(p["row"] - row_min, 0, rows - 1))
-    c_crop = int(np.clip(p["col"] - col_min, 0, cols - 1))
+    r_crop = int(np.clip(p["row"], 0, rows - 1))
+    c_crop = int(np.clip(p["col"], 0, cols - 1))
     x_km, y_km = pixel_to_km(r_crop, c_crop)
     terrain     = get_elev_rc(r_crop, c_crop)
     pillar_idxs = []
