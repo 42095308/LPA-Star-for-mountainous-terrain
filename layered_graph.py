@@ -359,22 +359,36 @@ ax1.imshow(Z, cmap='terrain', alpha=0.4,
            extent=[0, cols*RESOLUTION/1000, 0, rows*RESOLUTION/1000],
            origin='upper', aspect='equal')
 
+rng = np.random.default_rng(42)  # 固定随机种子，结果可复现
 for e in edges:
     i, j, etype = int(e[0]), int(e[1]), int(e[2])
-    if   etype == 0: color, lw, alpha = LAYER_COLORS[int(nodes[i,3])], 1.0, 0.6
-    elif etype == 1: color, lw, alpha = "#9C27B0", 1.8, 0.9
-    else:            color, lw, alpha = "#FF9800", 0.8, 0.5
+    if etype == 0:
+        if rng.random() > 0.10:   # 90%的水平边跳过不画
+            continue
+        color, lw, alpha = LAYER_COLORS[int(nodes[i,3])], 0.8, 0.5
+    elif etype == 1:
+        color, lw, alpha = "#9C27B0", 2.0, 0.95  # 垂直电梯边全部显示
+    else:
+        color, lw, alpha = "#FF9800", 1.0, 0.6   # 斜向爬升边全部显示
     ax1.plot([nodes[i,0], nodes[j,0]],
              [nodes[i,1], nodes[j,1]],
              color=color, lw=lw, alpha=alpha, zorder=2)
 
 for lid, (color, marker, size) in enumerate(
-        zip(LAYER_COLORS, LAYER_MARKERS, LAYER_SIZES)):
-    mask  = nodes[:,3] == lid
+        zip(LAYER_COLORS, LAYER_MARKERS, [60, 8, 8])):
+    mask  = np.where(nodes[:,3] == lid)[0]
     label = ["Terminal Layer", "Regional Layer", "Backbone Layer"][lid]
-    ax1.scatter(nodes[mask,0], nodes[mask,1],
+    if len(mask) == 0:
+        continue
+    if lid == 0:
+        # 末端层=锚点，全部显示，放大
+        show = mask
+    else:
+        # 支路/骨干网格节点，随机取20%
+        show = rng.choice(mask, size=max(1, len(mask)//5), replace=False)
+    ax1.scatter(nodes[show,0], nodes[show,1],
                 c=color, marker=marker, s=size, label=label,
-                zorder=3, edgecolors='white', linewidths=0.5)
+                alpha=0.5, zorder=3, edgecolors='none')
 
 display_name = {
     "南峰": "South Peak",

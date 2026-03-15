@@ -635,9 +635,9 @@ for lid, (color, marker) in enumerate(zip(["#2196F3","#4CAF50","#FF5722"], ["o",
 if path1:
     px_raw = [nodes[n,0] for n in path1_raw]
     py_raw = [nodes[n,1] for n in path1_raw]
-    # 原始折线（亮青色点线）
-    axA.plot(px_raw, py_raw, color='#00E5FF', lw=2.1, zorder=1.8,
-             linestyle=':', alpha=0.9, label='raw polyline')
+    # 原始折线（橙色加粗实线）
+    axA.plot(px_raw, py_raw, color='#FF6D00', lw=2.5, zorder=4,
+             linestyle='-', alpha=0.85, label='raw polyline')
     # B 样条平滑曲线（红色虚线）
     axA.plot(curve1[:,0], curve1[:,1], color='red', lw=2.0, zorder=5,
              linestyle='--', dashes=(6,3), label='B-spline path')
@@ -813,15 +813,11 @@ def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
 
 def draw_update_ripple(ax, expanded_order, cmap='magma'):
     """
-    将LPA*增量搜索展开节点渲染成“更新波纹面”：
-    凸包区域 + 外层半透明大圆 + 内层按展开顺序着色、带描边的实点。
+    仅渲染LPA*局部更新凸包面，不绘制密集散点。
     """
     if len(expanded_order) == 0:
         return
     idx = np.asarray(expanded_order, dtype=int)
-    x = nodes[idx, 0]
-    y = nodes[idx, 1]
-    order = np.arange(len(idx))
 
     # 凸包：直接给出局部更新影响区边界
     uniq_idx = np.asarray(list(dict.fromkeys(idx.tolist())), dtype=int)
@@ -832,28 +828,20 @@ def draw_update_ripple(ax, expanded_order, cmap='magma'):
             poly = pts[hull.vertices]
             patch = Polygon(poly, closed=True, fill=True,
                             facecolor='#D9B6FF', edgecolor='#6A1B9A',
-                            linewidth=1.4, alpha=0.18, zorder=4.05,
-                            label='LPA Local Update Area')
+                            linewidth=2.0, alpha=0.35, zorder=4.05,
+                            label='LPA* Local Update Area')
             ax.add_patch(patch)
         except QhullError:
             pass
 
-    # 波纹底面（halo）
-    ax.scatter(x, y, c=order, cmap=cmap, s=165, alpha=0.14,
-               zorder=4.2, edgecolors='none')
-    # 核心节点（顺序着色 + 描边增强对比度）
-    ax.scatter(x, y, c=order, cmap=cmap, s=30, alpha=0.93,
-               zorder=5.8, edgecolors='black', linewidths=0.45,
-               label='LPA* updated states')
-
     # 起/止展开节点标记，帮助审稿人读取传播方向
     s0, s1 = int(idx[0]), int(idx[-1])
-    ax.scatter([nodes[s0,0]], [nodes[s0,1]], c='#00BCD4', s=46, marker='o',
-               zorder=6.4, edgecolors='black', linewidths=0.4, alpha=0.95,
-               label='_nolegend_')
-    ax.scatter([nodes[s1,0]], [nodes[s1,1]], c='#FF9800', s=56, marker='*',
-               zorder=6.5, edgecolors='black', linewidths=0.4, alpha=0.95,
-               label='_nolegend_')
+    ax.scatter([nodes[s0,0]], [nodes[s0,1]], c='#00BCD4', s=60, marker='o',
+               zorder=6.4, edgecolors='black', linewidths=0.6, alpha=0.95,
+               label='Update start')
+    ax.scatter([nodes[s1,0]], [nodes[s1,1]], c='#FF9800', s=70, marker='*',
+               zorder=6.5, edgecolors='black', linewidths=0.6, alpha=0.95,
+               label='Update end')
 
 def apply_compact_legend(ax, ordered_labels, loc='upper left'):
     """压缩图例项数量，适配IEEE单栏缩放显示。"""
@@ -915,8 +903,9 @@ draw_blocked_topology(ax2, blocked_edges)
 apply_compact_legend(
     ax2,
     [
-        'LPA Local Update Area',
-        'LPA* updated states',
+        'LPA* Local Update Area',
+        'Update start',
+        'Update end',
         'Blocked segment on original path',
         'Original path (raw polyline)',
         'Original path (smoothed)',
@@ -956,8 +945,9 @@ if path3:
 apply_compact_legend(
     ax3,
     [
-        'LPA Local Update Area',
-        'LPA* updated states',
+        'LPA* Local Update Area',
+        'Update start',
+        'Update end',
         'Blocked segment on original path',
         'Replanned path (B-spline)',
         'Original smoothed path (blocked)',
