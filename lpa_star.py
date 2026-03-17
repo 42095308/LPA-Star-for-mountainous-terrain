@@ -38,6 +38,8 @@ import numpy as np
 import heapq
 import time
 import os
+import csv
+import argparse
 import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.font_manager import FontProperties
@@ -59,11 +61,16 @@ UAV_POWER  = 500.0
 RESOLUTION = 12.5
 SAFETY_HEIGHT     = 30
 COLLISION_SAMPLES = 20
+TIMING_REPEATS    = 10
+FIG_DPI           = 300
 
 # Risk fusion weights.
 RISK_W_TERRAIN = 0.50
-RISK_W_TRAIL   = 0.30
-RISK_W_HOTSPOT = 0.20
+# Split human-risk weights for L1~L4 (sum=0.50, keep terrain:human=0.5:0.5).
+RISK_W_L1      = 0.20
+RISK_W_L2      = 0.10
+RISK_W_L3      = 0.15
+RISK_W_L4      = 0.05
 RISK_W_HUMAN_COMBINED = 0.50
 
 START_NAME = "北部基地"
@@ -82,6 +89,43 @@ DISPLAY_NAMES = {
 # 触发事件：随机封锁路径上的 N_BLOCK 条边
 N_BLOCK    = 2
 
+
+def parse_seed_list(raw):
+    out = []
+    for token in str(raw).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        out.append(int(token))
+    return list(dict.fromkeys(out))
+
+
+parser = argparse.ArgumentParser(description="LPA* main experiment runner")
+parser.add_argument("--n-block", type=int, default=N_BLOCK, help="Number of blocked edges in stage-2 event.")
+parser.add_argument(
+    "--event-seed",
+    type=int,
+    default=-1,
+    help="Random seed for stage-2 blocked-edge sampling (-1 means auto by current time).",
+)
+parser.add_argument(
+    "--seed-sweep",
+    type=str,
+    default="20260317,20260318,20260319,20260320,20260321,20260322,20260323,20260324,20260325,20260326",
+    help="Comma-separated seed list for multi-seed main-experiment statistics.",
+)
+parser.add_argument(
+    "--disable-seed-sweep",
+    action="store_true",
+    help="Disable multi-seed event statistics in the main experiment.",
+)
+args = parser.parse_args()
+
+N_BLOCK = max(1, int(args.n_block))
+MAIN_EVENT_SEED = int(args.event_seed) if int(args.event_seed) >= 0 else int(time.time_ns() % (2**32 - 1))
+SEED_SWEEP_LIST = [] if args.disable_seed_sweep else parse_seed_list(args.seed_sweep)
+print(f"[事件采样] n_block={N_BLOCK}, main_seed={MAIN_EVENT_SEED}, seed_sweep_n={len(SEED_SWEEP_LIST)}")
+
 # ===== 读取数据 =====
 assert os.path.exists("graph_nodes.npy"), "缺少 graph_nodes.npy"
 assert os.path.exists("graph_edges.npy"), "缺少 graph_edges.npy"
@@ -95,11 +139,31 @@ N = len(nodes)
 print(f"[读取] |V|={N}，|E|={len(edges)}")
 
 # ===== Optional OSM human risk rasters =====
+risk_l1 = np.zeros((rows, cols), dtype=float)
+risk_l2 = np.zeros((rows, cols), dtype=float)
+risk_l3 = np.zeros((rows, cols), dtype=float)
+risk_l4 = np.zeros((rows, cols), dtype=float)
 risk_trail = np.zeros((rows, cols), dtype=float)
 risk_hotspot = np.zeros((rows, cols), dtype=float)
 risk_human = np.zeros((rows, cols), dtype=float)
 risk_mode = "terrain_only"
 
+if os.path.exists("risk_l1.npy"):
+    arr = np.load("risk_l1.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_l1 = np.clip(arr, 0.0, 1.0)
+if os.path.exists("risk_l2.npy"):
+    arr = np.load("risk_l2.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_l2 = np.clip(arr, 0.0, 1.0)
+if os.path.exists("risk_l3.npy"):
+    arr = np.load("risk_l3.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_l3 = np.clip(arr, 0.0, 1.0)
+if os.path.exists("risk_l4.npy"):
+    arr = np.load("risk_l4.npy").astype(float)
+    if arr.shape == (rows, cols):
+        risk_l4 = np.clip(arr, 0.0, 1.0)
 if os.path.exists("risk_trail.npy"):
     arr = np.load("risk_trail.npy").astype(float)
     if arr.shape == (rows, cols):
@@ -113,12 +177,28 @@ if os.path.exists("risk_human.npy"):
     if arr.shape == (rows, cols):
         risk_human = np.clip(arr, 0.0, 1.0)
 
-has_split = (np.max(risk_trail) > 0.0) or (np.max(risk_hotspot) > 0.0)
+has_level_split = (
+    (np.max(risk_l1) > 0.0)
+    or (np.max(risk_l2) > 0.0)
+    or (np.max(risk_l3) > 0.0)
+    or (np.max(risk_l4) > 0.0)
+)
+has_legacy_split = (np.max(risk_trail) > 0.0) or (np.max(risk_hotspot) > 0.0)
+has_split = has_level_split or has_legacy_split
 has_combined = np.max(risk_human) > 0.0
-if has_combined:
-    risk_mode = "terrain_human_combined"
-elif has_split:
+# NOTE: split mode must be prioritized, otherwise combined risk would mask L1~L4.
+if has_split:
     risk_mode = "terrain_trail_hotspot"
+elif has_combined:
+    risk_mode = "terrain_human_combined"
+
+# Compatibility fallback: old split files without L1~L4.
+if (not has_level_split) and has_legacy_split:
+    risk_l1 = risk_trail.copy()
+    risk_l2 = np.zeros_like(risk_l1)
+    risk_l3 = risk_hotspot.copy()
+    risk_l4 = np.zeros_like(risk_l1)
+    print("[风险场] 使用 legacy split 回退: risk_trail->L1, risk_hotspot->L3")
 
 print(f"[风险场] mode={risk_mode}")
 
@@ -160,8 +240,10 @@ def compute_raw_edge_costs():
             if risk_mode == "terrain_trail_hotspot":
                 r_total = (
                     RISK_W_TERRAIN * r_terrain
-                    + RISK_W_TRAIL * float(risk_trail[r, c])
-                    + RISK_W_HOTSPOT * float(risk_hotspot[r, c])
+                    + RISK_W_L1 * float(risk_l1[r, c])
+                    + RISK_W_L2 * float(risk_l2[r, c])
+                    + RISK_W_L3 * float(risk_l3[r, c])
+                    + RISK_W_L4 * float(risk_l4[r, c])
                 )
             elif risk_mode == "terrain_human_combined":
                 r_total = (
@@ -180,10 +262,10 @@ def compute_raw_edge_costs():
     R_max = raw[:,2].max() + 1e-9
     norm  = raw / np.array([t_max, E_max, R_max])
     weights = ALPHA*norm[:,0] + BETA*norm[:,1] + GAMMA*norm[:,2]
-    return weights, t_max, E_max
+    return weights, t_max, E_max, R_max
 
 print("[预计算] 边代价...")
-edge_weights_base, EDGE_T_MAX, EDGE_E_MAX = compute_raw_edge_costs()
+edge_weights_base, EDGE_T_MAX, EDGE_E_MAX, EDGE_R_MAX = compute_raw_edge_costs()
 print("[heuristic] key1=min(g,rhs)+h; h=LB(time)+LB(energy), risk LB=0")
 
 # 构建邻接表：adj[u] = [(v, edge_key), ...]
@@ -200,6 +282,95 @@ for k, e in enumerate(edges):
 
 def get_cost(u, v):
     return edge_cost.get((min(u,v), max(u,v)), np.inf)
+
+
+def reset_edge_costs_to_base():
+    """恢复所有边到基础代价，便于做可重复计时实验。"""
+    for k, e in enumerate(edges):
+        i, j = int(e[0]), int(e[1])
+        edge_cost[(min(i, j), max(i, j))] = float(edge_weights_base[k])
+
+
+def fused_point_risk(x_km, y_km, z_m):
+    r, c = km_to_rc(x_km, y_km)
+    terrain = float(Z[r, c])
+    r_terrain = max(0.0, 1.0 - (z_m - terrain) / 200.0)
+    if risk_mode == "terrain_trail_hotspot":
+        r_total = (
+            RISK_W_TERRAIN * r_terrain
+            + RISK_W_L1 * float(risk_l1[r, c])
+            + RISK_W_L2 * float(risk_l2[r, c])
+            + RISK_W_L3 * float(risk_l3[r, c])
+            + RISK_W_L4 * float(risk_l4[r, c])
+        )
+    elif risk_mode == "terrain_human_combined":
+        r_total = (
+            (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain
+            + RISK_W_HUMAN_COMBINED * float(risk_human[r, c])
+        )
+    else:
+        r_total = r_terrain
+    return float(np.clip(r_total, 0.0, 1.0))
+
+
+def build_cost_profile(curve_xyz):
+    """
+    沿平滑航迹统计三目标分量（归一化后）与高度曲线，用于论文展示多目标权衡。
+    """
+    if curve_xyz is None or len(curve_xyz) < 2:
+        return None
+
+    seg_len = []
+    c_time = []
+    c_energy = []
+    c_risk = []
+    alt = []
+    terrain_line = []
+
+    for i in range(len(curve_xyz)):
+        x, y, z = float(curve_xyz[i, 0]), float(curve_xyz[i, 1]), float(curve_xyz[i, 2])
+        r, c = km_to_rc(x, y)
+        alt.append(z)
+        terrain_line.append(float(Z[r, c]))
+
+    for i in range(len(curve_xyz) - 1):
+        p1 = curve_xyz[i]
+        p2 = curve_xyz[i + 1]
+        dx = (float(p2[0]) - float(p1[0])) * 1000.0
+        dy = (float(p2[1]) - float(p1[1])) * 1000.0
+        dz = float(p2[2]) - float(p1[2])
+        d3d = float(np.sqrt(dx * dx + dy * dy + dz * dz))
+        t_raw = d3d / UAV_SPEED
+        e_raw = (UAV_POWER * t_raw + max(0.0, dz) * 9.8 * 5.0) / 1000.0
+
+        risk_seg = 0.0
+        for s in np.linspace(0.0, 1.0, 5):
+            x = float(p1[0] + s * (p2[0] - p1[0]))
+            y = float(p1[1] + s * (p2[1] - p1[1]))
+            z = float(p1[2] + s * (p2[2] - p1[2]))
+            risk_seg += fused_point_risk(x, y, z)
+        risk_seg /= 5.0
+
+        seg_len.append(d3d)
+        c_time.append(ALPHA * (t_raw / max(EDGE_T_MAX, 1e-9)))
+        c_energy.append(BETA * (e_raw / max(EDGE_E_MAX, 1e-9)))
+        c_risk.append(GAMMA * (risk_seg / max(EDGE_R_MAX, 1e-9)))
+
+    seg_len = np.asarray(seg_len, dtype=float)
+    cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+    total = max(float(cum[-1]), 1e-9)
+    progress = (cum / total) * 100.0
+    mid_progress = 0.5 * (progress[:-1] + progress[1:])
+
+    return {
+        "progress_mid": mid_progress,
+        "cost_time": np.asarray(c_time, dtype=float),
+        "cost_energy": np.asarray(c_energy, dtype=float),
+        "cost_risk": np.asarray(c_risk, dtype=float),
+        "progress_point": progress,
+        "altitude": np.asarray(alt, dtype=float),
+        "terrain": np.asarray(terrain_line, dtype=float),
+    }
 
 # ===== 找起终点 =====
 PEAKS_ORDER  = ["南峰","东峰","西峰","北峰","中峰"]
@@ -498,10 +669,169 @@ def smooth_path(raw_path):
     curve = bspline_smooth(step1)
     return step1, curve   # 返回剪枝后节点列表 + 样条曲线坐标
 
+
+def choose_blocked_edges_from_path(raw_path, n_block, rng):
+    """按随机种子从路径中采样待封锁边，避免固定封锁同一条边。"""
+    blocked = []
+    if len(raw_path) >= 3:
+        n = len(raw_path)
+        lo = max(1, n // 3)
+        hi = max(lo + 1, 2 * n // 3)
+        interior = list(range(lo, hi))
+        if not interior:
+            interior = [max(1, n // 2)]
+        pick = rng.choice(interior, size=min(int(n_block), len(interior)), replace=False)
+        pick = np.atleast_1d(pick).astype(int)
+        for bi in pick:
+            u = int(raw_path[int(bi)])
+            v = int(raw_path[int(bi) + 1])
+            blocked.append((u, v))
+        return blocked
+
+    if len(edges) > 0:
+        k = int(rng.integers(0, len(edges)))
+        u, v = int(edges[k, 0]), int(edges[k, 1])
+        blocked.append((u, v))
+    return blocked
+
+
+def repeated_timing_eval(start, goal, blocked_edges, repeats=TIMING_REPEATS):
+    """固定同一事件场景重复计时，输出 mean/std，降低单次 wall-clock 偶然误差。"""
+    phase1_ms = []
+    phase3_ms = []
+    ok_count = 0
+
+    for _ in range(int(repeats)):
+        reset_edge_costs_to_base()
+        p = LPAStar(start, goal)
+
+        t0 = time.perf_counter()
+        ok1 = p.compute_shortest_path()
+        t1 = time.perf_counter()
+        if not ok1:
+            continue
+
+        for u, v in blocked_edges:
+            p.update_edge_cost(int(u), int(v), np.inf)
+
+        t2 = time.perf_counter()
+        ok3 = p.compute_shortest_path()
+        t3 = time.perf_counter()
+        if not ok3:
+            continue
+
+        ok_count += 1
+        phase1_ms.append((t1 - t0) * 1000.0)
+        phase3_ms.append((t3 - t2) * 1000.0)
+
+    if ok_count == 0:
+        return None
+
+    a1 = np.asarray(phase1_ms, dtype=float)
+    a3 = np.asarray(phase3_ms, dtype=float)
+    return {
+        "n_ok": int(ok_count),
+        "phase1_mean_ms": float(np.mean(a1)),
+        "phase1_std_ms": float(np.std(a1, ddof=1) if a1.size > 1 else 0.0),
+        "phase3_mean_ms": float(np.mean(a3)),
+        "phase3_std_ms": float(np.std(a3, ddof=1) if a3.size > 1 else 0.0),
+        "ratio_mean": float(np.mean(a1) / max(np.mean(a3), 1e-9)),
+    }
+
+
+def seed_sweep_eval(start, goal, n_block, seed_list):
+    """
+    主实验多种子统计（与 benchmark 的统计口径保持一致）：不同随机种子对应不同封锁边组合。
+    """
+    records = []
+    for seed in seed_list:
+        base_row = {
+            "seed": int(seed),
+            "n_block": int(n_block),
+            "blocked_edges": "",
+            "success": False,
+            "phase1_ms": np.nan,
+            "phase3_ms": np.nan,
+            "ratio_phase1_over_phase3": np.nan,
+            "phase3_expanded": -1,
+            "phase3_path_len_km": np.nan,
+            "phase3_path_cost": np.nan,
+            "note": "",
+        }
+        reset_edge_costs_to_base()
+        p = LPAStar(start, goal)
+
+        t0 = time.perf_counter()
+        ok1 = p.compute_shortest_path()
+        t1 = time.perf_counter()
+        if not ok1:
+            row = dict(base_row)
+            row["note"] = "phase1_fail"
+            records.append(row)
+            continue
+
+        p1 = p.extract_path()
+        rng = np.random.default_rng(int(seed))
+        blocked = choose_blocked_edges_from_path(p1, n_block=n_block, rng=rng)
+        if not blocked:
+            row = dict(base_row)
+            row["note"] = "no_blocked_edges"
+            records.append(row)
+            continue
+
+        for u, v in blocked:
+            p.update_edge_cost(int(u), int(v), np.inf)
+
+        t2 = time.perf_counter()
+        ok3 = p.compute_shortest_path()
+        t3 = time.perf_counter()
+
+        p3 = p.extract_path() if ok3 else []
+        p3_len = p.path_length_km(p3) if ok3 else np.nan
+        row = dict(base_row)
+        row.update(
+            {
+                "blocked_edges": str(blocked),
+                "success": bool(ok3),
+                "phase1_ms": float((t1 - t0) * 1000.0),
+                "phase3_ms": float((t3 - t2) * 1000.0) if ok3 else np.nan,
+                "ratio_phase1_over_phase3": float(((t1 - t0) / max((t3 - t2), 1e-9))) if ok3 else np.nan,
+                "phase3_expanded": int(p.nodes_expanded) if ok3 else -1,
+                "phase3_path_len_km": float(p3_len) if ok3 else np.nan,
+                "phase3_path_cost": float(p.g[goal]) if ok3 else np.nan,
+                "note": "" if ok3 else "phase3_fail",
+            }
+        )
+        records.append(row)
+    return records
+
+
+def summarize_seed_sweep(records):
+    ok = [r for r in records if bool(r.get("success", False))]
+    if not ok:
+        return None
+    ms = np.asarray([float(r["phase3_ms"]) for r in ok], dtype=float)
+    ex = np.asarray([float(r["phase3_expanded"]) for r in ok], dtype=float)
+    rt = np.asarray([float(r["ratio_phase1_over_phase3"]) for r in ok], dtype=float)
+    return {
+        "n_total": int(len(records)),
+        "n_ok": int(len(ok)),
+        "success_rate": float(len(ok) / max(1, len(records))),
+        "phase3_ms_mean": float(np.mean(ms)),
+        "phase3_ms_std": float(np.std(ms, ddof=1) if ms.size > 1 else 0.0),
+        "phase3_ms_p50": float(np.percentile(ms, 50)),
+        "phase3_ms_p95": float(np.percentile(ms, 95)),
+        "expanded_mean": float(np.mean(ex)),
+        "expanded_std": float(np.std(ex, ddof=1) if ex.size > 1 else 0.0),
+        "ratio_mean": float(np.mean(rt)),
+        "ratio_std": float(np.std(rt, ddof=1) if rt.size > 1 else 0.0),
+    }
+
 # ===================================================================
 # ======================== 三阶段实验流程 ===========================
 # ===================================================================
 
+reset_edge_costs_to_base()
 planner = LPAStar(start_node, goal_node)
 
 # ------------------------------------------------------------------
@@ -520,13 +850,14 @@ phase1_expanded   = planner.nodes_expanded
 path1_raw         = planner.extract_path()
 path1, curve1     = smooth_path(path1_raw)   # path1=剪枝节点, curve1=B样条坐标
 path1_len         = planner.path_length_km(path1)
+phase1_cost       = float(planner.g[goal_node])
 
 print(f"  找到路径: {'OK' if found else 'FAIL'}")
 print(f"  遍历节点数:   {phase1_expanded}")
 print(f"  规划耗时:     {phase1_time_ms:.2f} ms")
 print(f"  路径节点数:   {len(path1_raw)} → LOS剪枝 {len(path1)} → B样条 {len(curve1)} 点")
 print(f"  路径长度:     {path1_len:.2f} km")
-print(f"  路径代价:     {planner.g[goal_node]:.4f}")
+print(f"  路径代价:     {phase1_cost:.4f}")
 
 # ------------------------------------------------------------------
 # 阶段2：触发突发事件——封锁路径上的边
@@ -534,38 +865,19 @@ print(f"  路径代价:     {planner.g[goal_node]:.4f}")
 print("\n" + "="*55)
 print("阶段2：触发突发事件（封锁路径上的边）")
 print("="*55)
+print(f"  随机种子: {MAIN_EVENT_SEED}")
 
 blocked_edges = []
-if len(path1_raw) >= 3:
-    # 只在路径前半段选封锁边（避免遮挡终点区域）
-    n = len(path1_raw)
-    lo = max(1,   n // 3)
-    hi = max(lo+1, 2*n // 3)
-    interior = list(range(lo, hi))
-    if not interior:
-        interior = [max(1, n//2)]
-    np.random.seed(42)
-    block_indices = np.random.choice(
-        interior,
-        size=min(N_BLOCK, len(interior)),
-        replace=False
-    )
-    for bi in block_indices:
-        u = path1_raw[bi]
-        v = path1_raw[bi + 1]
-        blocked_edges.append((u, v))
+rng_main = np.random.default_rng(MAIN_EVENT_SEED)
+blocked_edges = choose_blocked_edges_from_path(path1_raw, n_block=N_BLOCK, rng=rng_main)
+if not blocked_edges:
+    print("  未采样到可封锁边，跳过阶段2动态事件。")
+else:
+    for u, v in blocked_edges:
         print(f"  封锁边: ({u}, {v})  "
               f"节点({nodes[u,0]:.2f},{nodes[u,1]:.2f}km) → "
               f"({nodes[v,0]:.2f},{nodes[v,1]:.2f}km)")
         planner.update_edge_cost(u, v, np.inf)   # 代价设为无穷大
-else:
-    print("  路径节点数不足，随机封锁图中一条边")
-    np.random.seed(42)
-    k = np.random.randint(len(edges))
-    u, v = int(edges[k,0]), int(edges[k,1])
-    blocked_edges.append((u, v))
-    planner.update_edge_cost(u, v, np.inf)
-    print(f"  封锁边: ({u}, {v})")
 
 # ------------------------------------------------------------------
 # 阶段3：增量重规划
@@ -584,13 +896,80 @@ phase3_expanded_nodes_order = planner.expanded_nodes_order.copy()
 path3_raw       = planner.extract_path()
 path3, curve3   = smooth_path(path3_raw)
 path3_len       = planner.path_length_km(path3)
+phase3_cost     = float(planner.g[goal_node])
 
 print(f"  找到路径: {'OK' if found2 else 'FAIL'}")
 print(f"  遍历节点数:   {phase3_expanded}  （初始规划: {phase1_expanded}）")
 print(f"  重规划耗时:   {phase3_time_ms:.2f} ms  （初始规划: {phase1_time_ms:.2f} ms）")
 print(f"  路径节点数:   {len(path3_raw)} → 平滑后 {len(path3)}")
 print(f"  路径长度:     {path3_len:.2f} km  （初始: {path1_len:.2f} km）")
-print(f"  路径代价:     {planner.g[goal_node]:.4f}")
+print(f"  路径代价:     {phase3_cost:.4f}")
+
+timing_repeat = repeated_timing_eval(start_node, goal_node, blocked_edges, repeats=TIMING_REPEATS)
+if timing_repeat is not None:
+    print("\n  [重复计时统计]")
+    print(
+        f"  初始规划: {timing_repeat['phase1_mean_ms']:.2f} ± {timing_repeat['phase1_std_ms']:.2f} ms "
+        f"(n={timing_repeat['n_ok']})"
+    )
+    print(
+        f"  增量重规划: {timing_repeat['phase3_mean_ms']:.2f} ± {timing_repeat['phase3_std_ms']:.2f} ms "
+        f"(n={timing_repeat['n_ok']})"
+    )
+    print(f"  平均加速比(phase1/phase3): {timing_repeat['ratio_mean']:.2f}x")
+    # 继续沿用单次 run 结果用于路径可视化
+    reset_edge_costs_to_base()
+
+seed_sweep_records = []
+seed_sweep_summary = None
+if len(SEED_SWEEP_LIST) > 0:
+    print("\n  [多种子主实验统计]")
+    seed_sweep_records = seed_sweep_eval(start_node, goal_node, N_BLOCK, SEED_SWEEP_LIST)
+    seed_sweep_summary = summarize_seed_sweep(seed_sweep_records)
+    if seed_sweep_summary is None:
+        print("  未获得有效样本（请检查可达性或增大 seed-sweep 样本数）。")
+    else:
+        print(
+            f"  成功率: {100.0*seed_sweep_summary['success_rate']:.1f}% "
+            f"({seed_sweep_summary['n_ok']}/{seed_sweep_summary['n_total']})"
+        )
+        print(
+            f"  重规划耗时: {seed_sweep_summary['phase3_ms_mean']:.2f} ± "
+            f"{seed_sweep_summary['phase3_ms_std']:.2f} ms"
+        )
+        print(
+            f"  p50/p95: {seed_sweep_summary['phase3_ms_p50']:.2f}/"
+            f"{seed_sweep_summary['phase3_ms_p95']:.2f} ms"
+        )
+        print(
+            f"  扩展节点: {seed_sweep_summary['expanded_mean']:.1f} ± "
+            f"{seed_sweep_summary['expanded_std']:.1f}"
+        )
+        print(
+            f"  加速比(phase1/phase3): {seed_sweep_summary['ratio_mean']:.2f} ± "
+            f"{seed_sweep_summary['ratio_std']:.2f}"
+        )
+    if len(seed_sweep_records) > 0:
+        seed_csv = "lpa_seed_sweep.csv"
+        fields = [
+            "seed",
+            "n_block",
+            "blocked_edges",
+            "success",
+            "phase1_ms",
+            "phase3_ms",
+            "ratio_phase1_over_phase3",
+            "phase3_expanded",
+            "phase3_path_len_km",
+            "phase3_path_cost",
+            "note",
+        ]
+        with open(seed_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+            for row in seed_sweep_records:
+                writer.writerow(row)
+        print(f"  已保存: {seed_csv}")
 
 # 论文 Table 汇总
 print("\n" + "="*55)
@@ -600,17 +979,29 @@ print(f"  {'指标':<20} {'初始规划':>12} {'增量重规划':>12} {'加速�
 print(f"  {'-'*56}")
 ratio_nodes = phase1_expanded / max(phase3_expanded, 1)
 ratio_time  = phase1_time_ms  / max(phase3_time_ms,  0.01)
+ratio_time_mean = timing_repeat["ratio_mean"] if timing_repeat is not None else np.nan
 print(f"  {'遍历节点数':<19} {phase1_expanded:>12} {phase3_expanded:>12} {ratio_nodes:>9.1f}×")
 print(f"  {'规划耗时 (ms)':<18} {phase1_time_ms:>12.2f} {phase3_time_ms:>12.2f} {ratio_time:>9.1f}×")
 print(f"  {'路径长度 (km)':<18} {path1_len:>12.2f} {path3_len:>12.2f} {'—':>10}")
+print(f"  {'路径代价':<19} {phase1_cost:>12.4f} {phase3_cost:>12.4f} {'—':>10}")
+if np.isfinite(ratio_time_mean):
+    print(f"  {'平均加速比(10次)':<18} {'—':>12} {'—':>12} {ratio_time_mean:>9.2f}×")
+if seed_sweep_summary is not None:
+    print(
+        f"  {'多种子重规划(ms)':<18} {'—':>12} "
+        f"{seed_sweep_summary['phase3_ms_mean']:>12.2f} {'±'+format(seed_sweep_summary['phase3_ms_std'], '.2f'):>10}"
+    )
 
 # ===================================================================
 # ============ 阶段1 详细路径图（俯视 + 3D地面投影）=================
 # ===================================================================
 print("\n[可视化] 生成阶段1路径详细图（path_vis.png）...")
 
-fig_pv, (axA, axB) = plt.subplots(1, 2, figsize=(20, 8),
-                                   gridspec_kw={'width_ratios': [1, 1.1]})
+fig_pv = plt.figure(figsize=(24, 8), dpi=220)
+gs_pv = fig_pv.add_gridspec(1, 3, width_ratios=[1.0, 1.12, 0.92], wspace=0.15)
+axA = fig_pv.add_subplot(gs_pv[0, 0])
+axB = fig_pv.add_subplot(gs_pv[0, 1], projection='3d')
+axC = fig_pv.add_subplot(gs_pv[0, 2])
 fig_pv.suptitle(
                 f'{DISPLAY_NAMES.get(START_NAME, START_NAME)} -> {DISPLAY_NAMES.get(GOAL_NAME, GOAL_NAME)}  '
                 f'Initial Path (LPA* Stage 1)\n'
@@ -668,8 +1059,7 @@ axA.set_title('Top-View Route', fontproperties=font, fontsize=10)
 axA.legend(prop=font, loc='upper right', fontsize=7)
 axA.grid(True, alpha=0.3, linestyle='--')
 
-# --- 右：3D地面投影图 ---
-axB = fig_pv.add_subplot(122, projection='3d')
+# --- 中：3D地面投影图 ---
 step3d = 8
 # 与 nodes 的 (x_km, y_km) 坐标系严格对齐：y 轴采用 (rows-1-r)*res
 r_idx = np.arange(0, rows, step3d, dtype=int)
@@ -711,16 +1101,120 @@ axB.scatter([nodes[start_node,0]], [nodes[start_node,1]], [nodes[start_node,2]],
             c='lime', s=150, marker='o', zorder=7)
 axB.scatter([nodes[goal_node,0]],  [nodes[goal_node,1]],  [nodes[goal_node,2]],
             c='yellow', s=150, marker='o', zorder=7)
-axB.view_init(elev=28, azim=225)
+axB.view_init(elev=35, azim=200)
 axB.set_xlabel('East-West (km)', fontproperties=font, labelpad=6)
 axB.set_ylabel('South-North (km)', fontproperties=font, labelpad=6)
 axB.set_zlabel('Elevation (m)',  fontproperties=font, labelpad=6)
 axB.set_title('3D Route with Terrain Projection', fontproperties=font, fontsize=10)
 
+# --- 右：高度剖面 ---
+if path1:
+    profile = build_cost_profile(curve1)
+    if profile is not None:
+        axC.plot(
+            profile["progress_point"],
+            profile["altitude"],
+            color="#C62828",
+            lw=2.0,
+            label="Flight altitude",
+        )
+        axC.plot(
+            profile["progress_point"],
+            profile["terrain"],
+            color="#455A64",
+            lw=1.6,
+            ls="--",
+            label="Terrain elevation",
+        )
+        axC.fill_between(
+            profile["progress_point"],
+            profile["terrain"],
+            profile["altitude"],
+            color="#90CAF9",
+            alpha=0.20,
+            label="Clearance envelope",
+        )
+axC.set_xlim(0.0, 100.0)
+axC.set_xlabel('Path progress (%)', fontproperties=font)
+axC.set_ylabel('Elevation (m)', fontproperties=font)
+axC.set_title('Altitude Profile Along Path', fontproperties=font, fontsize=10)
+axC.grid(True, alpha=0.3, linestyle='--')
+axC.legend(prop=font, fontsize=7, loc='best')
+
 fig_pv.tight_layout()
-fig_pv.savefig('path_vis.png', dpi=150, bbox_inches='tight')
+fig_pv.savefig('path_vis.png', dpi=FIG_DPI, bbox_inches='tight')
 print("[完成] path_vis.png 已保存")
 plt.close(fig_pv)
+
+print("\n[可视化] 生成代价分布图（path_cost_profile.png）...")
+curve_for_profile = curve3 if (curve3 is not None and len(curve3) >= 2) else curve1
+profile = build_cost_profile(curve_for_profile)
+if profile is not None:
+    fig_cp, ax_cp = plt.subplots(figsize=(10.6, 4.8), dpi=220)
+    ax_cp.plot(
+        profile["progress_mid"],
+        profile["cost_time"],
+        color="#1565C0",
+        lw=2.0,
+        label="Time cost",
+    )
+    ax_cp.plot(
+        profile["progress_mid"],
+        profile["cost_energy"],
+        color="#2E7D32",
+        lw=2.0,
+        label="Energy cost",
+    )
+    ax_cp.plot(
+        profile["progress_mid"],
+        profile["cost_risk"],
+        color="#D32F2F",
+        lw=2.0,
+        label="Risk cost",
+    )
+    ax_cp.plot(
+        profile["progress_mid"],
+        profile["cost_time"] + profile["cost_energy"] + profile["cost_risk"],
+        color="#6A1B9A",
+        lw=1.8,
+        ls="--",
+        label="Total segment cost",
+    )
+    ax_cp.set_xlim(0.0, 100.0)
+    ax_cp.set_xlabel("Path progress (%)", fontproperties=font)
+    ax_cp.set_ylabel("Normalized cost contribution", fontproperties=font)
+    ax_cp.grid(True, alpha=0.25, linestyle="--")
+
+    ax_alt = ax_cp.twinx()
+    ax_alt.plot(
+        profile["progress_point"],
+        profile["altitude"],
+        color="#455A64",
+        lw=1.8,
+        alpha=0.8,
+        label="Flight altitude",
+    )
+    ax_alt.plot(
+        profile["progress_point"],
+        profile["terrain"],
+        color="#8D6E63",
+        lw=1.2,
+        alpha=0.9,
+        ls=":",
+        label="Terrain elevation",
+    )
+    ax_alt.set_ylabel("Elevation (m)", fontproperties=font)
+    ax_cp.set_title("Along-Path Multi-Objective Cost Distribution", fontproperties=font, fontsize=11)
+
+    h1, l1 = ax_cp.get_legend_handles_labels()
+    h2, l2 = ax_alt.get_legend_handles_labels()
+    ax_cp.legend(h1 + h2, l1 + l2, prop=font, fontsize=7, loc="upper right")
+    fig_cp.tight_layout()
+    fig_cp.savefig("path_cost_profile.png", dpi=FIG_DPI, bbox_inches="tight")
+    plt.close(fig_cp)
+    print("[完成] path_cost_profile.png 已保存")
+else:
+    print("[跳过] path_cost_profile.png（可用路径点不足）")
 
 # ===================================================================
 # ======================== 可视化 ===================================
@@ -729,7 +1223,7 @@ print("\n[可视化] 生成三阶段对比图...")
 LAYER_COLORS  = ["#2196F3", "#4CAF50", "#FF5722"]
 LAYER_MARKERS = ["o", "s", "^"]
 
-fig = plt.figure(figsize=(16, 11), dpi=200)
+fig = plt.figure(figsize=(16, 11), dpi=220)
 gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.08], hspace=0.18, wspace=0.12)
 ax1 = fig.add_subplot(gs[0, 0])
 ax2 = fig.add_subplot(gs[0, 1])
@@ -742,18 +1236,9 @@ fig.suptitle(
 )
 
 def draw_base(ax, title):
-    ax.imshow(Z, cmap='terrain', alpha=0.45,
+    ax.imshow(Z, cmap='terrain', alpha=0.72,
               extent=[0, cols*RESOLUTION/1000, 0, rows*RESOLUTION/1000],
               origin='upper', aspect='equal')
-    for e in edges:
-        i, j = int(e[0]), int(e[1])
-        ax.plot([nodes[i,0],nodes[j,0]], [nodes[i,1],nodes[j,1]],
-                color='gray', lw=0.3, alpha=0.15, zorder=1)
-    for lid, (color, marker) in enumerate(zip(LAYER_COLORS, LAYER_MARKERS)):
-        mask = nodes[:,3] == lid
-        ax.scatter(nodes[mask,0], nodes[mask,1],
-                   c=color, marker=marker, s=18, alpha=0.35,
-                   zorder=2, edgecolors='none')
     # 起终点：小圆圈+文字标注，不遮挡路径
     ax.scatter(nodes[start_node,0], nodes[start_node,1],
                c='lime', s=80, marker='o', zorder=9,
@@ -866,7 +1351,7 @@ def apply_compact_legend(ax, ordered_labels, loc='upper left'):
 draw_base(
     ax1,
     f"Stage 1: Initial planning\nexpanded {phase1_expanded} nodes  "
-    f"{phase1_time_ms:.1f} ms  {path1_len:.2f} km",
+    f"{phase1_time_ms:.1f} ms  {path1_len:.2f} km  cost={phase1_cost:.4f}",
 )
 if path1:
     px = [nodes[n,0] for n in path1]
@@ -890,7 +1375,7 @@ draw_base(
     (
         f"Stage 2: Event trigger on discrete topology\n"
         f"blocked edges: {len(blocked_edges)}  |  "
-        f"next replanning expanded: {phase3_expanded} nodes"
+        f"next replanning expanded: {phase3_expanded} nodes  |  base cost={phase1_cost:.4f}"
     ),
 )
 if path1:
@@ -918,7 +1403,8 @@ draw_base(
     ax3,
     (
         f"Stage 3: Incremental replanning\n"
-        f"expanded {phase3_expanded} nodes  {phase3_time_ms:.1f} ms  {path3_len:.2f} km\n"
+        f"expanded {phase3_expanded} nodes  {phase3_time_ms:.1f} ms  {path3_len:.2f} km  cost={phase3_cost:.4f}\n"
+        f"length {path1_len:.2f}->{path3_len:.2f} km  cost {phase1_cost:.4f}->{phase3_cost:.4f}  |  "
         f"speedup: nodes {ratio_nodes:.1f}x    wall-clock {ratio_time:.1f}x"
     ),
 )
@@ -956,6 +1442,6 @@ apply_compact_legend(
 )
 
 fig.subplots_adjust(left=0.045, right=0.985, bottom=0.045, top=0.93, wspace=0.12, hspace=0.18)
-plt.savefig('lpa_result.png', dpi=220, bbox_inches='tight')
+plt.savefig('lpa_result.png', dpi=FIG_DPI, bbox_inches='tight')
 print("[完成] lpa_result.png 已保存")
-plt.show()
+plt.close(fig)

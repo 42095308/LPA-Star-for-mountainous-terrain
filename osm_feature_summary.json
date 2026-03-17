@@ -27,6 +27,11 @@
     "L4": {
       "risk": 0.2,
       "buffer_m": 30.0
+    },
+    "high_alt_background": {
+      "enabled": true,
+      "threshold_m": 1200.0,
+      "risk_value": 0.1
     }
   },
   "feature_counts_by_level": {
@@ -144,12 +149,23 @@
     }
   },
   "risk_stats": {
+    "l1_min": 0.0,
+    "l1_max": 1.0,
+    "l2_min": 0.0,
+    "l2_max": 0.8,
+    "l3_min": 0.0,
+    "l3_max": 0.5,
+    "l4_min": 0.0,
+    "l4_max": 0.2,
     "trail_min": 0.0,
     "trail_max": 1.0,
     "hotspot_min": 0.0,
     "hotspot_max": 0.5,
     "human_min": 0.0,
     "human_max": 1.0,
-    "human_mean": 0.019739511524408726
+    "human_mean": 0.07437496939050957,
+    "human_p95": 0.1,
+    "human_coverage_nonzero": 0.6422984375,
+    "human_coverage_ge_0p1": 0.60008125
   }
 }

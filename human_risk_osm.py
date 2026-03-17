@@ -8,6 +8,10 @@ Risk design (user-specified):
     L4 (0.2): scenic roads + foothill amenities, full risk within 30 m
 
 Outputs:
+    risk_l1.npy
+    risk_l2.npy
+    risk_l3.npy
+    risk_l4.npy
     risk_trail.npy
     risk_hotspot.npy
     risk_human.npy
@@ -27,6 +31,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import colors as mcolors
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.ndimage import distance_transform_edt
@@ -405,11 +410,18 @@ def main() -> None:
     parser.add_argument("--osm-file", type=str, default="map.osm")
     parser.add_argument("--z-file", type=str, default="Z_crop.npy")
     parser.add_argument("--geo-file", type=str, default="Z_crop_geo.npz")
+    parser.add_argument("--out-l1", type=str, default="risk_l1.npy")
+    parser.add_argument("--out-l2", type=str, default="risk_l2.npy")
+    parser.add_argument("--out-l3", type=str, default="risk_l3.npy")
+    parser.add_argument("--out-l4", type=str, default="risk_l4.npy")
     parser.add_argument("--out-trail", type=str, default="risk_trail.npy")
     parser.add_argument("--out-hotspot", type=str, default="risk_hotspot.npy")
     parser.add_argument("--out-human", type=str, default="risk_human.npy")
     parser.add_argument("--summary-json", type=str, default="osm_feature_summary.json")
     parser.add_argument("--out-preview", type=str, default="osm_human_risk_preview.png")
+    parser.add_argument("--high-alt-threshold-m", type=float, default=1200.0)
+    parser.add_argument("--high-alt-risk", type=float, default=0.10)
+    parser.add_argument("--disable-high-alt-background", action="store_true")
     args = parser.parse_args()
 
     root = Path(args.workdir).resolve()
@@ -511,6 +523,18 @@ def main() -> None:
     risk_l2 = risk_from_buffer(masks[2], risk_value=0.8, radius_m=30.0)
     risk_l3 = risk_from_gaussian(masks[3], risk_peak=0.5, sigma_m=120.0)
     risk_l4 = risk_from_buffer(masks[4], risk_value=0.2, radius_m=30.0)
+    risk_l1 = np.clip(risk_l1, 0.0, 1.0)
+    risk_l2 = np.clip(risk_l2, 0.0, 1.0)
+    risk_l3 = np.clip(risk_l3, 0.0, 1.0)
+    risk_l4 = np.clip(risk_l4, 0.0, 1.0)
+
+    # Optional background risk: high-elevation area may still have visitor exposure not covered by OSM.
+    if (not args.disable_high_alt_background) and float(args.high_alt_risk) > 0.0:
+        high_alt_mask = z >= float(args.high_alt_threshold_m)
+        if np.any(high_alt_mask):
+            bg = np.where(high_alt_mask, float(args.high_alt_risk), 0.0).astype(float)
+            risk_l4 = np.maximum(risk_l4, bg)
+            risk_l4 = np.clip(risk_l4, 0.0, 1.0)
 
     # Keep split outputs for compatibility with existing pipeline.
     risk_trail = np.maximum(risk_l1, risk_l2)
@@ -521,6 +545,10 @@ def main() -> None:
     risk_human = np.clip(risk_human, 0.0, 1.0)
 
     print("[5/5] saving risk rasters")
+    np.save(root / args.out_l1, risk_l1.astype(np.float32))
+    np.save(root / args.out_l2, risk_l2.astype(np.float32))
+    np.save(root / args.out_l3, risk_l3.astype(np.float32))
+    np.save(root / args.out_l4, risk_l4.astype(np.float32))
     np.save(root / args.out_trail, risk_trail.astype(np.float32))
     np.save(root / args.out_hotspot, risk_hotspot.astype(np.float32))
     np.save(root / args.out_human, risk_human.astype(np.float32))
@@ -570,11 +598,12 @@ def main() -> None:
 
     # Panel B: combined risk heatmap only (no label clutter).
     ax1.imshow(z, cmap="gray", extent=extent, origin="lower", aspect="auto", alpha=0.28)
+    risk_display = np.clip(risk_human, 0.0, 0.5)
+    display_norm = mcolors.PowerNorm(gamma=0.55, vmin=0.0, vmax=0.5)
     im = ax1.imshow(
-        risk_human,
+        risk_display,
         cmap="inferno",
-        vmin=0.0,
-        vmax=1.0,
+        norm=display_norm,
         extent=extent,
         origin="lower",
         aspect="auto",
@@ -582,9 +611,10 @@ def main() -> None:
     )
     configure_geo_axes(ax1, lon_min, lon_max, lat_min, lat_max)
     add_scalebar(ax1, lon_min, lon_max, lat_min, lat_max)
-    ax1.set_title("Panel B: Combined Human Exposure Risk", fontsize=11)
+    ax1.set_title("Panel B: Combined Human Exposure Risk (display range 0-0.5)", fontsize=11)
     cbar = fig.colorbar(im, ax=ax1, fraction=0.046, pad=0.02)
-    cbar.set_label("Risk score (0-1)")
+    cbar.set_ticks([0.0, 0.05, 0.10, 0.20, 0.35, 0.50])
+    cbar.set_label("Risk score (nonlinear display)")
 
     # Panel C: legend/label mapping table.
     ax2.axis("off")
@@ -651,10 +681,13 @@ def main() -> None:
 
     fig.suptitle("Huashan Four-Level Human Risk Modeling from OSM", fontsize=13, y=0.995)
     fig.subplots_adjust(left=0.04, right=0.985, bottom=0.06, top=0.93, wspace=0.18)
-    plt.savefig(root / args.out_preview, bbox_inches="tight")
+    plt.savefig(root / args.out_preview, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     label_check = check_expected_labels(all_names)
+    human_coverage_nonzero = float(np.mean(risk_human > 1e-6))
+    human_coverage_ge_01 = float(np.mean(risk_human >= 0.1))
+    human_p95 = float(np.percentile(risk_human, 95))
     summary = {
         "osm_file": str(osm_path),
         "bbox_wgs84": {
@@ -670,6 +703,11 @@ def main() -> None:
             "L2": {"risk": 0.8, "buffer_m": 30.0},
             "L3": {"risk": 0.5, "gaussian_sigma_m": 120.0},
             "L4": {"risk": 0.2, "buffer_m": 30.0},
+            "high_alt_background": {
+                "enabled": bool((not args.disable_high_alt_background) and float(args.high_alt_risk) > 0.0),
+                "threshold_m": float(args.high_alt_threshold_m),
+                "risk_value": float(args.high_alt_risk),
+            },
         },
         "feature_counts_by_level": {
             f"L{lv}": {
@@ -681,6 +719,14 @@ def main() -> None:
         },
         "requested_label_check": label_check,
         "risk_stats": {
+            "l1_min": float(np.min(risk_l1)),
+            "l1_max": float(np.max(risk_l1)),
+            "l2_min": float(np.min(risk_l2)),
+            "l2_max": float(np.max(risk_l2)),
+            "l3_min": float(np.min(risk_l3)),
+            "l3_max": float(np.max(risk_l3)),
+            "l4_min": float(np.min(risk_l4)),
+            "l4_max": float(np.max(risk_l4)),
             "trail_min": float(np.min(risk_trail)),
             "trail_max": float(np.max(risk_trail)),
             "hotspot_min": float(np.min(risk_hotspot)),
@@ -688,16 +734,29 @@ def main() -> None:
             "human_min": float(np.min(risk_human)),
             "human_max": float(np.max(risk_human)),
             "human_mean": float(np.mean(risk_human)),
+            "human_p95": human_p95,
+            "human_coverage_nonzero": human_coverage_nonzero,
+            "human_coverage_ge_0p1": human_coverage_ge_01,
         },
     }
     (root / args.summary_json).write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print("done:")
+    print(f"  {root / args.out_l1}")
+    print(f"  {root / args.out_l2}")
+    print(f"  {root / args.out_l3}")
+    print(f"  {root / args.out_l4}")
     print(f"  {root / args.out_trail}")
     print(f"  {root / args.out_hotspot}")
     print(f"  {root / args.out_human}")
     print(f"  {root / args.summary_json}")
     print(f"  {root / args.out_preview}")
+    print(
+        "  coverage: "
+        f"nonzero={100.0*human_coverage_nonzero:.1f}%, "
+        f">=0.1={100.0*human_coverage_ge_01:.1f}%, "
+        f"p95={human_p95:.3f}"
+    )
 
 
 if __name__ == "__main__":

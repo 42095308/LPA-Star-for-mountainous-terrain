@@ -51,8 +51,11 @@ EPS = 1e-9
 
 # OSM-human-risk fusion weights (same idea as lpa_star.py).
 RISK_W_TERRAIN = 0.50
-RISK_W_TRAIL = 0.30
-RISK_W_HOTSPOT = 0.20
+# Split human-risk weights for L1~L4 (sum=0.50).
+RISK_W_L1 = 0.20
+RISK_W_L2 = 0.10
+RISK_W_L3 = 0.15
+RISK_W_L4 = 0.05
 RISK_W_HUMAN_COMBINED = 0.50
 
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
@@ -77,10 +80,38 @@ def terrain_at_xy(x_km: float, y_km: float, z_grid: np.ndarray) -> float:
 
 def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray | str]:
     rows, cols = int(shape[0]), int(shape[1])
+    risk_l1 = np.zeros((rows, cols), dtype=float)
+    risk_l2 = np.zeros((rows, cols), dtype=float)
+    risk_l3 = np.zeros((rows, cols), dtype=float)
+    risk_l4 = np.zeros((rows, cols), dtype=float)
     risk_trail = np.zeros((rows, cols), dtype=float)
     risk_hotspot = np.zeros((rows, cols), dtype=float)
     risk_human = np.zeros((rows, cols), dtype=float)
     mode = "terrain_only"
+
+    p = root / "risk_l1.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_l1 = np.clip(arr, 0.0, 1.0)
+
+    p = root / "risk_l2.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_l2 = np.clip(arr, 0.0, 1.0)
+
+    p = root / "risk_l3.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_l3 = np.clip(arr, 0.0, 1.0)
+
+    p = root / "risk_l4.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (rows, cols):
+            risk_l4 = np.clip(arr, 0.0, 1.0)
 
     p = root / "risk_trail.npy"
     if p.exists():
@@ -100,15 +131,34 @@ def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray
         if arr.shape == (rows, cols):
             risk_human = np.clip(arr, 0.0, 1.0)
 
-    has_split = (float(np.max(risk_trail)) > 0.0) or (float(np.max(risk_hotspot)) > 0.0)
+    has_level_split = (
+        (float(np.max(risk_l1)) > 0.0)
+        or (float(np.max(risk_l2)) > 0.0)
+        or (float(np.max(risk_l3)) > 0.0)
+        or (float(np.max(risk_l4)) > 0.0)
+    )
+    has_legacy_split = (float(np.max(risk_trail)) > 0.0) or (float(np.max(risk_hotspot)) > 0.0)
+    has_split = has_level_split or has_legacy_split
     has_combined = float(np.max(risk_human)) > 0.0
-    if has_combined:
-        mode = "terrain_human_combined"
-    elif has_split:
+    # Keep split mode priority to avoid combined map masking L1~L4.
+    if has_split:
         mode = "terrain_trail_hotspot"
+    elif has_combined:
+        mode = "terrain_human_combined"
+
+    # Legacy fallback: map old split files to L1/L3.
+    if (not has_level_split) and has_legacy_split:
+        risk_l1 = risk_trail.copy()
+        risk_l2 = np.zeros_like(risk_l1)
+        risk_l3 = risk_hotspot.copy()
+        risk_l4 = np.zeros_like(risk_l1)
 
     return {
         "mode": mode,
+        "risk_l1": risk_l1,
+        "risk_l2": risk_l2,
+        "risk_l3": risk_l3,
+        "risk_l4": risk_l4,
         "risk_trail": risk_trail,
         "risk_hotspot": risk_hotspot,
         "risk_human": risk_human,
@@ -234,13 +284,17 @@ def compute_edge_costs(
     r_raw = np.zeros(m, dtype=float)
     rows, cols = z_grid.shape
     risk_mode = "terrain_only"
-    risk_trail = None
-    risk_hotspot = None
+    risk_l1 = None
+    risk_l2 = None
+    risk_l3 = None
+    risk_l4 = None
     risk_human = None
     if risk_fields:
         risk_mode = str(risk_fields.get("mode", "terrain_only"))
-        risk_trail = risk_fields.get("risk_trail")
-        risk_hotspot = risk_fields.get("risk_hotspot")
+        risk_l1 = risk_fields.get("risk_l1")
+        risk_l2 = risk_fields.get("risk_l2")
+        risk_l3 = risk_fields.get("risk_l3")
+        risk_l4 = risk_fields.get("risk_l4")
         risk_human = risk_fields.get("risk_human")
 
     for k in range(m):
@@ -261,11 +315,19 @@ def compute_edge_costs(
             r, c = km_to_rc(float(x), float(y), rows, cols)
             terrain = float(z_grid[r, c])
             r_terrain = max(0.0, 1.0 - (z - terrain) / 200.0)
-            if risk_mode == "terrain_trail_hotspot" and risk_trail is not None and risk_hotspot is not None:
+            if (
+                risk_mode == "terrain_trail_hotspot"
+                and risk_l1 is not None
+                and risk_l2 is not None
+                and risk_l3 is not None
+                and risk_l4 is not None
+            ):
                 r_total = (
                     RISK_W_TERRAIN * r_terrain
-                    + RISK_W_TRAIL * float(risk_trail[r, c])
-                    + RISK_W_HOTSPOT * float(risk_hotspot[r, c])
+                    + RISK_W_L1 * float(risk_l1[r, c])
+                    + RISK_W_L2 * float(risk_l2[r, c])
+                    + RISK_W_L3 * float(risk_l3[r, c])
+                    + RISK_W_L4 * float(risk_l4[r, c])
                 )
             elif risk_mode == "terrain_human_combined" and risk_human is not None:
                 r_total = (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain + RISK_W_HUMAN_COMBINED * float(
@@ -944,6 +1006,48 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
     return "\n".join(lines) + "\n"
 
 
+def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
+    label_map = {
+        "B1_Voxel_Dijkstra": "B1 Voxel",
+        "B2_GlobalAstar_Layered": "B2 GlobalA*",
+        "B3_LPA_SingleLayer": "B3 FlatLPA*",
+        "B4_Proposed_LPA_Layered": "B4 Proposed",
+    }
+    ordered = [
+        "B1_Voxel_Dijkstra",
+        "B2_GlobalAstar_Layered",
+        "B3_LPA_SingleLayer",
+        "B4_Proposed_LPA_Layered",
+    ]
+    row_by_baseline = {r["baseline"]: r for r in summary_rows}
+
+    lines: List[str] = []
+    lines.append("# Four-Baseline Comparison Table")
+    lines.append("")
+    lines.append(
+        f"- Trials: `{args.trials}`, seed: `{args.seed}`, blocked edges: `{args.n_block}`"
+    )
+    lines.append("")
+    lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Success Rate |")
+    lines.append("|---|---:|---:|---:|---:|")
+    for key in ordered:
+        r = row_by_baseline.get(key)
+        if r is None:
+            lines.append(f"| {label_map[key]} | nan | nan | nan | 0.0% |")
+            continue
+        t = float(r.get("mean_replan_ms", float("nan")))
+        l = float(r.get("mean_length_km", float("nan")))
+        c = float(r.get("mean_cost", float("nan")))
+        succ = 100.0 * float(r.get("success_rate", 0.0))
+        lines.append(f"| {label_map[key]} | {t:.2f} | {l:.3f} | {c:.4f} | {succ:.1f}% |")
+    lines.append("")
+    lines.append(
+        "Note: B1 path cost follows its voxel baseline output (approximately same scale as length), "
+        "while B2/B3/B4 path cost is the weighted multi-objective cost."
+    )
+    return "\n".join(lines) + "\n"
+
+
 def run_benchmark(args: argparse.Namespace) -> None:
     root = Path(args.workdir).resolve()
     os.chdir(root)
@@ -1233,6 +1337,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     md = render_markdown(summary_rows, pair_rows, args)
     (out_dir / "benchmark_table.md").write_text(md, encoding="utf-8")
+    md4 = render_four_baseline_markdown(summary_rows, args)
+    (out_dir / "benchmark_table_four_baselines.md").write_text(md4, encoding="utf-8")
 
     config = vars(args).copy()
     config["accepted_trials"] = accepted
@@ -1247,6 +1353,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     print(f"  - {out_dir / 'benchmark_summary.csv'}")
     print(f"  - {out_dir / 'benchmark_pairwise.csv'}")
     print(f"  - {out_dir / 'benchmark_table.md'}")
+    print(f"  - {out_dir / 'benchmark_table_four_baselines.md'}")
     print(f"  - {out_dir / 'benchmark_config.json'}")
 
 
@@ -1315,6 +1422,21 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
     if proc.returncode != 0:
         raise RuntimeError(f"matrix benchmark failed with exit code {proc.returncode}")
 
+    if args.skip_four_baseline:
+        return
+
+    # Also generate a complete 4-baseline table (B1/B2/B3/B4) in the same experiment root.
+    baseline_dir = Path(args.out_dir).resolve() / "four_baseline"
+    single_args = argparse.Namespace(**vars(args))
+    single_args.mode = "single"
+    single_args.out_dir = str(baseline_dir)
+    single_args.n_block = int(args.matrix_focus_n_block_scale)
+    print(
+        "[matrix] running additional four-baseline summary: "
+        f"n_block={single_args.n_block}, out={baseline_dir}"
+    )
+    run_benchmark(single_args)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4 baselines.")
@@ -1365,6 +1487,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--matrix-event-radius-km", type=float, default=0.8)
     parser.add_argument("--matrix-event-pool-factor", type=int, default=6)
     parser.add_argument("--disable-plots", action="store_true", help="Disable matrix plots.")
+    parser.add_argument(
+        "--skip-four-baseline",
+        action="store_true",
+        help="Skip extra single-mode run that outputs the complete B1/B2/B3/B4 table.",
+    )
     return parser.parse_args()
 
 

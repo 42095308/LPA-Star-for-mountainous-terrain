@@ -43,6 +43,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.font_manager import FontProperties
 from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.axes_grid1.inset_locator import mark_inset
 from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
 from scipy.spatial import cKDTree
 
@@ -417,6 +418,74 @@ ax1.set_title(f'Layered Airway Topology (Top View)\n'
 ax1.legend(prop=font, loc='upper right', fontsize=8)
 ax1.grid(True, alpha=0.3, linestyle='--')
 
+# ---------- 局部放大框：锚点柱 + 垂直电梯边 ----------
+if terminal_pillars:
+    focus_name = "北部基地" if "北部基地" in terminal_pillars else next(iter(terminal_pillars))
+    focus_idx = terminal_pillars[focus_name][1]
+    cx, cy = float(nodes[focus_idx, 0]), float(nodes[focus_idx, 1])
+    span = 0.75
+    xmin, xmax = cx - span, cx + span
+    ymin, ymax = cy - span, cy + span
+
+    axins = ax1.inset_axes([0.58, 0.05, 0.38, 0.38])
+    axins.imshow(
+        Z,
+        cmap='terrain',
+        alpha=0.35,
+        extent=[0, cols * RESOLUTION / 1000, 0, rows * RESOLUTION / 1000],
+        origin='upper',
+        aspect='equal',
+    )
+    rng_zoom = np.random.default_rng(7)
+    for e in edges:
+        i, j, etype = int(e[0]), int(e[1]), int(e[2])
+        x1, y1 = float(nodes[i, 0]), float(nodes[i, 1])
+        x2, y2 = float(nodes[j, 0]), float(nodes[j, 1])
+        in_box = (
+            (xmin <= x1 <= xmax and ymin <= y1 <= ymax)
+            or (xmin <= x2 <= xmax and ymin <= y2 <= ymax)
+        )
+        if not in_box:
+            continue
+        if etype == 0:
+            if rng_zoom.random() > 0.25:
+                continue
+            color, lw, alpha = LAYER_COLORS[int(nodes[i, 3])], 0.9, 0.60
+        elif etype == 1:
+            color, lw, alpha = "#9C27B0", 2.2, 0.98
+        else:
+            color, lw, alpha = "#FF9800", 1.2, 0.75
+        axins.plot([x1, x2], [y1, y2], color=color, lw=lw, alpha=alpha, zorder=3)
+
+    for lid, (color, marker) in enumerate(zip(LAYER_COLORS, LAYER_MARKERS)):
+        idx = np.where(nodes[:, 3] == lid)[0]
+        if len(idx) == 0:
+            continue
+        x = nodes[idx, 0]
+        y = nodes[idx, 1]
+        m = (x >= xmin) & (x <= xmax) & (y >= ymin) & (y <= ymax)
+        show = idx[m]
+        if len(show) == 0:
+            continue
+        size = 42 if lid == 0 else 14
+        axins.scatter(
+            nodes[show, 0],
+            nodes[show, 1],
+            c=color,
+            marker=marker,
+            s=size,
+            alpha=0.70,
+            edgecolors='none',
+            zorder=4,
+        )
+
+    axins.set_xlim(xmin, xmax)
+    axins.set_ylim(ymin, ymax)
+    axins.set_xticks([])
+    axins.set_yticks([])
+    axins.set_title(f"Zoom: pillar/elevator around {display_name.get(focus_name, focus_name)}", fontsize=7.5)
+    mark_inset(ax1, axins, loc1=2, loc2=4, fc="none", ec="0.45", lw=0.9)
+
 # ---------- 右图：3D 图 ----------
 ax2 = fig.add_subplot(122, projection='3d')
 step = 8
@@ -450,7 +519,7 @@ ax2.set_zlabel('Elevation (m)',  fontproperties=font, labelpad=6)
 ax2.set_title('Layered Airway Topology (3D View)', fontproperties=font, fontsize=11)
 
 plt.tight_layout()
-plt.savefig('graph_vis.png', dpi=150, bbox_inches='tight')
+plt.savefig('graph_vis.png', dpi=300, bbox_inches='tight')
 print("[完成] graph_vis.png 已保存")
 print("[下一步] 先运行 human_risk_osm.py 生成游客风险场，再运行 lpa_star.py 进行动态规划")
 plt.show()

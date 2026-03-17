@@ -826,6 +826,7 @@ def render_markdown_matrix(
     tables: Dict[str, List[dict]],
     args: argparse.Namespace,
     resolved: Dict[str, int | str],
+    anomaly_note: str = "",
 ) -> str:
     def f(v: float, d: int = 2) -> str:
         if not np.isfinite(float(v)):
@@ -844,6 +845,8 @@ def render_markdown_matrix(
         f"- Focus: scale `{resolved['focus_scale']}`, K-intensity `{resolved['focus_k_intensity']}`, "
         f"K-scale `{resolved['focus_k_scale']}`, n_block-cont `{resolved['focus_n_block_cont']}`"
     )
+    if anomaly_note:
+        lines.append(f"- Experiment A diagnosis: {anomaly_note}")
     lines.append("")
 
     lines.append("## Experiment A (Event Intensity)")
@@ -892,6 +895,66 @@ def render_markdown_matrix(
         )
     lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def diagnose_event_intensity_anomaly(
+    tables: Dict[str, List[dict]],
+    resolved: Dict[str, int | str],
+) -> Tuple[List[dict], str]:
+    table_a = tables.get("A", [])
+    diag_rows: List[dict] = []
+    if not table_a:
+        return diag_rows, ""
+
+    # Sort by n_block for trend checks.
+    arr = sorted(table_a, key=lambda r: int(r["n_block"]))
+    b4_t = np.asarray([float(r["b4_mean_event_ms"]) for r in arr], dtype=float)
+    b2_t = np.asarray([float(r["b2_mean_event_ms"]) for r in arr], dtype=float)
+    b4_e = np.asarray([float(r["b4_mean_event_expanded"]) for r in arr], dtype=float)
+    b2_e = np.asarray([float(r["b2_mean_event_expanded"]) for r in arr], dtype=float)
+    nbs = np.asarray([int(r["n_block"]) for r in arr], dtype=int)
+
+    b4_non_monotonic = bool(np.any(np.diff(b4_t) < -1e-9))
+    b2_non_monotonic = bool(np.any(np.diff(b2_t) < -1e-9))
+
+    for i, r in enumerate(arr):
+        diag_rows.append(
+            {
+                "scale": str(r["scale"]),
+                "k_events": int(r["k_events"]),
+                "n_block": int(r["n_block"]),
+                "b4_mean_event_ms": float(r["b4_mean_event_ms"]),
+                "b2_mean_event_ms": float(r["b2_mean_event_ms"]),
+                "b4_mean_event_expanded": float(r["b4_mean_event_expanded"]),
+                "b2_mean_event_expanded": float(r["b2_mean_event_expanded"]),
+                "b4_success_rate": float(r["b4_success_rate"]),
+                "b2_success_rate": float(r["b2_success_rate"]),
+                "delta_b4_ms_vs_prev": float("nan") if i == 0 else float(b4_t[i] - b4_t[i - 1]),
+                "delta_b2_ms_vs_prev": float("nan") if i == 0 else float(b2_t[i] - b2_t[i - 1]),
+                "delta_b4_expanded_vs_prev": float("nan") if i == 0 else float(b4_e[i] - b4_e[i - 1]),
+                "delta_b2_expanded_vs_prev": float("nan") if i == 0 else float(b2_e[i] - b2_e[i - 1]),
+            }
+        )
+
+    if not (b4_non_monotonic or b2_non_monotonic):
+        return diag_rows, "event intensity trend is monotonic in current summary."
+
+    # Explain non-monotonic wall-clock with workload + geometry effects.
+    b4_head = float(b4_t[0]) if b4_t.size > 0 else float("nan")
+    b4_tail = float(b4_t[-1]) if b4_t.size > 0 else float("nan")
+    b4_head_e = float(b4_e[0]) if b4_e.size > 0 else float("nan")
+    b4_tail_e = float(b4_e[-1]) if b4_e.size > 0 else float("nan")
+
+    note = (
+        f"non-monotonic timing detected at scale={resolved['focus_scale']}, "
+        f"K={resolved['focus_k_intensity']}. "
+        f"B4 mean event time changes from {b4_head:.2f}ms (n_block={int(nbs[0])}) "
+        f"to {b4_tail:.2f}ms (n_block={int(nbs[-1])}), while expanded nodes move from "
+        f"{b4_head_e:.1f} to {b4_tail_e:.1f}. "
+        "This indicates wall-clock is jointly affected by event geometry/locality and Python runtime overhead, "
+        "not only by n_block magnitude."
+    )
+    return diag_rows, note
 
 
 def make_plots_matrix(
@@ -1031,6 +1094,20 @@ def make_plots_matrix(
         ax1.set_ylabel("Cumulative replanning time (ms)")
         ax1.set_title(f"Boxplot (scale={scale_plot}, n_block={n_block_cont}, K={k_dist})")
         ax1.grid(alpha=0.3)
+        b4_med = float(np.percentile(b4_vals, 50))
+        b4_p95 = float(np.percentile(b4_vals, 95))
+        b2_med = float(np.percentile(b2_vals, 50))
+        b2_p95 = float(np.percentile(b2_vals, 95))
+        ax1.text(
+            0.03,
+            0.97,
+            f"B4 median/p95: {b4_med:.2f}/{b4_p95:.2f} ms\n"
+            f"B2 median/p95: {b2_med:.2f}/{b2_p95:.2f} ms",
+            transform=ax1.transAxes,
+            va="top",
+            fontsize=8.3,
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="0.6", alpha=0.88),
+        )
 
         for arr, label, color in [
             (b4_vals, "B4", "#d62728"),
@@ -1159,7 +1236,8 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
 
     pair_rows = build_pairwise_rows_matrix(trial_records, scales, n_blocks, k_values)
     tables, resolved = build_focus_tables_matrix(summary_rows, pair_rows, scales, n_blocks, k_values, args)
-    markdown = render_markdown_matrix(tables, args, resolved)
+    anomaly_rows, anomaly_note = diagnose_event_intensity_anomaly(tables, resolved)
+    markdown = render_markdown_matrix(tables, args, resolved, anomaly_note=anomaly_note)
     plot_paths = make_plots_matrix(summary_rows, trial_records, scales, n_blocks, k_values, args, out_dir)
 
     if event_records:
@@ -1175,6 +1253,13 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     for key, rows in tables.items():
         if rows:
             write_csv(out_dir / f"experiment_{key}.csv", rows, list(rows[0].keys()))
+    if anomaly_rows:
+        write_csv(out_dir / "experiment_A_diagnostics.csv", anomaly_rows, list(anomaly_rows[0].keys()))
+        (out_dir / "experiment_A_diagnostics.md").write_text(
+            "# Experiment A Diagnosis\n\n"
+            + f"- {anomaly_note}\n",
+            encoding="utf-8",
+        )
 
     (out_dir / "benchmark_table.md").write_text(markdown, encoding="utf-8")
     cfg = vars(args).copy()
@@ -1199,6 +1284,9 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     print(f"  - {out_dir / 'experiment_C.csv'}")
     print(f"  - {out_dir / 'experiment_D.csv'}")
     print(f"  - {out_dir / 'benchmark_table.md'}")
+    if anomaly_rows:
+        print(f"  - {out_dir / 'experiment_A_diagnostics.csv'}")
+        print(f"  - {out_dir / 'experiment_A_diagnostics.md'}")
     print(f"  - {out_dir / 'benchmark_config.json'}")
     for p in plot_paths:
         print(f"  - {p}")
