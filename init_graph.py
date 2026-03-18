@@ -342,9 +342,9 @@ def main() -> None:
     ax2.set_title("Huashan Core DEM (3D View)")
 
     plt.tight_layout()
-    plt.savefig("huashan_final.png", dpi=160, bbox_inches="tight")
+    plt.savefig("huashan_final.png", dpi=300, bbox_inches="tight")
     print("[done] huashan_final.png")
-    plt.show()
+    plt.close(fig)
 
 
 if __name__ == "__main__":

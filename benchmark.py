@@ -17,6 +17,7 @@ import heapq
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -43,6 +44,7 @@ BETA = 0.2
 GAMMA = 0.5
 UAV_SPEED = 15.0
 UAV_POWER = 500.0
+UAV_MASS = 5.0  # kg, reference UAV mass (conservative)
 RESOLUTION = 12.5
 SAFETY_HEIGHT = 30.0
 COLLISION_SAMPLES = 12
@@ -267,7 +269,7 @@ class WeightedGraph:
         dz = self.nodes[goal, 2] - self.nodes[s, 2]
         d3d = float(np.sqrt(dx * dx + dy * dy + dz * dz))
         t_lb = d3d / UAV_SPEED
-        climb_lb = max(0.0, dz) * 9.8 * 5.0
+        climb_lb = max(0.0, dz) * 9.8 * UAV_MASS
         e_lb = (UAV_POWER * t_lb + climb_lb) / 1000.0
         return ALPHA * (t_lb / (self.t_max + EPS)) + BETA * (e_lb / (self.e_max + EPS))
 
@@ -306,7 +308,7 @@ def compute_edge_costs(
         dv = float(abs(zj - zi))
         d3d = float(np.sqrt(dh * dh + dv * dv))
         t = d3d / UAV_SPEED
-        e = (UAV_POWER * t + max(0.0, zj - zi) * 9.8 * 5.0) / 1000.0
+        e = (UAV_POWER * t + max(0.0, zj - zi) * 9.8 * UAV_MASS) / 1000.0
         risk = 0.0
         for s in np.linspace(0.0, 1.0, RISK_SAMPLES):
             x = xi + s * (xj - xi)
@@ -1436,6 +1438,20 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         f"n_block={single_args.n_block}, out={baseline_dir}"
     )
     run_benchmark(single_args)
+
+    # Promote key four-baseline artifacts to the matrix root output for direct paper use.
+    out_dir = Path(args.out_dir).resolve()
+    promote = [
+        ("benchmark_table_four_baselines.md", "benchmark_table_four_baselines.md"),
+        ("benchmark_summary.csv", "benchmark_summary_four_baselines.csv"),
+        ("benchmark_trials.csv", "benchmark_trials_four_baselines.csv"),
+    ]
+    for src_name, dst_name in promote:
+        src = baseline_dir / src_name
+        dst = out_dir / dst_name
+        if src.exists():
+            shutil.copyfile(src, dst)
+            print(f"[matrix] promoted: {dst}")
 
 
 def parse_args() -> argparse.Namespace:

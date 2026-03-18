@@ -58,6 +58,7 @@ BETA       = 0.2
 GAMMA      = 0.5
 UAV_SPEED  = 15.0
 UAV_POWER  = 500.0
+UAV_MASS   = 5.0    # kg, reference UAV mass (conservative)
 RESOLUTION = 12.5
 SAFETY_HEIGHT     = 30
 COLLISION_SAMPLES = 20
@@ -111,8 +112,20 @@ parser.add_argument(
 parser.add_argument(
     "--seed-sweep",
     type=str,
-    default="20260317,20260318,20260319,20260320,20260321,20260322,20260323,20260324,20260325,20260326",
-    help="Comma-separated seed list for multi-seed main-experiment statistics.",
+    default="",
+    help="Comma-separated seed list for multi-seed statistics (overrides seed-sweep-base/count).",
+)
+parser.add_argument(
+    "--seed-sweep-base",
+    type=int,
+    default=20260318,
+    help="Base seed for auto-generated seed sweep list.",
+)
+parser.add_argument(
+    "--seed-sweep-count",
+    type=int,
+    default=50,
+    help="Number of seeds when --seed-sweep is not explicitly provided.",
 )
 parser.add_argument(
     "--disable-seed-sweep",
@@ -123,7 +136,16 @@ args = parser.parse_args()
 
 N_BLOCK = max(1, int(args.n_block))
 MAIN_EVENT_SEED = int(args.event_seed) if int(args.event_seed) >= 0 else int(time.time_ns() % (2**32 - 1))
-SEED_SWEEP_LIST = [] if args.disable_seed_sweep else parse_seed_list(args.seed_sweep)
+if args.disable_seed_sweep:
+    SEED_SWEEP_LIST = []
+else:
+    explicit = parse_seed_list(args.seed_sweep)
+    if len(explicit) > 0:
+        SEED_SWEEP_LIST = explicit
+    else:
+        n_seed = max(1, int(args.seed_sweep_count))
+        base_seed = int(args.seed_sweep_base)
+        SEED_SWEEP_LIST = [base_seed + i for i in range(n_seed)]
 print(f"[事件采样] n_block={N_BLOCK}, main_seed={MAIN_EVENT_SEED}, seed_sweep_n={len(SEED_SWEEP_LIST)}")
 
 # ===== 读取数据 =====
@@ -229,7 +251,7 @@ def compute_raw_edge_costs():
         d_v = abs(zj - zi)
         d3d = np.sqrt(d_h**2 + d_v**2)
         t_raw = d3d / UAV_SPEED
-        E_raw = (UAV_POWER * t_raw + max(0, zj-zi)*9.8*5.0) / 1000
+        E_raw = (UAV_POWER * t_raw + max(0, zj-zi) * 9.8 * UAV_MASS) / 1000
         risk_samples = []
         for t in np.linspace(0, 1, 10):
             x = xi + t*(xj-xi); y = yi + t*(yj-yi); z = zi + t*(zj-zi)
@@ -341,7 +363,7 @@ def build_cost_profile(curve_xyz):
         dz = float(p2[2]) - float(p1[2])
         d3d = float(np.sqrt(dx * dx + dy * dy + dz * dz))
         t_raw = d3d / UAV_SPEED
-        e_raw = (UAV_POWER * t_raw + max(0.0, dz) * 9.8 * 5.0) / 1000.0
+        e_raw = (UAV_POWER * t_raw + max(0.0, dz) * 9.8 * UAV_MASS) / 1000.0
 
         risk_seg = 0.0
         for s in np.linspace(0.0, 1.0, 5):
@@ -454,7 +476,7 @@ class LPAStar:
         d3d = np.sqrt(dx * dx + dy * dy + dz * dz)
 
         t_lb = d3d / UAV_SPEED
-        climb_lb = max(0.0, dz) * 9.8 * 5.0
+        climb_lb = max(0.0, dz) * 9.8 * UAV_MASS
         E_lb = (UAV_POWER * t_lb + climb_lb) / 1000.0
 
         h_time = ALPHA * (t_lb / EDGE_T_MAX)
@@ -1014,15 +1036,6 @@ fig_pv.suptitle(
 axA.imshow(Z, cmap='terrain', alpha=0.45,
            extent=[0, cols*RESOLUTION/1000, 0, rows*RESOLUTION/1000],
            origin='upper', aspect='equal')
-for e in edges:
-    i, j = int(e[0]), int(e[1])
-    axA.plot([nodes[i,0],nodes[j,0]], [nodes[i,1],nodes[j,1]],
-             color='gray', lw=0.3, alpha=0.15, zorder=1)
-for lid, (color, marker) in enumerate(zip(["#2196F3","#4CAF50","#FF5722"], ["o","s","^"])):
-    mask = nodes[:,3] == lid
-    label = ["Terminal Layer", "Regional Layer", "Backbone Layer"][lid]
-    axA.scatter(nodes[mask,0], nodes[mask,1], c=color, marker=marker,
-                s=18, alpha=0.35, zorder=2, edgecolors='none', label=label)
 if path1:
     px_raw = [nodes[n,0] for n in path1_raw]
     py_raw = [nodes[n,1] for n in path1_raw]
@@ -1069,10 +1082,6 @@ x_vals = c_idx * RESOLUTION / 1000
 y_vals = (rows - 1 - r_idx) * RESOLUTION / 1000
 Xg, Yg = np.meshgrid(x_vals, y_vals)
 axB.plot_surface(Xg, Yg, Z_s, cmap='terrain', alpha=0.35, linewidth=0)
-for e in edges:
-    i, j = int(e[0]), int(e[1])
-    axB.plot([nodes[i,0],nodes[j,0]], [nodes[i,1],nodes[j,1]],
-             [nodes[i,2],nodes[j,2]], color='gray', lw=0.3, alpha=0.15)
 if path1:
     # B 样条曲线（3D）
     axB.plot(curve1[:,0], curve1[:,1], curve1[:,2],
@@ -1147,69 +1156,100 @@ print("[完成] path_vis.png 已保存")
 plt.close(fig_pv)
 
 print("\n[可视化] 生成代价分布图（path_cost_profile.png）...")
-curve_for_profile = curve3 if (curve3 is not None and len(curve3) >= 2) else curve1
-profile = build_cost_profile(curve_for_profile)
-if profile is not None:
-    fig_cp, ax_cp = plt.subplots(figsize=(10.6, 4.8), dpi=220)
-    ax_cp.plot(
-        profile["progress_mid"],
-        profile["cost_time"],
-        color="#1565C0",
-        lw=2.0,
-        label="Time cost",
-    )
-    ax_cp.plot(
-        profile["progress_mid"],
-        profile["cost_energy"],
-        color="#2E7D32",
-        lw=2.0,
-        label="Energy cost",
-    )
-    ax_cp.plot(
-        profile["progress_mid"],
-        profile["cost_risk"],
-        color="#D32F2F",
-        lw=2.0,
-        label="Risk cost",
-    )
-    ax_cp.plot(
-        profile["progress_mid"],
-        profile["cost_time"] + profile["cost_energy"] + profile["cost_risk"],
-        color="#6A1B9A",
-        lw=1.8,
-        ls="--",
-        label="Total segment cost",
-    )
-    ax_cp.set_xlim(0.0, 100.0)
-    ax_cp.set_xlabel("Path progress (%)", fontproperties=font)
-    ax_cp.set_ylabel("Normalized cost contribution", fontproperties=font)
-    ax_cp.grid(True, alpha=0.25, linestyle="--")
+profile_init = build_cost_profile(curve1 if (curve1 is not None and len(curve1) >= 2) else None)
+profile_replan = build_cost_profile(curve3 if (curve3 is not None and len(curve3) >= 2) else None)
+if profile_init is not None or profile_replan is not None:
+    fig_cp, axes_cp = plt.subplots(1, 2, figsize=(14.2, 5.2), dpi=220, sharey=True)
 
-    ax_alt = ax_cp.twinx()
-    ax_alt.plot(
-        profile["progress_point"],
-        profile["altitude"],
-        color="#455A64",
-        lw=1.8,
-        alpha=0.8,
-        label="Flight altitude",
-    )
-    ax_alt.plot(
-        profile["progress_point"],
-        profile["terrain"],
-        color="#8D6E63",
-        lw=1.2,
-        alpha=0.9,
-        ls=":",
-        label="Terrain elevation",
-    )
-    ax_alt.set_ylabel("Elevation (m)", fontproperties=font)
-    ax_cp.set_title("Along-Path Multi-Objective Cost Distribution", fontproperties=font, fontsize=11)
+    def draw_profile_panel(ax, profile, title):
+        if profile is None:
+            ax.text(0.5, 0.5, "No valid profile", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(title, fontproperties=font, fontsize=10)
+            ax.set_xlim(0.0, 100.0)
+            ax.grid(True, alpha=0.2, linestyle="--")
+            return None
 
-    h1, l1 = ax_cp.get_legend_handles_labels()
-    h2, l2 = ax_alt.get_legend_handles_labels()
-    ax_cp.legend(h1 + h2, l1 + l2, prop=font, fontsize=7, loc="upper right")
-    fig_cp.tight_layout()
+        ax.plot(
+            profile["progress_mid"],
+            profile["cost_time"],
+            color="#1565C0",
+            lw=1.9,
+            label="Time cost",
+        )
+        ax.plot(
+            profile["progress_mid"],
+            profile["cost_energy"],
+            color="#2E7D32",
+            lw=1.9,
+            label="Energy cost",
+        )
+        ax.plot(
+            profile["progress_mid"],
+            profile["cost_risk"],
+            color="#D32F2F",
+            lw=1.9,
+            label="Risk cost",
+        )
+        ax.plot(
+            profile["progress_mid"],
+            profile["cost_time"] + profile["cost_energy"] + profile["cost_risk"],
+            color="#6A1B9A",
+            lw=1.6,
+            ls="--",
+            label="Total segment cost",
+        )
+        ax.set_xlim(0.0, 100.0)
+        ax.set_xlabel("Path progress (%)", fontproperties=font)
+        ax.grid(True, alpha=0.25, linestyle="--")
+        ax.set_title(title, fontproperties=font, fontsize=10)
+
+        ax_alt = ax.twinx()
+        ax_alt.plot(
+            profile["progress_point"],
+            profile["altitude"],
+            color="#455A64",
+            lw=1.3,
+            alpha=0.75,
+            label="Flight altitude",
+        )
+        ax_alt.plot(
+            profile["progress_point"],
+            profile["terrain"],
+            color="#8D6E63",
+            lw=1.0,
+            alpha=0.8,
+            ls=":",
+            label="Terrain elevation",
+        )
+        ax_alt.set_ylabel("Elevation (m)", fontproperties=font, fontsize=8)
+        return ax_alt
+
+    alt0 = draw_profile_panel(axes_cp[0], profile_init, "Initial path (curve1)")
+    _ = draw_profile_panel(axes_cp[1], profile_replan, "Replanned path (curve3)")
+    axes_cp[0].set_ylabel("Normalized cost contribution", fontproperties=font)
+
+    h1, l1 = axes_cp[0].get_legend_handles_labels()
+    h2, l2 = (alt0.get_legend_handles_labels() if alt0 is not None else ([], []))
+    # Build legend from left panel only, to keep layout compact.
+    legend_handles = h1 + h2
+    legend_labels = l1 + l2
+    if len(legend_handles) > 0:
+        axes_cp[0].legend(legend_handles, legend_labels, prop=font, fontsize=7, loc="upper right")
+
+    # Annotate risk change for paper narrative.
+    if profile_init is not None and profile_replan is not None:
+        risk_i = float(np.mean(profile_init["cost_risk"]))
+        risk_r = float(np.mean(profile_replan["cost_risk"]))
+        delta = risk_r - risk_i
+        fig_cp.text(
+            0.5,
+            0.01,
+            f"Mean risk-term change (replan - initial): {delta:+.4f}",
+            ha="center",
+            fontsize=9,
+        )
+
+    fig_cp.tight_layout(rect=[0.0, 0.03, 1.0, 1.0])
     fig_cp.savefig("path_cost_profile.png", dpi=FIG_DPI, bbox_inches="tight")
     plt.close(fig_cp)
     print("[完成] path_cost_profile.png 已保存")
