@@ -84,8 +84,10 @@ PEAKS = {
     "中峰": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0},
 }
 DEPOTS = {
-    "北部基地": {"row_frac": 0.25, "col_frac": 0.50},
-    "西部基地": {"row_frac": 0.50, "col_frac": 0.125},
+    # Assumed logistics depot anchors in WGS84 (replace proxy row/col fractions).
+    # NOTE: these are project assumptions anchored to current study-area georegistration.
+    "北部基地": {"lon": 110.079590, "lat": 34.505499},
+    "西部基地": {"lon": 110.039004, "lat": 34.482642},
 }
 
 # ===== 读取数据 =====
@@ -181,8 +183,7 @@ for name, p in PEAKS.items():
     r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
     terminal_specs[name] = {"row": r, "col": c}
 for name, p in DEPOTS.items():
-    r = int(np.clip(round(rows * float(p["row_frac"])), 0, rows - 1))
-    c = int(np.clip(round(cols * float(p["col_frac"])), 0, cols - 1))
+    r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
     terminal_specs[name] = {"row": r, "col": c}
 
 all_terminals   = terminal_specs

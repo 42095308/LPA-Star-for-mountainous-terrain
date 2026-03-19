@@ -828,6 +828,7 @@ def render_markdown_matrix(
     resolved: Dict[str, int | str],
     anomaly_note: str = "",
     k_note: str = "",
+    quality_note: str = "",
 ) -> str:
     def f(v: float, d: int = 2) -> str:
         if not np.isfinite(float(v)):
@@ -850,6 +851,8 @@ def render_markdown_matrix(
         lines.append(f"- Experiment A diagnosis: {anomaly_note}")
     if k_note:
         lines.append(f"- Experiment B diagnosis: {k_note}")
+    if quality_note:
+        lines.append(f"- Path-quality diagnosis: {quality_note}")
     lines.append("")
 
     lines.append("## Experiment A (Event Intensity)")
@@ -1010,6 +1013,118 @@ def diagnose_continuous_replan_k_effect(
             f"B4 is not slower than B2 (B2/B4={ratio_k1:.3f}). The cumulative trend over K should still be reported."
         )
     return diag_rows, note
+
+
+def diagnose_path_quality_consistency(
+    trial_rows: List[dict],
+    scales: Sequence[str],
+    n_blocks: Sequence[int],
+    k_values: Sequence[int],
+    cost_tol: float = 1e-6,
+    len_tol: float = 1e-6,
+) -> Tuple[List[dict], str]:
+    rows: List[dict] = []
+    equal_rates = []
+    for scale in scales:
+        for n_block in n_blocks:
+            for k_events in k_values:
+                by_trial = {}
+                for r in trial_rows:
+                    if r["scale"] != scale:
+                        continue
+                    if int(r["n_block"]) != int(n_block) or int(r["k_events"]) != int(k_events):
+                        continue
+                    if not r["success_all_events"]:
+                        continue
+                    by_trial[(int(r["trial"]), r["baseline"])] = r
+
+                gaps_cost = []
+                gaps_len = []
+                eq_cost = 0
+                eq_len = 0
+                trial_ids = sorted(
+                    {
+                        int(r["trial"])
+                        for r in trial_rows
+                        if r["scale"] == scale
+                        and int(r["n_block"]) == int(n_block)
+                        and int(r["k_events"]) == int(k_events)
+                    }
+                )
+                for tid in trial_ids:
+                    rb4 = by_trial.get((tid, BASELINE_B4))
+                    rb2 = by_trial.get((tid, BASELINE_B2))
+                    if rb4 is None or rb2 is None:
+                        continue
+                    c4 = float(rb4["final_path_cost"])
+                    c2 = float(rb2["final_path_cost"])
+                    l4 = float(rb4["final_path_len_km"])
+                    l2 = float(rb2["final_path_len_km"])
+                    if not (np.isfinite(c4) and np.isfinite(c2) and np.isfinite(l4) and np.isfinite(l2)):
+                        continue
+                    dc = abs(c4 - c2)
+                    dl = abs(l4 - l2)
+                    gaps_cost.append(dc)
+                    gaps_len.append(dl)
+                    if dc <= cost_tol:
+                        eq_cost += 1
+                    if dl <= len_tol:
+                        eq_len += 1
+
+                n = len(gaps_cost)
+                if n == 0:
+                    rows.append(
+                        {
+                            "scale": scale,
+                            "n_block": int(n_block),
+                            "k_events": int(k_events),
+                            "n_paired": 0,
+                            "mean_abs_cost_gap": float("nan"),
+                            "p95_abs_cost_gap": float("nan"),
+                            "equal_cost_rate": float("nan"),
+                            "mean_abs_len_gap_km": float("nan"),
+                            "p95_abs_len_gap_km": float("nan"),
+                            "equal_len_rate": float("nan"),
+                        }
+                    )
+                    continue
+
+                gaps_cost_arr = np.asarray(gaps_cost, dtype=float)
+                gaps_len_arr = np.asarray(gaps_len, dtype=float)
+                eq_cost_rate = float(eq_cost / n)
+                eq_len_rate = float(eq_len / n)
+                equal_rates.append(eq_cost_rate)
+                rows.append(
+                    {
+                        "scale": scale,
+                        "n_block": int(n_block),
+                        "k_events": int(k_events),
+                        "n_paired": int(n),
+                        "mean_abs_cost_gap": float(np.mean(gaps_cost_arr)),
+                        "p95_abs_cost_gap": float(np.percentile(gaps_cost_arr, 95)),
+                        "equal_cost_rate": eq_cost_rate,
+                        "mean_abs_len_gap_km": float(np.mean(gaps_len_arr)),
+                        "p95_abs_len_gap_km": float(np.percentile(gaps_len_arr, 95)),
+                        "equal_len_rate": eq_len_rate,
+                    }
+                )
+
+    if not equal_rates:
+        return rows, "path-quality consistency could not be evaluated (no paired successful trials)."
+
+    avg_eq = float(np.mean(np.asarray(equal_rates, dtype=float)))
+    if avg_eq >= 0.7:
+        note = (
+            f"B4/B2 path costs are frequently equal (mean equal-cost rate={100.0*avg_eq:.1f}%). "
+            "This is expected because both optimize the same weighted objective on the same graph; "
+            "incremental LPA* mainly improves replanning workload/time rather than final optimality."
+        )
+    else:
+        note = (
+            f"B4/B2 equal-cost rate is moderate (mean={100.0*avg_eq:.1f}%), "
+            "indicating event-stream state reuse can also lead to different feasible local choices in some trials."
+        )
+    return rows, note
 
 
 def make_plots_matrix(
@@ -1293,12 +1408,14 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     tables, resolved = build_focus_tables_matrix(summary_rows, pair_rows, scales, n_blocks, k_values, args)
     anomaly_rows, anomaly_note = diagnose_event_intensity_anomaly(tables, resolved)
     k_diag_rows, k_diag_note = diagnose_continuous_replan_k_effect(tables, resolved)
+    quality_rows, quality_note = diagnose_path_quality_consistency(trial_records, scales, n_blocks, k_values)
     markdown = render_markdown_matrix(
         tables,
         args,
         resolved,
         anomaly_note=anomaly_note,
         k_note=k_diag_note,
+        quality_note=quality_note,
     )
     plot_paths = make_plots_matrix(summary_rows, trial_records, scales, n_blocks, k_values, args, out_dir)
 
@@ -1329,6 +1446,29 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
             + f"- {k_diag_note}\n",
             encoding="utf-8",
         )
+    if quality_rows:
+        write_csv(out_dir / "experiment_path_quality.csv", quality_rows, list(quality_rows[0].keys()))
+        (out_dir / "experiment_path_quality.md").write_text(
+            "# Path Quality Diagnosis (B4 vs B2)\n\n"
+            + f"- {quality_note}\n",
+            encoding="utf-8",
+        )
+
+    # One-stop discussion notes for paper Discussion section.
+    discussion_lines = [
+        "# Benchmark Discussion Notes",
+        "",
+        f"- Experiment A: {anomaly_note}" if anomaly_note else "- Experiment A: no anomaly note generated.",
+        f"- Experiment B: {k_diag_note}" if k_diag_note else "- Experiment B: no K-effect note generated.",
+        f"- Path quality: {quality_note}" if quality_note else "- Path quality: no note generated.",
+        "",
+        "Suggested paper wording:",
+        "1. Under K=1 and light perturbation, incremental LPA* may be slower due to queue/state-maintenance overhead.",
+        "2. With larger K, state reuse accumulates and cumulative advantage becomes clear.",
+        "3. Non-monotonic time vs n_block can happen when event geometry pushes detours into cleaner subgraphs, reducing updated states.",
+        "4. Equal B4/B2 path costs are expected for many trials because both solve the same weighted objective; speed/workload is the key differentiator.",
+    ]
+    (out_dir / "benchmark_discussion.md").write_text("\n".join(discussion_lines) + "\n", encoding="utf-8")
 
     (out_dir / "benchmark_table.md").write_text(markdown, encoding="utf-8")
     cfg = vars(args).copy()
@@ -1359,6 +1499,10 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     if k_diag_rows:
         print(f"  - {out_dir / 'experiment_B_diagnostics.csv'}")
         print(f"  - {out_dir / 'experiment_B_diagnostics.md'}")
+    if quality_rows:
+        print(f"  - {out_dir / 'experiment_path_quality.csv'}")
+        print(f"  - {out_dir / 'experiment_path_quality.md'}")
+    print(f"  - {out_dir / 'benchmark_discussion.md'}")
     print(f"  - {out_dir / 'benchmark_config.json'}")
     for p in plot_paths:
         print(f"  - {p}")

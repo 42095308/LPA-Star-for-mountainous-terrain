@@ -1485,6 +1485,27 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
                     writer.writerow(row)
             print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4)")
 
+    # Enrich matrix config with explicit four-baseline run metadata.
+    cfg_path = out_dir / "benchmark_config.json"
+    cfg_data: dict = {}
+    if cfg_path.exists():
+        try:
+            cfg_data = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            cfg_data = {}
+    cfg_data["four_baseline_enabled"] = True
+    cfg_data["four_baseline_skip_b1"] = bool(args.skip_b1)
+    cfg_data["four_baseline_output_dir"] = str(baseline_dir)
+    cfg_data["four_baseline_baselines"] = [
+        "B1_Voxel_Dijkstra",
+        "B2_GlobalAstar_Layered",
+        "B3_LPA_SingleLayer",
+        "B4_Proposed_LPA_Layered",
+    ]
+    cfg_data["benchmark_trials_merged"] = bool(matrix_trials.exists() and baseline_trials.exists())
+    cfg_path.write_text(json.dumps(cfg_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[matrix] updated config metadata: {cfg_path}")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4 baselines.")

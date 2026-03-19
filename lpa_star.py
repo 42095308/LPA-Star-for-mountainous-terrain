@@ -927,6 +927,7 @@ path3_raw       = planner.extract_path()
 path3, curve3   = smooth_path(path3_raw)
 path3_len       = planner.path_length_km(path3)
 phase3_cost     = float(planner.g[goal_node])
+cost_delta_pct  = ((phase3_cost - phase1_cost) / max(abs(phase1_cost), 1e-9)) * 100.0
 
 print(f"  找到路径: {'OK' if found2 else 'FAIL'}")
 print(f"  遍历节点数:   {phase3_expanded}  （初始规划: {phase1_expanded}）")
@@ -934,6 +935,7 @@ print(f"  重规划耗时:   {phase3_time_ms:.2f} ms  （初始规划: {phase1_t
 print(f"  路径节点数:   {len(path3_raw)} → 平滑后 {len(path3)}")
 print(f"  路径长度:     {path3_len:.2f} km  （初始: {path1_len:.2f} km）")
 print(f"  路径代价:     {phase3_cost:.4f}")
+print(f"  代价变化:     {cost_delta_pct:+.2f}% （无量纲加权总代价）")
 
 timing_repeat = repeated_timing_eval(start_node, goal_node, blocked_edges, repeats=TIMING_REPEATS)
 if timing_repeat is not None:
@@ -1425,7 +1427,7 @@ def apply_compact_legend(ax, ordered_labels, loc='upper left'):
 draw_base(
     ax1,
     f"Stage 1: Initial planning\nexpanded {phase1_expanded} nodes  "
-    f"{phase1_time_ms:.1f} ms  {path1_len:.2f} km  cost={phase1_cost:.4f}",
+    f"{phase1_time_ms:.1f} ms  {path1_len:.2f} km  cost={phase1_cost:.4f} (unitless)",
 )
 if path1:
     px = [nodes[n,0] for n in path1]
@@ -1449,7 +1451,7 @@ draw_base(
     (
         f"Stage 2: Event trigger on discrete topology\n"
         f"blocked edges: {len(blocked_edges)}  |  "
-        f"next replanning expanded: {phase3_expanded} nodes  |  base cost={phase1_cost:.4f}"
+        f"next replanning expanded: {phase3_expanded} nodes  |  base cost={phase1_cost:.4f} (unitless)"
     ),
 )
 if path1:
@@ -1477,8 +1479,8 @@ draw_base(
     ax3,
     (
         f"Stage 3: Incremental replanning\n"
-        f"expanded {phase3_expanded} nodes  {phase3_time_ms:.1f} ms  {path3_len:.2f} km  cost={phase3_cost:.4f}\n"
-        f"length {path1_len:.2f}->{path3_len:.2f} km  cost {phase1_cost:.4f}->{phase3_cost:.4f}  |  "
+        f"expanded {phase3_expanded} nodes  {phase3_time_ms:.1f} ms  {path3_len:.2f} km  cost={phase3_cost:.4f} (unitless)\n"
+        f"length {path1_len:.2f}->{path3_len:.2f} km  cost change {cost_delta_pct:+.2f}%  |  "
         f"speedup: nodes {ratio_nodes:.1f}x    wall-clock {ratio_time:.1f}x"
     ),
 )
@@ -1516,6 +1518,14 @@ apply_compact_legend(
 )
 
 fig.subplots_adjust(left=0.045, right=0.985, bottom=0.045, top=0.93, wspace=0.12, hspace=0.18)
+fig.text(
+    0.5,
+    0.012,
+    "Path cost is unitless: sum over edges of [alpha*T_norm + beta*E_norm + gamma*R_norm].",
+    ha='center',
+    fontsize=8.1,
+    color='dimgray',
+)
 plt.savefig('lpa_result.png', dpi=FIG_DPI, bbox_inches='tight')
 print("[完成] lpa_result.png 已保存")
 plt.close(fig)
