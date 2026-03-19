@@ -39,6 +39,7 @@ import heapq
 import time
 import os
 import csv
+import json
 import argparse
 import matplotlib.pyplot as plt
 import matplotlib
@@ -843,10 +844,17 @@ def summarize_seed_sweep(records):
         "phase3_ms_std": float(np.std(ms, ddof=1) if ms.size > 1 else 0.0),
         "phase3_ms_p50": float(np.percentile(ms, 50)),
         "phase3_ms_p95": float(np.percentile(ms, 95)),
+        "phase3_ms_min": float(np.min(ms)),
+        "phase3_ms_max": float(np.max(ms)),
         "expanded_mean": float(np.mean(ex)),
         "expanded_std": float(np.std(ex, ddof=1) if ex.size > 1 else 0.0),
         "ratio_mean": float(np.mean(rt)),
         "ratio_std": float(np.std(rt, ddof=1) if rt.size > 1 else 0.0),
+        "ratio_p50": float(np.percentile(rt, 50)),
+        "ratio_p95": float(np.percentile(rt, 95)),
+        "ratio_min": float(np.min(rt)),
+        "ratio_max": float(np.max(rt)),
+        "ratio_cv": float((np.std(rt, ddof=1) / max(np.mean(rt), 1e-9)) if rt.size > 1 else 0.0),
     }
 
 # ===================================================================
@@ -971,6 +979,16 @@ if len(SEED_SWEEP_LIST) > 0:
             f"  加速比(phase1/phase3): {seed_sweep_summary['ratio_mean']:.2f} ± "
             f"{seed_sweep_summary['ratio_std']:.2f}"
         )
+        print(
+            f"  加速比 p50/p95: {seed_sweep_summary['ratio_p50']:.2f}/"
+            f"{seed_sweep_summary['ratio_p95']:.2f}  "
+            f"(min/max={seed_sweep_summary['ratio_min']:.2f}/{seed_sweep_summary['ratio_max']:.2f})"
+        )
+        if seed_sweep_summary["ratio_cv"] > 0.50:
+            print(
+                "  备注: 加速比离散性较高（轻微扰动下常见），论文建议同时报告 "
+                "phase3_ms 的 mean/median/p95，而不仅报告 ratio。"
+            )
     if len(seed_sweep_records) > 0:
         seed_csv = "lpa_seed_sweep.csv"
         fields = [
@@ -992,6 +1010,17 @@ if len(SEED_SWEEP_LIST) > 0:
             for row in seed_sweep_records:
                 writer.writerow(row)
         print(f"  已保存: {seed_csv}")
+    if seed_sweep_summary is not None:
+        summary_json = "lpa_seed_sweep_summary.json"
+        payload = {
+            "n_block": int(N_BLOCK),
+            "main_event_seed": int(MAIN_EVENT_SEED),
+            "seed_list": [int(s) for s in SEED_SWEEP_LIST],
+            "summary": seed_sweep_summary,
+        }
+        with open(summary_json, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"  已保存: {summary_json}")
 
 # 论文 Table 汇总
 print("\n" + "="*55)
@@ -1012,6 +1041,11 @@ if seed_sweep_summary is not None:
     print(
         f"  {'多种子重规划(ms)':<18} {'—':>12} "
         f"{seed_sweep_summary['phase3_ms_mean']:>12.2f} {'±'+format(seed_sweep_summary['phase3_ms_std'], '.2f'):>10}"
+    )
+    print(
+        f"  {'多种子p50/p95(ms)':<18} {'—':>12} "
+        f"{seed_sweep_summary['phase3_ms_p50']:>6.2f}/"
+        f"{seed_sweep_summary['phase3_ms_p95']:<6.2f} {'—':>10}"
     )
 
 # ===================================================================

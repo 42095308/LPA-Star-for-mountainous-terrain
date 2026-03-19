@@ -1453,6 +1453,38 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
             shutil.copyfile(src, dst)
             print(f"[matrix] promoted: {dst}")
 
+    # Ensure root benchmark_trials.csv explicitly includes B1/B3/B4/B2 rows.
+    matrix_trials = out_dir / "benchmark_trials.csv"
+    baseline_trials = baseline_dir / "benchmark_trials.csv"
+    if matrix_trials.exists() and baseline_trials.exists():
+        shutil.copyfile(matrix_trials, out_dir / "benchmark_trials_matrix.csv")
+
+        with matrix_trials.open("r", newline="", encoding="utf-8") as f:
+            matrix_rows = list(csv.DictReader(f))
+        with baseline_trials.open("r", newline="", encoding="utf-8") as f:
+            four_rows = list(csv.DictReader(f))
+
+        for r in matrix_rows:
+            r["experiment_type"] = "matrix_event_stream"
+        for r in four_rows:
+            r["experiment_type"] = "four_baseline_single_event"
+
+        all_rows = matrix_rows + four_rows
+        if all_rows:
+            fields: List[str] = []
+            seen = set()
+            for row in all_rows:
+                for k in row.keys():
+                    if k not in seen:
+                        seen.add(k)
+                        fields.append(k)
+            with matrix_trials.open("w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fields)
+                writer.writeheader()
+                for row in all_rows:
+                    writer.writerow(row)
+            print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4)")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4 baselines.")

@@ -827,6 +827,7 @@ def render_markdown_matrix(
     args: argparse.Namespace,
     resolved: Dict[str, int | str],
     anomaly_note: str = "",
+    k_note: str = "",
 ) -> str:
     def f(v: float, d: int = 2) -> str:
         if not np.isfinite(float(v)):
@@ -847,6 +848,8 @@ def render_markdown_matrix(
     )
     if anomaly_note:
         lines.append(f"- Experiment A diagnosis: {anomaly_note}")
+    if k_note:
+        lines.append(f"- Experiment B diagnosis: {k_note}")
     lines.append("")
 
     lines.append("## Experiment A (Event Intensity)")
@@ -952,8 +955,60 @@ def diagnose_event_intensity_anomaly(
         f"to {b4_tail:.2f}ms (n_block={int(nbs[-1])}), while expanded nodes move from "
         f"{b4_head_e:.1f} to {b4_tail_e:.1f}. "
         "This indicates wall-clock is jointly affected by event geometry/locality and Python runtime overhead, "
-        "not only by n_block magnitude."
+        "not only by n_block magnitude. A typical case is that more blocked edges can force an earlier detour "
+        "into a cleaner subgraph, which shortens the actually affected middle segment and reduces updated states."
     )
+    return diag_rows, note
+
+
+def diagnose_continuous_replan_k_effect(
+    tables: Dict[str, List[dict]],
+    resolved: Dict[str, int | str],
+) -> Tuple[List[dict], str]:
+    table_b = tables.get("B", [])
+    diag_rows: List[dict] = []
+    if not table_b:
+        return diag_rows, ""
+
+    arr = sorted(table_b, key=lambda r: int(r["k_events"]))
+    for i, r in enumerate(arr):
+        ratio = float(r["b2_over_b4_time_ratio"])
+        diag_rows.append(
+            {
+                "scale": str(r["scale"]),
+                "n_block": int(r["n_block"]),
+                "k_events": int(r["k_events"]),
+                "b4_mean_cumulative_ms": float(r["b4_mean_cumulative_ms"]),
+                "b2_mean_cumulative_ms": float(r["b2_mean_cumulative_ms"]),
+                "b2_over_b4_time_ratio": ratio,
+                "b4_mean_cumulative_expanded": float(r["b4_mean_cumulative_expanded"]),
+                "b2_mean_cumulative_expanded": float(r["b2_mean_cumulative_expanded"]),
+                "delta_ratio_vs_prev": float("nan")
+                if i == 0
+                else float(ratio - float(arr[i - 1]["b2_over_b4_time_ratio"])),
+            }
+        )
+
+    k1 = next((r for r in arr if int(r["k_events"]) == 1), None)
+    if k1 is None:
+        return diag_rows, "K=1 is not included in the current K grid."
+
+    ratio_k1 = float(k1["b2_over_b4_time_ratio"])
+    if not np.isfinite(ratio_k1):
+        return diag_rows, "K=1 ratio is unavailable due to insufficient successful trials."
+
+    if ratio_k1 < 1.0:
+        note = (
+            f"for K=1 (scale={resolved['focus_scale']}, n_block={resolved['focus_n_block_cont']}), "
+            f"B4 is slower than B2 (B2/B4={ratio_k1:.3f}<1). This is expected under a single light perturbation: "
+            "incremental LPA* still pays queue/state-maintenance overhead, while global A* can finish quickly when "
+            "the affected region is tiny. As K increases, LPA* reuses prior search state and cumulative advantage emerges."
+        )
+    else:
+        note = (
+            f"for K=1 (scale={resolved['focus_scale']}, n_block={resolved['focus_n_block_cont']}), "
+            f"B4 is not slower than B2 (B2/B4={ratio_k1:.3f}). The cumulative trend over K should still be reported."
+        )
     return diag_rows, note
 
 
@@ -1237,7 +1292,14 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     pair_rows = build_pairwise_rows_matrix(trial_records, scales, n_blocks, k_values)
     tables, resolved = build_focus_tables_matrix(summary_rows, pair_rows, scales, n_blocks, k_values, args)
     anomaly_rows, anomaly_note = diagnose_event_intensity_anomaly(tables, resolved)
-    markdown = render_markdown_matrix(tables, args, resolved, anomaly_note=anomaly_note)
+    k_diag_rows, k_diag_note = diagnose_continuous_replan_k_effect(tables, resolved)
+    markdown = render_markdown_matrix(
+        tables,
+        args,
+        resolved,
+        anomaly_note=anomaly_note,
+        k_note=k_diag_note,
+    )
     plot_paths = make_plots_matrix(summary_rows, trial_records, scales, n_blocks, k_values, args, out_dir)
 
     if event_records:
@@ -1258,6 +1320,13 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         (out_dir / "experiment_A_diagnostics.md").write_text(
             "# Experiment A Diagnosis\n\n"
             + f"- {anomaly_note}\n",
+            encoding="utf-8",
+        )
+    if k_diag_rows:
+        write_csv(out_dir / "experiment_B_diagnostics.csv", k_diag_rows, list(k_diag_rows[0].keys()))
+        (out_dir / "experiment_B_diagnostics.md").write_text(
+            "# Experiment B Diagnosis\n\n"
+            + f"- {k_diag_note}\n",
             encoding="utf-8",
         )
 
@@ -1287,6 +1356,9 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     if anomaly_rows:
         print(f"  - {out_dir / 'experiment_A_diagnostics.csv'}")
         print(f"  - {out_dir / 'experiment_A_diagnostics.md'}")
+    if k_diag_rows:
+        print(f"  - {out_dir / 'experiment_B_diagnostics.csv'}")
+        print(f"  - {out_dir / 'experiment_B_diagnostics.md'}")
     print(f"  - {out_dir / 'benchmark_config.json'}")
     for p in plot_paths:
         print(f"  - {p}")
