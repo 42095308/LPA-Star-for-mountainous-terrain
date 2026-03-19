@@ -1,4 +1,4 @@
-﻿"""
+"""
 Benchmark matrix runner for experiments A/B/C/D:
 - Event intensity sweep (n_block grid)
 - Continuous multi-event replanning (K grid)
@@ -551,8 +551,12 @@ def summarise_combo_baseline_matrix(
         "p95_cumulative_replan_ms": float("nan"),
         "ci95_cumulative_replan_ms": float("nan"),
         "mean_event_replan_ms": float("nan"),
+        "ci95_event_replan_ms": float("nan"),
+        "std_event_replan_ms": float("nan"),
         "mean_cumulative_expanded": float("nan"),
         "mean_event_expanded": float("nan"),
+        "ci95_event_expanded": float("nan"),
+        "std_event_expanded": float("nan"),
         "mean_cumulative_queue_pushes": float("nan"),
         "mean_cumulative_queue_pops": float("nan"),
         "mean_cumulative_updated_vertices": float("nan"),
@@ -596,8 +600,12 @@ def summarise_combo_baseline_matrix(
             "p95_cumulative_replan_ms": float(np.percentile(ms, 95)),
             "ci95_cumulative_replan_ms": ci95(ms),
             "mean_event_replan_ms": float(np.mean(ms / max(1, int(k_events)))),
+            "ci95_event_replan_ms": ci95(ms / max(1, int(k_events))),
+            "std_event_replan_ms": float(np.std(ms / max(1, int(k_events)), ddof=1) if ms.size > 1 else 0.0),
             "mean_cumulative_expanded": float(np.mean(ex)),
             "mean_event_expanded": float(np.mean(ex / max(1, int(k_events)))),
+            "ci95_event_expanded": ci95(ex / max(1, int(k_events))),
+            "std_event_expanded": float(np.std(ex / max(1, int(k_events)), ddof=1) if ex.size > 1 else 0.0),
             "mean_cumulative_queue_pushes": float(np.mean(qp)),
             "mean_cumulative_queue_pops": float(np.mean(qo)),
             "mean_cumulative_updated_vertices": float(np.mean(uv)),
@@ -1150,23 +1158,30 @@ def make_plots_matrix(
     }
     paths: List[str] = []
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=180)
+    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
         (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
         (BASELINE_B2, "B2 global A*", "#1f77b4"),
     ]:
         xs: List[int] = []
         ys: List[float] = []
+        ci_vals: List[float] = []
         for nb in n_blocks:
             r = idx.get((scale_plot, int(nb), int(k_intensity), baseline))
             if r is None:
                 continue
             y = float(r.get("mean_event_replan_ms", float("nan")))
+            c = float(r.get("ci95_event_replan_ms", 0.0))
             if np.isfinite(y):
                 xs.append(int(nb))
                 ys.append(y)
+                ci_vals.append(c if np.isfinite(c) else 0.0)
         if xs:
             ax.plot(xs, ys, marker="o", linewidth=2.0, label=label, color=color)
+            # 95% CI 阴影带
+            y_lo = [y - c for y, c in zip(ys, ci_vals)]
+            y_hi = [y + c for y, c in zip(ys, ci_vals)]
+            ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
     ax.set_xlabel("Blocked edges per event (n_block)")
     ax.set_ylabel("Mean replanning time per event (ms)")
     ax.set_title(f"Event Intensity vs Replanning Time (scale={scale_plot}, K={k_intensity})")
@@ -1177,23 +1192,30 @@ def make_plots_matrix(
     plt.close(fig)
     paths.append(str(p1))
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=180)
+    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
         (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
         (BASELINE_B2, "B2 global A*", "#1f77b4"),
     ]:
         xs: List[int] = []
         ys: List[float] = []
+        ci_vals: List[float] = []
         for kk in k_values:
             r = idx.get((scale_plot, int(n_block_cont), int(kk), baseline))
             if r is None:
                 continue
             y = float(r.get("mean_cumulative_replan_ms", float("nan")))
+            c = float(r.get("ci95_cumulative_replan_ms", 0.0))
             if np.isfinite(y):
                 xs.append(int(kk))
                 ys.append(y)
+                ci_vals.append(c if np.isfinite(c) else 0.0)
         if xs:
             ax.plot(xs, ys, marker="o", linewidth=2.0, label=label, color=color)
+            # 95% CI 阴影带
+            y_lo = [y - c for y, c in zip(ys, ci_vals)]
+            y_hi = [y + c for y, c in zip(ys, ci_vals)]
+            ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
     ax.set_xlabel("Number of events (K)")
     ax.set_ylabel("Mean cumulative replanning time (ms)")
     ax.set_title(f"Continuous Events vs Cumulative Time (scale={scale_plot}, n_block={n_block_cont})")
@@ -1204,23 +1226,30 @@ def make_plots_matrix(
     plt.close(fig)
     paths.append(str(p2))
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=180)
+    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
         (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
         (BASELINE_B2, "B2 global A*", "#1f77b4"),
     ]:
         xs: List[int] = []
         ys: List[float] = []
+        ci_vals: List[float] = []
         for nb in n_blocks:
             r = idx.get((scale_plot, int(nb), int(k_intensity), baseline))
             if r is None:
                 continue
             y = float(r.get("mean_event_expanded", float("nan")))
+            c = float(r.get("ci95_event_expanded", 0.0))
             if np.isfinite(y):
                 xs.append(int(nb))
                 ys.append(y)
+                ci_vals.append(c if np.isfinite(c) else 0.0)
         if xs:
             ax.plot(xs, ys, marker="o", linewidth=2.0, label=label, color=color)
+            # 95% CI 阴影带
+            y_lo = [y - c for y, c in zip(ys, ci_vals)]
+            y_hi = [y + c for y, c in zip(ys, ci_vals)]
+            ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
     ax.set_xlabel("Blocked edges per event (n_block)")
     ax.set_ylabel("Mean expanded nodes per event")
     ax.set_title(f"Event Intensity vs Expanded Nodes (scale={scale_plot}, K={k_intensity})")
@@ -1256,7 +1285,7 @@ def make_plots_matrix(
         dtype=float,
     )
     if b4_vals.size > 0 and b2_vals.size > 0:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.4, 4.0), dpi=180)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.4, 4.0), dpi=300)
         try:
             ax1.boxplot([b4_vals, b2_vals], tick_labels=["B4", "B2"], showmeans=True)
         except TypeError:
@@ -1519,7 +1548,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-every", type=int, default=5)
 
     parser.add_argument("--n-block-grid", type=str, default="2,4,6,8")
-    parser.add_argument("--k-events-grid", type=str, default="3")
+    parser.add_argument("--k-events-grid", type=str, default="1,2,3,5,8")
     parser.add_argument("--scales", type=str, default="large")
     parser.add_argument("--scale-fractions", type=str, default="small:0.55,medium:0.78,large:1.0")
     parser.add_argument("--event-radius-km", type=float, default=0.8)

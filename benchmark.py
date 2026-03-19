@@ -406,6 +406,14 @@ def build_single_layer_graph(
     collision_samples: int = 10,
     risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
 ) -> WeightedGraph:
+    """构建单层展平图（B3 基线）。
+
+    【归一化基准差异说明】
+    B3 单层图的边代价通过 compute_edge_costs() 独立计算，其 t_max/e_max/r_max
+    归一化基准与 B4（分层图）不同，因为图结构和边集不同。
+    因此，跨基线的路径代价（无量纲加权总代价）数值不可直接比较。
+    论文对比表中应当说明此点，或统一使用 B4 的归一化基准对所有基线做标准化。
+    """
     nodes = layered_graph.nodes.copy()
     rows, cols = z_grid.shape
     for i in range(nodes.shape[0]):

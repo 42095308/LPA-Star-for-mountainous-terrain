@@ -99,7 +99,7 @@ def main() -> None:
     extent = [0.0, cols * RESOLUTION / 1000.0, 0.0, rows * RESOLUTION / 1000.0]
     peak_pos = load_peak_positions(rows, cols, z)
 
-    fig = plt.figure(figsize=(22, 12), dpi=160)
+    fig = plt.figure(figsize=(22, 12), dpi=300)
     fig.suptitle("Huashan Flyable Corridor and Layered Decks", fontsize=15, y=0.98)
 
     # 1) East-west profile

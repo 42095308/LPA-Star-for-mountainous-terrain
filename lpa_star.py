@@ -1,4 +1,4 @@
-﻿"""
+"""
 ================================================================================
 文件名：lpa_star.py
 用    途：基于 LPA* 的动态增量路径规划
@@ -687,9 +687,26 @@ def bspline_smooth(node_path, n_points=120, smooth_factor=0.0):
 
 
 def smooth_path(raw_path):
-    """完整两步平滑：LOS 剪枝 + B 样条"""
+    """完整两步平滑：LOS 剪枝 + B 样条 + 事后碰撞验证"""
     step1 = los_smooth(raw_path)
     curve = bspline_smooth(step1)
+    # 事后碰撞验证：检查 B 样条曲线每个插值点是否满足安全高度约束
+    violations = 0
+    min_clearance = float('inf')
+    for k in range(len(curve)):
+        r, c = km_to_rc(curve[k, 0], curve[k, 1])
+        clearance = curve[k, 2] - float(Z[r, c])
+        if clearance < min_clearance:
+            min_clearance = clearance
+        if clearance < SAFETY_HEIGHT:
+            violations += 1
+    if violations > 0:
+        print(f"[警告] B样条曲线有 {violations}/{len(curve)} 个点"
+              f"低于安全高度 {SAFETY_HEIGHT}m（最小间隙={min_clearance:.1f}m），"
+              f"需要检查平滑参数或增加约束")
+    else:
+        print(f"[碰撞验证] B样条曲线全部通过安全高度检查"
+              f"（最小间隙={min_clearance:.1f}m）")
     return step1, curve   # 返回剪枝后节点列表 + 样条曲线坐标
 
 
@@ -1040,6 +1057,8 @@ print(f"  {'路径代价':<19} {phase1_cost:>12.4f} {phase3_cost:>12.4f} {'—':
 if np.isfinite(ratio_time_mean):
     print(f"  {'平均加速比(10次)':<18} {'—':>12} {'—':>12} {ratio_time_mean:>9.2f}×")
 if seed_sweep_summary is not None:
+    # 注意：加速比分布通常右偏，均值可能被少数高离群值拉高。
+    # 论文建议同时报告中位数(p50)和均值，以 p50 为主要参考。
     print(
         f"  {'多种子重规划(ms)':<18} {'—':>12} "
         f"{seed_sweep_summary['phase3_ms_mean']:>12.2f} {'±'+format(seed_sweep_summary['phase3_ms_std'], '.2f'):>10}"
@@ -1048,6 +1067,14 @@ if seed_sweep_summary is not None:
         f"  {'多种子p50/p95(ms)':<18} {'—':>12} "
         f"{seed_sweep_summary['phase3_ms_p50']:>6.2f}/"
         f"{seed_sweep_summary['phase3_ms_p95']:<6.2f} {'—':>10}"
+    )
+    print(
+        f"  {'中位加速比(p50)':<18} {'—':>12} {'—':>12} "
+        f"{seed_sweep_summary['ratio_p50']:>9.2f}×"
+    )
+    print(
+        f"  {'均值加速比(右偏)':<18} {'—':>12} {'—':>12} "
+        f"{seed_sweep_summary['ratio_mean']:>9.2f}×"
     )
 
 # ===================================================================
