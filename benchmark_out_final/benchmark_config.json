@@ -1,7 +1,7 @@
 {
   "workdir": ".",
-  "trials": 50,
-  "seed": 20260309,
+  "trials": 200,
+  "seed": 20260313,
   "out_dir": "benchmark_out_final",
   "min_start_goal_dist_km": 1.5,
   "max_attempt_factor": 5,

@@ -1,8 +1,8 @@
 {
   "mode": "single",
   "workdir": ".",
-  "trials": 50,
-  "seed": 20260309,
+  "trials": 200,
+  "seed": 20260313,
   "n_block": 4,
   "min_start_goal_dist_km": 1.5,
   "max_attempt_factor": 5,
@@ -37,6 +37,6 @@
   "matrix_event_pool_factor": 6,
   "disable_plots": false,
   "skip_four_baseline": false,
-  "accepted_trials": 50,
-  "attempts": 50
+  "accepted_trials": 200,
+  "attempts": 200
 }

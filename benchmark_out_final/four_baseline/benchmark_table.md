@@ -1,21 +1,21 @@
 # Benchmark Table
 
-- Trials requested: `50`, random seed: `20260309`, blocked edges per trial: `4`
+- Trials requested: `200`, random seed: `20260313`, blocked edges per trial: `4`
 - B1 voxel config: `xy_step=125m`, `agl_step=5m`, timeout `8.0s`
 
 ## Per-baseline summary
 
 | Baseline | Success | Replan ms (mean+/-std) | P50/P95 ms | Expanded (mean) | Cost (mean) | Energy kJ (mean) | Length km (mean) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| B4_Proposed_LPA_Layered | 50/50 (100.0%) | 47.52+/-40.49 | 32.18/113.48 | 779.0 | 10.7701 | 268.87 | 6.412 |
-| B2_GlobalAstar_Layered | 50/50 (100.0%) | 19.01+/-13.24 | 15.01/42.15 | 2124.3 | 10.7701 | 268.87 | 6.412 |
-| B3_LPA_SingleLayer | 50/50 (100.0%) | 2.60+/-5.56 | 0.60/13.60 | 25.4 | 12.1773 | 232.79 | 6.445 |
-| B1_Voxel_Dijkstra | 49/50 (98.0%) | 384.06+/-191.13 | 386.41/648.57 | 67447.7 | 63.8571 | 309.43 | 7.703 |
+| B4_Proposed_LPA_Layered | 200/200 (100.0%) | 44.10+/-50.86 | 25.75/130.00 | 695.9 | 10.1275 | 253.58 | 6.055 |
+| B2_GlobalAstar_Layered | 200/200 (100.0%) | 17.84+/-12.45 | 16.00/44.17 | 1892.5 | 10.1275 | 253.58 | 6.055 |
+| B3_LPA_SingleLayer | 200/200 (100.0%) | 5.29+/-28.70 | 0.37/20.41 | 48.4 | 11.4335 | 219.69 | 6.080 |
+| B1_Voxel_Dijkstra | 198/200 (99.0%) | 362.11+/-185.29 | 363.52/663.31 | 61705.7 | 60.3283 | 289.92 | 7.218 |
 
 ## Paired significance checks
 
 | Pair | Metric | N paired | Mean A | Mean B | Median(B/A) | p-value |
 |---|---|---:|---:|---:|---:|---:|
-| B4_Proposed_LPA_Layered vs B2_GlobalAstar_Layered | replan_ms | 50 | 47.5187 | 19.0123 | 0.429 | 6.508e-08 |
-| B4_Proposed_LPA_Layered vs B3_LPA_SingleLayer | path_cost | 50 | 10.7701 | 12.1773 | 1.131 | 5.505e-18 |
-| B4_Proposed_LPA_Layered vs B1_Voxel_Dijkstra | replan_ms | 49 | 48.1325 | 384.0596 | 9.123 | 7.203e-19 |
+| B4_Proposed_LPA_Layered vs B2_GlobalAstar_Layered | replan_ms | 200 | 44.1013 | 17.8447 | 0.463 | 1.198e-15 |
+| B4_Proposed_LPA_Layered vs B3_LPA_SingleLayer | path_cost | 200 | 10.1275 | 11.4335 | 1.134 | 8.901e-75 |
+| B4_Proposed_LPA_Layered vs B1_Voxel_Dijkstra | replan_ms | 198 | 43.0369 | 362.1076 | 10.950 | 3.969e-70 |
