@@ -745,6 +745,118 @@ class TraditionalVoxelDijkstra:
             mask |= (dx * dx + dy * dy) <= r2
         return mask
 
+    def _state_xyz(self, ix: int, iy: int, iz: int) -> Tuple[float, float, float]:
+        """返回体素状态 (ix,iy,iz) 对应的 (x_km, y_km, z_m) 坐标。"""
+        x_km = float(self.x_coords[ix])
+        y_km = float(self.y_coords[iy])
+        z_m = float(self.terrain[iy, ix] + self.agl_levels[iz])
+        return x_km, y_km, z_m
+
+    def _compute_path_metrics(
+        self,
+        path_sids: List[int],
+        risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+    ) -> Dict[str, float]:
+        """沿已回溯的路径逐段事后计算时间、能耗、风险和多目标加权代价。
+
+        使用与 B2/B3/B4 完全相同的代价公式，确保跨基线可比。
+        """
+        if len(path_sids) < 2:
+            return {
+                "path_len_km": float("inf"),
+                "path_time_s": float("inf"),
+                "path_energy_kj": float("inf"),
+                "path_risk": float("inf"),
+                "path_multi_cost": float("inf"),
+            }
+
+        # 解析风险场
+        risk_mode = "terrain_only"
+        risk_l1 = risk_l2 = risk_l3 = risk_l4 = risk_human = None
+        if risk_fields:
+            risk_mode = str(risk_fields.get("mode", "terrain_only"))
+            risk_l1 = risk_fields.get("risk_l1")
+            risk_l2 = risk_fields.get("risk_l2")
+            risk_l3 = risk_fields.get("risk_l3")
+            risk_l4 = risk_fields.get("risk_l4")
+            risk_human = risk_fields.get("risk_human")
+
+        total_len = 0.0
+        total_time = 0.0
+        total_energy = 0.0
+        total_risk = 0.0
+        n_segments = len(path_sids) - 1
+
+        for k in range(n_segments):
+            ix1, iy1, iz1 = self._decode(path_sids[k])
+            ix2, iy2, iz2 = self._decode(path_sids[k + 1])
+            x1, y1, z1 = self._state_xyz(ix1, iy1, iz1)
+            x2, y2, z2 = self._state_xyz(ix2, iy2, iz2)
+
+            dh = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) * 1000.0  # m
+            dv = abs(z2 - z1)  # m
+            d3d = math.sqrt(dh * dh + dv * dv)
+
+            seg_time = d3d / UAV_SPEED
+            climb = max(0.0, z2 - z1)
+            seg_energy = (UAV_POWER * seg_time + climb * 9.8 * UAV_MASS) / 1000.0  # kJ
+
+            # 沿线段采样风险（与 compute_edge_costs 一致）
+            seg_risk = 0.0
+            for s in np.linspace(0.0, 1.0, RISK_SAMPLES):
+                x = x1 + s * (x2 - x1)
+                y = y1 + s * (y2 - y1)
+                z = z1 + s * (z2 - z1)
+                r, c = km_to_rc(float(x), float(y), self.rows, self.cols)
+                terrain_z = float(self.Z[r, c])
+                r_terrain = max(0.0, 1.0 - (z - terrain_z) / 200.0)
+                if (
+                    risk_mode == "terrain_trail_hotspot"
+                    and risk_l1 is not None
+                    and risk_l2 is not None
+                    and risk_l3 is not None
+                    and risk_l4 is not None
+                ):
+                    r_total = (
+                        RISK_W_TERRAIN * r_terrain
+                        + RISK_W_L1 * float(risk_l1[r, c])
+                        + RISK_W_L2 * float(risk_l2[r, c])
+                        + RISK_W_L3 * float(risk_l3[r, c])
+                        + RISK_W_L4 * float(risk_l4[r, c])
+                    )
+                elif risk_mode == "terrain_human_combined" and risk_human is not None:
+                    r_total = (
+                        (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain
+                        + RISK_W_HUMAN_COMBINED * float(risk_human[r, c])
+                    )
+                else:
+                    r_total = r_terrain
+                seg_risk += float(np.clip(r_total, 0.0, 1.0))
+            seg_risk /= RISK_SAMPLES
+
+            total_len += d3d / 1000.0  # km
+            total_time += seg_time
+            total_energy += seg_energy
+            total_risk += seg_risk
+
+        # 归一化时取自身路径的单段最大值（与 compute_edge_costs 思路一致）
+        t_max = max(total_time / max(n_segments, 1), EPS)
+        e_max = max(total_energy / max(n_segments, 1), EPS)
+        r_max = max(total_risk / max(n_segments, 1), EPS)
+        multi_cost = (
+            ALPHA * (total_time / (t_max * n_segments + EPS))
+            + BETA * (total_energy / (e_max * n_segments + EPS))
+            + GAMMA * (total_risk / (r_max * n_segments + EPS))
+        ) * n_segments
+
+        return {
+            "path_len_km": total_len,
+            "path_time_s": total_time,
+            "path_energy_kj": total_energy,
+            "path_risk": total_risk,
+            "path_multi_cost": multi_cost,
+        }
+
     def search(
         self,
         start_xyz: Tuple[float, float, float],
@@ -752,7 +864,13 @@ class TraditionalVoxelDijkstra:
         storm_mask_xy: np.ndarray,
         timeout_s: float,
         max_expansions: int = 2_000_000,
-    ) -> Tuple[bool, float, int]:
+        risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+    ) -> Dict[str, object]:
+        """Dijkstra 搜索并事后计算多目标代价。
+
+        返回字典包含：ok, path_len_km, expanded, path_time_s,
+        path_energy_kj, path_risk, path_multi_cost。
+        """
         sx, sy, sz = start_xyz
         gx, gy, gz = goal_xyz
         six, siy, siz = self._nearest_state(float(sx), float(sy), float(sz))
@@ -760,22 +878,27 @@ class TraditionalVoxelDijkstra:
         start_sid = self._sid(six, siy, siz)
         goal_sid = self._sid(gix, giy, giz)
 
-        # Ensure start/goal cells stay traversable.
+        # 确保起终点可通行
         storm_mask_xy = storm_mask_xy.copy()
         storm_mask_xy[siy, six] = False
         storm_mask_xy[giy, gix] = False
 
         dist = np.full(self.total_states, float("inf"), dtype=float)
+        prev = np.full(self.total_states, -1, dtype=int)
         visited = np.zeros(self.total_states, dtype=bool)
         dist[start_sid] = 0.0
         heap: List[Tuple[float, int]] = [(0.0, start_sid)]
 
         expanded = 0
         t0 = time.perf_counter()
+        fail = {"ok": False, "path_len_km": float("inf"), "expanded": 0,
+                "path_time_s": float("nan"), "path_energy_kj": float("nan"),
+                "path_risk": float("nan"), "path_multi_cost": float("nan")}
 
         while heap:
             if (time.perf_counter() - t0) > timeout_s:
-                return False, float("inf"), expanded
+                fail["expanded"] = expanded
+                return fail
             d, sid = heapq.heappop(heap)
             if visited[sid]:
                 continue
@@ -784,11 +907,32 @@ class TraditionalVoxelDijkstra:
             visited[sid] = True
 
             if sid == goal_sid:
-                return True, float(d / 1000.0), expanded
+                # 回溯路径
+                path_sids: List[int] = [goal_sid]
+                cur = goal_sid
+                while cur != start_sid:
+                    cur = int(prev[cur])
+                    if cur < 0:
+                        break
+                    path_sids.append(cur)
+                path_sids.reverse()
+
+                # 事后计算完整指标
+                metrics = self._compute_path_metrics(path_sids, risk_fields=risk_fields)
+                return {
+                    "ok": True,
+                    "path_len_km": float(d / 1000.0),
+                    "expanded": expanded,
+                    "path_time_s": metrics["path_time_s"],
+                    "path_energy_kj": metrics["path_energy_kj"],
+                    "path_risk": metrics["path_risk"],
+                    "path_multi_cost": metrics["path_multi_cost"],
+                }
 
             expanded += 1
             if expanded >= max_expansions:
-                return False, float("inf"), expanded
+                fail["expanded"] = expanded
+                return fail
 
             ix, iy, iz = self._decode(sid)
             z1 = float(self.terrain[iy, ix] + self.agl_levels[iz])
@@ -812,9 +956,11 @@ class TraditionalVoxelDijkstra:
                 nd = d + step
                 if nd + EPS < dist[nsid]:
                     dist[nsid] = nd
+                    prev[nsid] = sid
                     heapq.heappush(heap, (nd, nsid))
 
-        return False, float("inf"), expanded
+        fail["expanded"] = expanded
+        return fail
 
 
 def choose_blocked_edges_from_path(path: Sequence[int], rng: np.random.Generator, n_block: int) -> List[Tuple[int, int]]:
@@ -1038,22 +1184,25 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
         f"- Trials: `{args.trials}`, seed: `{args.seed}`, blocked edges: `{args.n_block}`"
     )
     lines.append("")
-    lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Success Rate |")
-    lines.append("|---|---:|---:|---:|---:|")
+    lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Energy (kJ) | Success Rate |")
+    lines.append("|---|---:|---:|---:|---:|---:|")
     for key in ordered:
         r = row_by_baseline.get(key)
         if r is None:
-            lines.append(f"| {label_map[key]} | nan | nan | nan | 0.0% |")
+            lines.append(f"| {label_map[key]} | nan | nan | nan | nan | 0.0% |")
             continue
         t = float(r.get("mean_replan_ms", float("nan")))
         l = float(r.get("mean_length_km", float("nan")))
         c = float(r.get("mean_cost", float("nan")))
+        e = float(r.get("mean_energy_kj", float("nan")))
         succ = 100.0 * float(r.get("success_rate", 0.0))
-        lines.append(f"| {label_map[key]} | {t:.2f} | {l:.3f} | {c:.4f} | {succ:.1f}% |")
+        e_str = f"{e:.2f}" if np.isfinite(e) else "—"
+        lines.append(f"| {label_map[key]} | {t:.2f} | {l:.3f} | {c:.4f} | {e_str} | {succ:.1f}% |")
     lines.append("")
     lines.append(
-        "Note: B1 path cost follows its voxel baseline output (approximately same scale as length), "
-        "while B2/B3/B4 path cost is the weighted multi-objective cost."
+        "Note: All four baselines use the same multi-objective weighted cost "
+        "(α·Time + β·Energy + γ·Risk). B1 cost is computed post-hoc along its Dijkstra path. "
+        "Cross-baseline cost comparison is valid for the same graph scale."
     )
     return "\n".join(lines) + "\n"
 
@@ -1240,14 +1389,16 @@ def run_benchmark(args: argparse.Namespace) -> None:
             )
             mask = voxel_planner.build_storm_mask(storm_midpoints, radius_m=args.storm_radius_m)
             t0 = time.perf_counter()
-            ok_b1, len_b1_km, exp_b1 = voxel_planner.search(
+            b1_result = voxel_planner.search(
                 start_xyz,
                 goal_xyz,
                 mask,
                 timeout_s=args.b1_timeout_s,
                 max_expansions=args.b1_max_expansions,
+                risk_fields=risk_fields,
             )
             t1 = time.perf_counter()
+            ok_b1 = bool(b1_result["ok"])
             records.append(
                 {
                     "trial": trial,
@@ -1255,12 +1406,12 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "start_node": start,
                     "goal_node": goal,
                     "blocked_edges": json.dumps(blocked_b4),
-                    "success": bool(ok_b1),
+                    "success": ok_b1,
                     "replan_ms": (t1 - t0) * 1000.0 if ok_b1 else float("nan"),
-                    "expanded": int(exp_b1) if ok_b1 else -1,
-                    "path_cost": float(len_b1_km) if ok_b1 else float("nan"),
-                    "path_energy_kj": float("nan"),
-                    "path_len_km": float(len_b1_km) if ok_b1 else float("nan"),
+                    "expanded": int(b1_result["expanded"]) if ok_b1 else -1,
+                    "path_cost": float(b1_result["path_multi_cost"]) if ok_b1 else float("nan"),
+                    "path_energy_kj": float(b1_result["path_energy_kj"]) if ok_b1 else float("nan"),
+                    "path_len_km": float(b1_result["path_len_km"]) if ok_b1 else float("nan"),
                     "note": "" if ok_b1 else "timeout_or_unreachable",
                 }
             )

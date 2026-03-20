@@ -1570,6 +1570,8 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # 提示：如需完整四基线对比（含 B1/B3），请使用 python benchmark.py --mode matrix
+    print("[提示] 本脚本仅运行 B4 vs B2 事件流实验。如需完整四基线对比，请用: python benchmark.py --mode matrix")
     args = parse_args()
     run_benchmark_matrix(args)
 
