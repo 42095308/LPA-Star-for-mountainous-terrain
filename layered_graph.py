@@ -17,8 +17,9 @@
        同层节点距离 ≤ 250m，且三维碰撞检测通过（线段距地形 ≥ 30m）
     2. Vertical Edges（垂直电梯）
        末端锚点三层直接垂直连通，无人机安全爬升/下降通道
-    3. Forced Pillar Edges（锚点强制接入）
-       末端锚点支路/骨干层在 PILLAR_CONNECT_DIST 内强制接入主网，保证网络可达性
+    3. Safe Pillar Access Edges（锚点安全接入）
+       末端锚点支路/骨干层在搜索半径内逐步寻找碰撞检测通过的主网接入点；
+       若无安全接入点则标记锚点不可达，不强制造边
     3. Climb Edges（斜向爬升段）
        支路-骨干层节点，水平距离 ≤ 250m 且爬升角 ≤ 30° 且碰撞检测通过
 
@@ -38,14 +39,28 @@
 """
 
 import numpy as np
+import argparse
+import json
 import os
 import matplotlib.pyplot as plt
 import matplotlib
+from pathlib import Path
 from matplotlib.font_manager import FontProperties
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1.inset_locator import mark_inset
 from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
 from scipy.spatial import cKDTree
+
+from scenario_config import (
+    depot_params,
+    display_names as load_display_names,
+    load_scenario_config,
+    scenario_output_dir,
+    target_specs,
+    terrain_sampling_params,
+)
+from terrain_sampling import build_terrain_samples
+from virtual_depots import generate_virtual_depots
 
 matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -72,6 +87,7 @@ INTRA_EDGE_DIST   = 250    # 同层连边最大距离（米）
 INTER_EDGE_DIST   = 250    # 跨层斜向连边最大水平距离（米）
 MAX_INTER_NEIGHBORS = 4    # 每个支路层节点最多连接到骨干层邻居数
 PILLAR_CONNECT_DIST  = 2000   # 末端锚点强制接入主网的搜索半径（米）
+PILLAR_CONNECT_RADII_M = [250, 500, 1000, 1500, 2000]  # 锚点安全接入逐步搜索半径
 MAX_CLIMB_ANGLE   = 30     # 最大爬升/下降角（度）
 SAFETY_HEIGHT     = 30     # 碰撞检测安全高度（米）
 COLLISION_SAMPLES = 20     # 碰撞检测采样点数
@@ -90,13 +106,30 @@ DEPOTS = {
     "西部基地": {"lon": 110.039004, "lat": 34.482642},
 }
 
+parser = argparse.ArgumentParser(description="构建分层拓扑航路网络。")
+parser.add_argument("--scenario-config", type=str, default="")
+parser.add_argument("--workdir", type=str, default=".")
+parser.add_argument("--skip-plot", action="store_true", help="只生成图数据和安全状态，不生成可视化图片。")
+args = parser.parse_args()
+
+root = Path(args.workdir).resolve()
+use_scene = bool(str(args.scenario_config).strip())
+scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+scene_name = str(scene_cfg.get("scene_name", "huashan")) if use_scene else "huashan"
+data_dir = scenario_output_dir(scene_cfg, root) if use_scene else root
+data_dir.mkdir(parents=True, exist_ok=True)
+os.chdir(data_dir)
+
 # ===== 读取数据 =====
-assert os.path.exists("Z_crop.npy"),    "缺少 Z_crop.npy，请先运行 huashan_dem.py"
+assert os.path.exists("Z_crop.npy"),    "缺少 Z_crop.npy，请先运行 init_graph.py"
 assert os.path.exists("layer_mid.npy"), "缺少 layer_mid.npy，请先运行 safe_corridor.py"
 assert os.path.exists("Z_crop_geo.npz"), "缺少 Z_crop_geo.npz，请先运行 init_graph.py"
 
 Z          = np.load("Z_crop.npy")
 layer_mid  = np.load("layer_mid.npy")
+floor_grid = np.load("floor.npy") if os.path.exists("floor.npy") else None
+ceiling_grid = np.load("ceiling.npy") if os.path.exists("ceiling.npy") else None
+layer_allowed = np.load("layer_allowed.npy") if os.path.exists("layer_allowed.npy") else None
 geo        = np.load("Z_crop_geo.npz")
 lon_grid   = np.asarray(geo["lon_grid"], dtype=float)
 lat_grid   = np.asarray(geo["lat_grid"], dtype=float)
@@ -128,6 +161,21 @@ def nearest_rc_by_lonlat(lon, lat):
     r, c = np.unravel_index(idx, lon_grid.shape)
     return int(r), int(c)
 
+def get_layer_height(lid, r, c):
+    """按自适应走廊层面读取节点高度。"""
+    lid = int(np.clip(lid, 0, layer_mid.shape[0] - 1))
+    r = int(np.clip(r, 0, rows - 1))
+    c = int(np.clip(c, 0, cols - 1))
+    return float(layer_mid[lid, r, c])
+
+def layer_is_allowed(lid, r, c):
+    if layer_allowed is None:
+        return True
+    lid = int(np.clip(lid, 0, layer_allowed.shape[0] - 1))
+    r = int(np.clip(r, 0, rows - 1))
+    c = int(np.clip(c, 0, cols - 1))
+    return bool(layer_allowed[lid, r, c])
+
 # ===== 补丁1：碰撞检测函数 =====
 def collision_free(n1, n2, n_samples=COLLISION_SAMPLES):
     """
@@ -143,7 +191,77 @@ def collision_free(n1, n2, n_samples=COLLISION_SAMPLES):
         terrain = get_elev_rc(r, c)
         if z_m - terrain < SAFETY_HEIGHT:
             return False
+        if floor_grid is not None and z_m < float(floor_grid[r, c]) - 1e-6:
+            return False
+        if ceiling_grid is not None and z_m > float(ceiling_grid[r, c]) + 1e-6:
+            return False
+        lid = int(np.clip(round(n1[3] + t * (n2[3] - n1[3])), 0, 2))
+        if not layer_is_allowed(lid, r, c):
+            return False
     return True
+
+
+if use_scene:
+    PEAKS_ACTIVE = target_specs(scene_cfg)
+    risk_human = None
+    if os.path.exists("risk_human.npy"):
+        risk_arr = np.load("risk_human.npy").astype(float)
+        if risk_arr.shape == Z.shape:
+            risk_human = np.clip(risk_arr, 0.0, 1.0)
+    depot_list = generate_virtual_depots(
+        Z,
+        lon_grid,
+        lat_grid,
+        PEAKS_ACTIVE,
+        depot_params(scene_cfg),
+        risk_human=risk_human,
+        resolution_m=RESOLUTION,
+    )
+    DEPOTS_ACTIVE = {d["name"]: d for d in depot_list}
+    depot_payload = {
+        "scene_name": scene_name,
+        "rule": "低坡度、低海拔、低风险、远离目标点且位于边缘或山脚过渡区",
+        "depots": depot_list,
+    }
+    Path("generated_depots.json").write_text(
+        json.dumps(depot_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    DISPLAY_NAME = load_display_names(scene_cfg)
+    for d in depot_list:
+        DISPLAY_NAME.setdefault(d["name"], d["name"])
+    print(f"[配送站] 已自动生成 {len(depot_list)} 个虚拟配送站，写入 generated_depots.json")
+else:
+    PEAKS_ACTIVE = PEAKS
+    DEPOTS_ACTIVE = DEPOTS
+    DISPLAY_NAME = {
+        "南峰": "South Peak",
+        "东峰": "East Peak",
+        "西峰": "West Peak",
+        "北峰": "North Peak",
+        "中峰": "Central Peak",
+        "北部基地": "North Depot",
+        "西部基地": "West Depot",
+    }
+
+def build_terminal_specs():
+    specs = {}
+    sources = {}
+    for name, p in PEAKS_ACTIVE.items():
+        r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
+        specs[name] = {"row": r, "col": c}
+        sources[name] = "target"
+    for name, p in DEPOTS_ACTIVE.items():
+        if "row" in p and "col" in p:
+            r, c = int(p["row"]), int(p["col"])
+        else:
+            r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
+        specs[name] = {"row": r, "col": c}
+        sources[name] = "virtual_depot" if use_scene else "depot"
+    return specs, sources
+
+
+terminal_specs, terminal_sources = build_terminal_specs()
 
 # ===== Step 1：提取地形特征点 =====
 print("\n[Step1] 提取地形特征点...")
@@ -155,39 +273,42 @@ valley_pts = np.argwhere(Z_smooth == minimum_filter(Z_smooth, size=size_px))
 topo_pts   = np.vstack([ridge_pts, valley_pts])
 print(f"  山脊点: {len(ridge_pts)}，山谷点: {len(valley_pts)}，合计: {len(topo_pts)}")
 
-# ===== Step 2：规则稠密网格采样（目标约170m） =====
-GRID_POINTS_PER_AXIS = max(2, int(10000 / BRANCH_SPACING))
-row_axis = np.linspace(0, rows - 1, GRID_POINTS_PER_AXIS, dtype=int)
-col_axis = np.linspace(0, cols - 1, GRID_POINTS_PER_AXIS, dtype=int)
+# ===== Step 2：地形驱动节点采样（规则网格仅作补充） =====
+terminal_rcs_for_sampling = [(int(v["row"]), int(v["col"])) for v in terminal_specs.values()]
+risk_for_sampling = None
+if os.path.exists("risk_human.npy"):
+    arr = np.load("risk_human.npy").astype(float)
+    if arr.shape == Z.shape:
+        risk_for_sampling = np.clip(arr, 0.0, 1.0)
 
-def regular_grid_sample(row_samples, col_samples):
-    rr, cc = np.meshgrid(row_samples, col_samples, indexing='ij')
-    return np.column_stack([rr.ravel(), cc.ravel()])
-
-# 区域支路层与骨干层都采用相同密度的规则栅格布点
-branch_pts = regular_grid_sample(row_axis, col_axis)
-backbone_pts = regular_grid_sample(row_axis, col_axis)
-
-actual_spacing_m = 10000.0 / max(GRID_POINTS_PER_AXIS, 1)
-print(f"  轴向采样点数: {GRID_POINTS_PER_AXIS}（理论≈10000/{BRANCH_SPACING:.0f}）")
-print(f"  每层节点数: {len(branch_pts)}（约 {GRID_POINTS_PER_AXIS}×{GRID_POINTS_PER_AXIS}）")
-print(f"  实际平均间距: {actual_spacing_m:.1f} m")
+branch_pts, branch_roles, backbone_pts, backbone_roles, sampling_meta = build_terrain_samples(
+    Z,
+    risk_for_sampling,
+    terminal_rcs_for_sampling,
+    terrain_sampling_params(scene_cfg) if use_scene else terrain_sampling_params({}),
+    resolution_m=RESOLUTION,
+    layer_allowed=layer_allowed,
+)
+print(
+    f"  地形驱动采样: 支路层 {len(branch_pts)} 点，骨干层 {len(backbone_pts)} 点；"
+    f"补充网格占比 支路={sampling_meta['actual_branch_grid_ratio']:.2%}, "
+    f"骨干={sampling_meta['actual_backbone_grid_ratio']:.2%}"
+)
 
 # ===== Step 3：构建节点表 =====
 print("\n[Step3] 构建节点表...")
 nodes = []
+node_roles = []
 
 # --- 补丁2：Terminal Pillars 末端锚点（贯穿三层）---
-terminal_specs = {}
-for name, p in PEAKS.items():
-    r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
-    terminal_specs[name] = {"row": r, "col": c}
-for name, p in DEPOTS.items():
-    r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
-    terminal_specs[name] = {"row": r, "col": c}
-
 all_terminals   = terminal_specs
 terminal_pillars = {}   # name -> [layer0_idx, layer1_idx, layer2_idx]
+terminal_status = {
+    "scene_name": scene_name,
+    "terminal_order": list(all_terminals.keys()),
+    "terminals": {},
+    "sampling_meta": sampling_meta,
+}
 
 for name, p in all_terminals.items():
     r_crop = int(np.clip(p["row"], 0, rows - 1))
@@ -195,12 +316,23 @@ for name, p in all_terminals.items():
     x_km, y_km = pixel_to_km(r_crop, c_crop)
     terrain     = get_elev_rc(r_crop, c_crop)
     pillar_idxs = []
-    for lid, offset in enumerate(DECK_OFFSETS.values()):
+    for lid, _offset in enumerate(DECK_OFFSETS.values()):
         pillar_idxs.append(len(nodes))
-        nodes.append([x_km, y_km, terrain + offset, lid])
+        nodes.append([x_km, y_km, get_layer_height(lid, r_crop, c_crop), lid])
+        node_roles.append({"role": "terminal_anchor", "name": name, "layer": int(lid)})
     terminal_pillars[name] = pillar_idxs
+    terminal_status["terminals"][name] = {
+        "source": terminal_sources.get(name, "unknown"),
+        "row": int(r_crop),
+        "col": int(c_crop),
+        "indices": [int(v) for v in pillar_idxs],
+        "branch_connected": False,
+        "backbone_connected": False,
+        "reachable": False,
+        "connect_edges": [],
+    }
     print(f"  锚点 {name}: ({x_km:.2f},{y_km:.2f}km) "
-          f"高度={terrain+45:.0f}/{terrain+75:.0f}/{terrain+105:.0f}m")
+          f"高度={nodes[pillar_idxs[0]][2]:.0f}/{nodes[pillar_idxs[1]][2]:.0f}/{nodes[pillar_idxs[2]][2]:.0f}m")
 
 n_terminal = len(nodes)
 
@@ -209,14 +341,18 @@ branch_start = len(nodes)
 for pt in branch_pts:
     r, c = int(pt[0]), int(pt[1])
     x_km, y_km = pixel_to_km(r, c)
-    nodes.append([x_km, y_km, get_elev_rc(r, c) + DECK_OFFSETS["区域支路层"], 1])
+    nodes.append([x_km, y_km, get_layer_height(1, r, c), 1])
+    role = branch_roles[len(nodes) - branch_start - 1] if len(branch_roles) >= (len(nodes) - branch_start) else "branch"
+    node_roles.append({"role": role, "layer": 1, "row": int(r), "col": int(c)})
 
 # --- 骨干层节点（layer_id=2）---
 backbone_start = len(nodes)
 for pt in backbone_pts:
     r, c = int(pt[0]), int(pt[1])
     x_km, y_km = pixel_to_km(r, c)
-    nodes.append([x_km, y_km, get_elev_rc(r, c) + DECK_OFFSETS["骨干航路层"], 2])
+    nodes.append([x_km, y_km, get_layer_height(2, r, c), 2])
+    role = backbone_roles[len(nodes) - backbone_start - 1] if len(backbone_roles) >= (len(nodes) - backbone_start) else "backbone"
+    node_roles.append({"role": role, "layer": 2, "row": int(r), "col": int(c)})
 
 nodes = np.array(nodes)
 print(f"\n  节点总数 |V| = {len(nodes)}")
@@ -234,37 +370,88 @@ for name, pillar in terminal_pillars.items():
         edges.append([pillar[k], pillar[k+1], 1])
 print(f"  垂直电梯边: {len(edges)}")
 
-# --- 末端锚点强制接入主网（保证网络可达性）---
-print("  强制连接末端锚点到主网络...")
-pillar_km = PILLAR_CONNECT_DIST / 1000
-forced_count = 0
+# --- 末端锚点安全接入主网（禁止碰撞失败后的强制连边）---
+print("  安全搜索末端锚点到主网络的接入边...")
+safe_anchor_count = 0
+
+branch_idx_arr = np.arange(branch_start, backbone_start, dtype=int)
+backbone_idx_arr = np.arange(backbone_start, len(nodes), dtype=int)
+branch_tree_for_anchor = cKDTree(nodes[branch_idx_arr, :2])
+backbone_tree_for_anchor = cKDTree(nodes[backbone_idx_arr, :2])
+
+
+def connect_anchor_to_layer(anchor_idx, candidate_indices, tree, layer_label):
+    """按半径逐步搜索安全接入节点；碰撞失败的候选绝不加边。"""
+    anchor_xy = nodes[anchor_idx, :2]
+    checked = 0
+    for radius_m in PILLAR_CONNECT_RADII_M:
+        radius_km = float(radius_m) / 1000.0
+        cand_locals = tree.query_ball_point(anchor_xy, r=radius_km)
+        cand_locals = sorted(
+            cand_locals,
+            key=lambda local: float(np.linalg.norm(anchor_xy - nodes[int(candidate_indices[local]), :2])),
+        )
+        for local in cand_locals:
+            cand_idx = int(candidate_indices[local])
+            checked += 1
+            if collision_free(nodes[anchor_idx], nodes[cand_idx]):
+                edges.append([int(anchor_idx), cand_idx, 0])
+                return {
+                    "connected": True,
+                    "node": cand_idx,
+                    "distance_km": float(np.linalg.norm(anchor_xy - nodes[cand_idx, :2])),
+                    "radius_m": int(radius_m),
+                    "checked_candidates": int(checked),
+                    "layer": layer_label,
+                }
+    return {
+        "connected": False,
+        "node": None,
+        "distance_km": None,
+        "radius_m": int(PILLAR_CONNECT_RADII_M[-1]),
+        "checked_candidates": int(checked),
+        "layer": layer_label,
+    }
+
+
 for name, pillar in terminal_pillars.items():
-    # 支路层锚点（pillar[1]）→ 最近支路节点
-    best_b, best_bd = None, 1e9
-    for bidx in range(branch_start, backbone_start):
-        d = np.linalg.norm(nodes[pillar[1],:2] - nodes[bidx,:2])
-        if d < best_bd:
-            best_bd, best_b = d, bidx
-    if best_b is not None and best_bd <= pillar_km:
-        if collision_free(nodes[pillar[1]], nodes[best_b]):
-            edges.append([pillar[1], best_b, 0])
-            forced_count += 1
-        else:
-            # 碰撞检测失败时忽略碰撞强制连入（锚点必须可达）
-            edges.append([pillar[1], best_b, 0])
-            forced_count += 1
+    branch_result = connect_anchor_to_layer(
+        pillar[1],
+        branch_idx_arr,
+        branch_tree_for_anchor,
+        "区域支路层",
+    )
+    backbone_result = connect_anchor_to_layer(
+        pillar[2],
+        backbone_idx_arr,
+        backbone_tree_for_anchor,
+        "骨干航路层",
+    )
 
-    # 骨干层锚点（pillar[2]）→ 最近骨干节点
-    best_k, best_kd = None, 1e9
-    for kidx in range(backbone_start, len(nodes)):
-        d = np.linalg.norm(nodes[pillar[2],:2] - nodes[kidx,:2])
-        if d < best_kd:
-            best_kd, best_k = d, kidx
-    if best_k is not None and best_kd <= pillar_km:
-        edges.append([pillar[2], best_k, 0])
-        forced_count += 1
+    st = terminal_status["terminals"][name]
+    st["branch_connected"] = bool(branch_result["connected"])
+    st["backbone_connected"] = bool(backbone_result["connected"])
+    st["reachable"] = bool(branch_result["connected"] or backbone_result["connected"])
+    st["connect_attempts"] = {
+        "branch": branch_result,
+        "backbone": backbone_result,
+    }
+    if branch_result["connected"]:
+        st["connect_edges"].append([int(pillar[1]), int(branch_result["node"]), 0])
+        safe_anchor_count += 1
+    if backbone_result["connected"]:
+        st["connect_edges"].append([int(pillar[2]), int(backbone_result["node"]), 0])
+        safe_anchor_count += 1
 
-print(f"  强制接入边: {forced_count}")
+    if st["reachable"]:
+        print(
+            f"    {name}: 安全接入成功 "
+            f"(支路={st['branch_connected']}, 骨干={st['backbone_connected']})"
+        )
+    else:
+        print(f"    {name}: 未找到满足碰撞约束的接入边，标记为不可达")
+
+print(f"  安全接入边: {safe_anchor_count}")
 
 # --- 同层水平边（含碰撞检测）---
 def add_intra_edges(idx_start, idx_end, max_dist_m):
@@ -342,6 +529,25 @@ for b_local, cand_locals in enumerate(neighbor_lists):
 print(f"  斜向爬升边 支路-骨干: {climb_count}")
 edges = np.array(edges) if edges else np.zeros((0, 3), dtype=int)
 
+print("  保存前校验全部非垂直边的安全间隙...")
+unsafe_edges = []
+for eid, e in enumerate(edges):
+    i, j, etype = int(e[0]), int(e[1]), int(e[2])
+    if etype == 1:
+        continue
+    if not collision_free(nodes[i], nodes[j]):
+        unsafe_edges.append({"edge_id": int(eid), "u": i, "v": j, "edge_type": etype})
+terminal_status["unsafe_edge_violations"] = len(unsafe_edges)
+if unsafe_edges:
+    terminal_status["unsafe_edges_preview"] = unsafe_edges[:20]
+    Path("graph_terminal_status.json").write_text(
+        json.dumps(terminal_status, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    raise RuntimeError(
+        f"发现 {len(unsafe_edges)} 条非垂直边未通过碰撞检测，已拒绝保存 graph_edges.npy。"
+    )
+
 print(f"\n  边总数 |E| = {len(edges)}")
 print(f"  水平边: {np.sum(edges[:,2]==0)}")
 print(f"  电梯边: {np.sum(edges[:,2]==1)}")
@@ -349,7 +555,26 @@ print(f"  爬升边: {np.sum(edges[:,2]==2)}")
 
 np.save("graph_nodes.npy", nodes)
 np.save("graph_edges.npy", edges)
+Path("graph_terminal_status.json").write_text(
+    json.dumps(terminal_status, ensure_ascii=False, indent=2),
+    encoding="utf-8",
+)
+role_payload = {
+    "scene_name": scene_name,
+    "sampling_meta": sampling_meta,
+    "node_roles": node_roles,
+}
+Path("graph_node_roles.json").write_text(
+    json.dumps(role_payload, ensure_ascii=False, indent=2),
+    encoding="utf-8",
+)
 print("\n[保存] graph_nodes.npy，graph_edges.npy 已保存")
+print("[保存] graph_terminal_status.json 已保存")
+print("[保存] graph_node_roles.json 已保存")
+
+if args.skip_plot:
+    print("[可视化] 已按 --skip-plot 跳过 graph_vis.png 生成")
+    raise SystemExit(0)
 
 # ===== 可视化 =====
 print("\n[可视化] 生成路网图...")
@@ -392,19 +617,9 @@ for lid, (color, marker, size) in enumerate(
                 c=color, marker=marker, s=size, label=label,
                 alpha=0.5, zorder=3, edgecolors='none')
 
-display_name = {
-    "南峰": "South Peak",
-    "东峰": "East Peak",
-    "西峰": "West Peak",
-    "北峰": "North Peak",
-    "中峰": "Central Peak",
-    "北部基地": "North Depot",
-    "西部基地": "West Depot",
-}
-
 for name, pillar in terminal_pillars.items():
     idx = pillar[0]
-    ax1.annotate(display_name.get(name, name),
+    ax1.annotate(DISPLAY_NAME.get(name, name),
                  xy=(nodes[idx,0], nodes[idx,1]),
                  xytext=(nodes[idx,0]+0.3, nodes[idx,1]+0.3),
                  fontproperties=font, fontsize=8, color='darkred',
@@ -421,7 +636,7 @@ ax1.grid(True, alpha=0.3, linestyle='--')
 
 # ---------- 局部放大框：锚点柱 + 垂直电梯边 ----------
 if terminal_pillars:
-    focus_name = "北部基地" if "北部基地" in terminal_pillars else next(iter(terminal_pillars))
+    focus_name = "虚拟配送站1" if "虚拟配送站1" in terminal_pillars else next(iter(terminal_pillars))
     focus_idx = terminal_pillars[focus_name][1]
     cx, cy = float(nodes[focus_idx, 0]), float(nodes[focus_idx, 1])
     span = 0.75
@@ -484,7 +699,7 @@ if terminal_pillars:
     axins.set_ylim(ymin, ymax)
     axins.set_xticks([])
     axins.set_yticks([])
-    axins.set_title(f"Zoom: pillar/elevator around {display_name.get(focus_name, focus_name)}", fontsize=7.5)
+    axins.set_title(f"Zoom: pillar/elevator around {DISPLAY_NAME.get(focus_name, focus_name)}", fontsize=7.5)
     mark_inset(ax1, axins, loc1=2, loc2=4, fc="none", ec="0.45", lw=0.9)
 
 # ---------- 右图：3D 图 ----------

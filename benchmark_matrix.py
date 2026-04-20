@@ -35,6 +35,8 @@ from benchmark import (
     sample_start_goal,
     write_csv,
 )
+from dynamic_events import build_area_event_from_path
+from scenario_config import load_scenario_config, scenario_output_dir
 
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
 BASELINE_B2 = "B2_GlobalAstar_Layered"
@@ -259,26 +261,30 @@ def build_event_schedule(
     rng: np.random.Generator,
     radius_km: float,
     pool_factor: int,
-) -> List[List[Tuple[int, int]]]:
-    total_needed = int(n_block) * int(k_events)
-    if total_needed <= 0:
+) -> List[object]:
+    if int(n_block) <= 0 or int(k_events) <= 0:
         return []
 
-    candidates = collect_event_candidates(graph, path, blocked_set, radius_km)
-    if len(candidates) < total_needed:
-        return []
-
-    pool_factor = max(int(pool_factor), 1)
-    pool_size = min(len(candidates), max(total_needed, total_needed * pool_factor))
-    pool = candidates[:pool_size]
-    pick_idx = rng.choice(len(pool), size=total_needed, replace=False)
-    picked = [pool[int(i)] for i in np.atleast_1d(pick_idx)]
-    rng.shuffle(picked)
-
-    schedule: List[List[Tuple[int, int]]] = []
-    for i in range(k_events):
-        chunk = picked[i * n_block : (i + 1) * n_block]
-        schedule.append(chunk)
+    _ = pool_factor  # 旧参数保留，用于兼容 benchmark.py 的命令行。
+    used = set(blocked_set)
+    schedule: List[object] = []
+    for _event_idx in range(int(k_events)):
+        event = build_area_event_from_path(
+            graph.nodes,
+            graph.edge_pairs,
+            path,
+            rng,
+            event_type="no_fly",
+            radius_km=radius_km,
+            severity=1.0,
+            max_affected_edges=int(n_block),
+            used_edges=used,
+        )
+        if not event.affected_edges:
+            return []
+        for e in event.affected_edges:
+            used.add(normalize_pair(int(e[0]), int(e[1])))
+        schedule.append(event)
     return schedule
 
 
@@ -370,7 +376,8 @@ def run_event_stream_trial(
         BASELINE_B2: {},
     }
 
-    for event_idx, event_edges in enumerate(schedule, start=1):
+    for event_idx, area_event in enumerate(schedule, start=1):
+        event_edges = area_event.affected_edges
         for e in event_edges:
             blocked_set.add(normalize_pair(int(e[0]), int(e[1])))
         blocked_cum = sorted(blocked_set)
@@ -407,6 +414,11 @@ def run_event_stream_trial(
                 "baseline": BASELINE_B4,
                 "start_node": start,
                 "goal_node": goal,
+                "event_type": area_event.event_type,
+                "event_center_x_km": float(area_event.center_x_km),
+                "event_center_y_km": float(area_event.center_y_km),
+                "event_radius_km": float(area_event.radius_km),
+                "event_severity": float(area_event.severity),
                 "blocked_edges_event": json.dumps(event_edges),
                 "blocked_edges_total": len(blocked_set),
                 "success": bool(ok_b4),
@@ -422,6 +434,11 @@ def run_event_stream_trial(
                 "path_cost": m_b4.get("cost", float("nan")),
                 "path_energy_kj": m_b4.get("energy_kj", float("nan")),
                 "path_len_km": m_b4.get("length_km", float("nan")),
+                "min_clearance_m": m_b4.get("min_clearance_m", float("nan")),
+                "risk_exposure_integral": m_b4.get("risk_exposure_integral", float("nan")),
+                "comm_coverage_ratio": m_b4.get("comm_coverage_ratio", float("nan")),
+                "max_comm_loss_time_s": m_b4.get("max_comm_loss_time_s", float("nan")),
+                "max_comm_loss_length_km": m_b4.get("max_comm_loss_length_km", float("nan")),
                 "cum_replan_ms": float(cum[BASELINE_B4]["cumulative_replan_ms"]),
                 "cum_expanded": float(cum[BASELINE_B4]["cumulative_expanded"]),
                 "cum_queue_pushes": float(cum[BASELINE_B4]["cumulative_queue_pushes"]),
@@ -460,6 +477,11 @@ def run_event_stream_trial(
                 "baseline": BASELINE_B2,
                 "start_node": start,
                 "goal_node": goal,
+                "event_type": area_event.event_type,
+                "event_center_x_km": float(area_event.center_x_km),
+                "event_center_y_km": float(area_event.center_y_km),
+                "event_radius_km": float(area_event.radius_km),
+                "event_severity": float(area_event.severity),
                 "blocked_edges_event": json.dumps(event_edges),
                 "blocked_edges_total": len(blocked_set),
                 "success": bool(ok_b2),
@@ -475,6 +497,11 @@ def run_event_stream_trial(
                 "path_cost": m_b2.get("cost", float("nan")),
                 "path_energy_kj": m_b2.get("energy_kj", float("nan")),
                 "path_len_km": m_b2.get("length_km", float("nan")),
+                "min_clearance_m": m_b2.get("min_clearance_m", float("nan")),
+                "risk_exposure_integral": m_b2.get("risk_exposure_integral", float("nan")),
+                "comm_coverage_ratio": m_b2.get("comm_coverage_ratio", float("nan")),
+                "max_comm_loss_time_s": m_b2.get("max_comm_loss_time_s", float("nan")),
+                "max_comm_loss_length_km": m_b2.get("max_comm_loss_length_km", float("nan")),
                 "cum_replan_ms": float(cum[BASELINE_B2]["cumulative_replan_ms"]),
                 "cum_expanded": float(cum[BASELINE_B2]["cumulative_expanded"]),
                 "cum_queue_pushes": float(cum[BASELINE_B2]["cumulative_queue_pushes"]),
@@ -512,6 +539,11 @@ def run_event_stream_trial(
                 "final_path_cost": fm.get("cost", float("nan")),
                 "final_path_energy_kj": fm.get("energy_kj", float("nan")),
                 "final_path_len_km": fm.get("length_km", float("nan")),
+                "final_min_clearance_m": fm.get("min_clearance_m", float("nan")),
+                "final_risk_exposure_integral": fm.get("risk_exposure_integral", float("nan")),
+                "final_comm_coverage_ratio": fm.get("comm_coverage_ratio", float("nan")),
+                "final_max_comm_loss_time_s": fm.get("max_comm_loss_time_s", float("nan")),
+                "final_max_comm_loss_length_km": fm.get("max_comm_loss_length_km", float("nan")),
                 "blocked_edges_total": len(blocked_set),
                 "note": "" if ok_all else "fail_in_event_stream",
             }
@@ -566,6 +598,10 @@ def summarise_combo_baseline_matrix(
         "mean_final_path_cost": float("nan"),
         "mean_final_path_energy_kj": float("nan"),
         "mean_final_path_len_km": float("nan"),
+        "mean_final_min_clearance_m": float("nan"),
+        "mean_final_risk_exposure_integral": float("nan"),
+        "mean_final_comm_coverage_ratio": float("nan"),
+        "mean_final_max_comm_loss_time_s": float("nan"),
         "mean_cumulative_replan_ms_all": float("nan"),
         "mean_cumulative_expanded_all": float("nan"),
     }
@@ -591,6 +627,10 @@ def summarise_combo_baseline_matrix(
     fc = np.asarray([float(r["final_path_cost"]) for r in ok], dtype=float)
     fe = np.asarray([float(r["final_path_energy_kj"]) for r in ok], dtype=float)
     fl = np.asarray([float(r["final_path_len_km"]) for r in ok], dtype=float)
+    fclr = np.asarray([float(r.get("final_min_clearance_m", float("nan"))) for r in ok], dtype=float)
+    fexp = np.asarray([float(r.get("final_risk_exposure_integral", float("nan"))) for r in ok], dtype=float)
+    fcov = np.asarray([float(r.get("final_comm_coverage_ratio", float("nan"))) for r in ok], dtype=float)
+    floss = np.asarray([float(r.get("final_max_comm_loss_time_s", float("nan"))) for r in ok], dtype=float)
 
     out.update(
         {
@@ -615,6 +655,10 @@ def summarise_combo_baseline_matrix(
             "mean_final_path_cost": float(np.mean(fc)),
             "mean_final_path_energy_kj": float(np.mean(fe)),
             "mean_final_path_len_km": float(np.mean(fl)),
+            "mean_final_min_clearance_m": float(np.nanmean(fclr)),
+            "mean_final_risk_exposure_integral": float(np.nanmean(fexp)),
+            "mean_final_comm_coverage_ratio": float(np.nanmean(fcov)),
+            "mean_final_max_comm_loss_time_s": float(np.nanmean(floss)),
         }
     )
     return out
@@ -1330,7 +1374,10 @@ def make_plots_matrix(
 
 def run_benchmark_matrix(args: argparse.Namespace) -> None:
     root = Path(args.workdir).resolve()
-    os.chdir(root)
+    use_scene = bool(str(getattr(args, "scenario_config", "")).strip())
+    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    data_root = scenario_output_dir(scene_cfg, root) if use_scene else root
+    os.chdir(data_root)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1340,8 +1387,11 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     scales = parse_scale_names(args.scales, scale_fractions)
 
     z_grid = np.asarray(np.load("Z_crop.npy"), dtype=float)
-    risk_fields = load_risk_fields(root, z_grid.shape)
-    print(f"[risk] mode={risk_fields['mode']}")
+    risk_fields = load_risk_fields(data_root, z_grid.shape, scene_cfg if use_scene else {})
+    print(
+        f"[risk] mode={risk_fields['mode']}, comm={risk_fields['has_comm']}, "
+        f"weights={risk_fields['risk_weights']}"
+    )
     base_nodes = np.asarray(np.load("graph_nodes.npy"), dtype=float)
     base_edges = np.asarray(np.load("graph_edges.npy"), dtype=int)
 
@@ -1539,6 +1589,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Benchmark matrix for B2/B4 event-stream analysis.")
+    parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
     parser.add_argument("--trials", type=int, default=50)
     parser.add_argument("--seed", type=int, default=20260310)

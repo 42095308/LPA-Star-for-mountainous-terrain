@@ -13,11 +13,25 @@ Outputs:
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+from scipy.ndimage import gaussian_filter, maximum_filter, minimum_filter
+
+from scenario_config import (
+    adaptive_corridor_params,
+    depot_params,
+    display_names,
+    load_scenario_config,
+    scenario_output_dir,
+    target_specs,
+)
+from virtual_depots import generate_virtual_depots
 
 
 CACHE_DEM = "Z_crop.npy"
@@ -41,15 +55,14 @@ PEAKS = {
 }
 
 
-def load_peak_positions(rows: int, cols: int, z: np.ndarray) -> dict:
-    geo_path = "Z_crop_geo.npz"
-    if not os.path.exists(geo_path):
+def load_peak_positions(rows: int, cols: int, z: np.ndarray, geo_path: Path, targets: dict, names: dict) -> dict:
+    if not geo_path.exists():
         return {}
     geo = np.load(geo_path)
     lon_grid = np.asarray(geo["lon_grid"], dtype=float)
     lat_grid = np.asarray(geo["lat_grid"], dtype=float)
     out = {}
-    for name, p in PEAKS.items():
+    for name, p in targets.items():
         lon = float(p["lon"])
         lat = float(p["lat"])
         d2 = (lon_grid - lon) ** 2 + (lat_grid - lat) ** 2
@@ -57,7 +70,8 @@ def load_peak_positions(rows: int, cols: int, z: np.ndarray) -> dict:
         r, c = np.unravel_index(idx, lon_grid.shape)
         x_km = c * RESOLUTION / 1000.0
         y_km = (rows - 1 - r) * RESOLUTION / 1000.0
-        out[name] = {
+        label = names.get(name, name)
+        out[label] = {
             "x_km": float(x_km),
             "y_km": float(y_km),
             "z_m": float(z[r, c]),
@@ -67,40 +81,200 @@ def load_peak_positions(rows: int, cols: int, z: np.ndarray) -> dict:
     return out
 
 
-def main() -> None:
-    if not os.path.exists(CACHE_DEM):
-        raise FileNotFoundError(f"Missing {CACHE_DEM}. Run init_graph.py first.")
+def _normalise(values: np.ndarray) -> np.ndarray:
+    finite = np.isfinite(values)
+    if not np.any(finite):
+        return np.zeros_like(values, dtype=float)
+    lo = float(np.nanmin(values[finite]))
+    hi = float(np.nanmax(values[finite]))
+    if hi <= lo + 1e-12:
+        return np.zeros_like(values, dtype=float)
+    return np.clip((values - lo) / (hi - lo), 0.0, 1.0)
 
-    z = np.asarray(np.load(CACHE_DEM), dtype=float)
+
+def nearest_rc_from_lonlat(lon_grid: np.ndarray, lat_grid: np.ndarray, lon: float, lat: float) -> tuple[int, int]:
+    d2 = (lon_grid - lon) ** 2 + (lat_grid - lat) ** 2
+    idx = int(np.argmin(d2))
+    r, c = np.unravel_index(idx, lon_grid.shape)
+    return int(r), int(c)
+
+
+def terminal_distance_km(rows: int, cols: int, terminal_rcs: list[tuple[int, int]]) -> np.ndarray:
+    rr, cc = np.indices((rows, cols))
+    out = np.full((rows, cols), np.inf, dtype=float)
+    for tr, tc in terminal_rcs:
+        d = np.sqrt((rr - tr) ** 2 + (cc - tc) ** 2) * RESOLUTION / 1000.0
+        out = np.minimum(out, d)
+    return out
+
+
+def build_adaptive_corridor(
+    z: np.ndarray,
+    risk_human: np.ndarray,
+    terminal_rcs: list[tuple[int, int]],
+    params: dict,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
     rows, cols = z.shape
-    print(f"[load] DEM shape={z.shape}, elevation={np.nanmin(z):.0f}~{np.nanmax(z):.0f} m")
+    zf = np.asarray(z, dtype=float)
+    z_smooth = gaussian_filter(zf, sigma=3)
+    gy, gx = np.gradient(z_smooth, RESOLUTION, RESOLUTION)
+    slope_deg = np.degrees(np.arctan(np.sqrt(gx * gx + gy * gy)))
+    local_max = maximum_filter(z_smooth, size=21)
+    local_min = minimum_filter(z_smooth, size=21)
+    relief = np.maximum(local_max - local_min, 1e-6)
+    ridge_score = np.clip((z_smooth - local_min) / relief, 0.0, 1.0)
+    open_score = (1.0 - _normalise(slope_deg)) * (1.0 - risk_human)
 
-    floor = z + H_MIN_OFFSET
-    ceiling = z + H_MAX_OFFSET
-    np.save("floor.npy", floor.astype(np.float32))
-    np.save("ceiling.npy", ceiling.astype(np.float32))
-    print(f"[step2] floor={np.min(floor):.0f}~{np.max(floor):.0f} m")
-    print(f"[step2] ceiling={np.min(ceiling):.0f}~{np.max(ceiling):.0f} m")
+    base_floor = float(params.get("base_floor_offset_m", H_MIN_OFFSET))
+    base_ceiling = float(params.get("base_ceiling_offset_m", H_MAX_OFFSET))
+    slope_threshold = float(params.get("slope_threshold_deg", 18.0))
+    slope_high = float(params.get("slope_high_deg", 42.0))
+    slope_extra = float(params.get("slope_floor_extra_m", 35.0))
+    ridge_extra = float(params.get("ridge_floor_extra_m", 20.0))
+    open_extra = float(params.get("open_ceiling_extra_m", 35.0))
+    terminal_radius = float(params.get("terminal_radius_km", 0.75))
+    terminal_thickness = float(params.get("terminal_thickness_m", 72.0))
+    min_thickness = float(params.get("min_thickness_m", 60.0))
+    high_risk_threshold = float(params.get("high_risk_threshold", 0.65))
+    layer_positions = [float(v) for v in params.get("layer_positions", [0.22, 0.52, 0.82])]
+    if len(layer_positions) != 3:
+        layer_positions = [0.22, 0.52, 0.82]
 
-    layer_mid = []
-    for cfg in LAYERS:
-        mid = z + 0.5 * (cfg["low"] + cfg["high"])
-        layer_mid.append(mid)
+    slope_factor = np.clip((slope_deg - slope_threshold) / max(slope_high - slope_threshold, 1e-6), 0.0, 1.0)
+    floor_offset = base_floor + slope_extra * slope_factor + ridge_extra * np.clip(ridge_score - 0.55, 0.0, 1.0) / 0.45
+    ceiling_offset = base_ceiling + open_extra * np.clip(open_score, 0.0, 1.0)
+
+    d_terminal = terminal_distance_km(rows, cols, terminal_rcs)
+    terminal_mask = d_terminal <= terminal_radius
+    ceiling_offset = np.where(terminal_mask, np.minimum(ceiling_offset, floor_offset + terminal_thickness), ceiling_offset)
+    ceiling_offset = np.maximum(ceiling_offset, floor_offset + min_thickness)
+
+    floor = zf + floor_offset
+    ceiling = zf + ceiling_offset
+    thickness = ceiling - floor
+    layer_mid_arr = np.stack([floor + pos * thickness for pos in layer_positions], axis=0).astype(np.float32)
+
+    layer_allowed = np.ones((3, rows, cols), dtype=bool)
+    high_risk = risk_human >= high_risk_threshold
+    # 高人群风险区限制低层和支路层，骨干层保留高净空越障能力。
+    layer_allowed[0, high_risk & (~terminal_mask)] = False
+    layer_allowed[1, high_risk & (~terminal_mask)] = False
+
+    meta = {
+        "base_floor_offset_m": base_floor,
+        "base_ceiling_offset_m": base_ceiling,
+        "floor_offset_min_m": float(np.nanmin(floor_offset)),
+        "floor_offset_max_m": float(np.nanmax(floor_offset)),
+        "ceiling_offset_min_m": float(np.nanmin(ceiling_offset)),
+        "ceiling_offset_max_m": float(np.nanmax(ceiling_offset)),
+        "thickness_min_m": float(np.nanmin(thickness)),
+        "thickness_max_m": float(np.nanmax(thickness)),
+        "terminal_area_ratio": float(np.mean(terminal_mask)),
+        "high_risk_area_ratio": float(np.mean(high_risk)),
+        "layer_allowed_ratio": [float(np.mean(layer_allowed[i])) for i in range(3)],
+        "layer_positions": layer_positions,
+    }
+    return floor.astype(np.float32), ceiling.astype(np.float32), layer_mid_arr, layer_allowed, meta
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="根据 DEM 构建安全走廊和分层飞行高度。")
+    parser.add_argument("--scenario-config", type=str, default="")
+    parser.add_argument("--workdir", type=str, default=".")
+    args = parser.parse_args()
+
+    root = Path(args.workdir).resolve()
+    use_scene = bool(str(args.scenario_config).strip())
+    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    scene_name = str(scene_cfg.get("scene_name", "default")) if use_scene else "huashan"
+    out_dir = scenario_output_dir(scene_cfg, root) if use_scene else root
+    dem_path = out_dir / CACHE_DEM
+    geo_path = out_dir / "Z_crop_geo.npz"
+
+    if not dem_path.exists():
+        raise FileNotFoundError(f"缺少 {dem_path}，请先运行 init_graph.py。")
+
+    z = np.asarray(np.load(dem_path), dtype=float)
+    rows, cols = z.shape
+    print(f"[读取] 场景={scene_name}, DEM shape={z.shape}, 高程={np.nanmin(z):.0f}~{np.nanmax(z):.0f} m")
+
+    risk_human = np.zeros((rows, cols), dtype=float)
+    risk_path = out_dir / "risk_human.npy"
+    if risk_path.exists():
+        risk_arr = np.asarray(np.load(risk_path), dtype=float)
+        if risk_arr.shape == z.shape:
+            risk_human = np.clip(risk_arr, 0.0, 1.0)
+
+    terminal_rcs: list[tuple[int, int]] = []
+    if geo_path.exists():
+        geo = np.load(geo_path)
+        lon_grid = np.asarray(geo["lon_grid"], dtype=float)
+        lat_grid = np.asarray(geo["lat_grid"], dtype=float)
+        for p in target_specs(scene_cfg).values() if use_scene else PEAKS.values():
+            terminal_rcs.append(nearest_rc_from_lonlat(lon_grid, lat_grid, float(p["lon"]), float(p["lat"])))
+        depot_path = out_dir / "generated_depots.json"
+        depots = []
+        if use_scene and not depot_path.exists():
+            depots = generate_virtual_depots(
+                z,
+                lon_grid,
+                lat_grid,
+                target_specs(scene_cfg),
+                depot_params(scene_cfg),
+                risk_human=risk_human,
+                resolution_m=RESOLUTION,
+            )
+            depot_payload = {
+                "scene_name": scene_name,
+                "rule": "低坡度、低海拔、低风险、远离目标点且位于边缘或山脚过渡区",
+                "depots": depots,
+            }
+            depot_path.write_text(json.dumps(depot_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"[配送站] 已预生成 {len(depots)} 个虚拟配送站，用于终端进近走廊收缩。")
+        elif depot_path.exists():
+            try:
+                depots = json.loads(depot_path.read_text(encoding="utf-8")).get("depots", [])
+            except Exception:
+                depots = []
+        for d in depots:
+            if "row" in d and "col" in d:
+                terminal_rcs.append((int(d["row"]), int(d["col"])))
+
+    corridor_params = adaptive_corridor_params(scene_cfg) if use_scene else adaptive_corridor_params({})
+    floor, ceiling, layer_mid_arr, layer_allowed, corridor_meta = build_adaptive_corridor(
+        z,
+        risk_human,
+        terminal_rcs,
+        corridor_params,
+    )
+    np.save(out_dir / "floor.npy", floor.astype(np.float32))
+    np.save(out_dir / "ceiling.npy", ceiling.astype(np.float32))
+    np.save(out_dir / "layer_allowed.npy", layer_allowed.astype(np.bool_))
+    (out_dir / "corridor_meta.json").write_text(
+        json.dumps(corridor_meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"[步骤2] 下边界={np.min(floor):.0f}~{np.max(floor):.0f} m")
+    print(f"[步骤2] 上边界={np.min(ceiling):.0f}~{np.max(ceiling):.0f} m")
+
+    for idx, layer_cfg in enumerate(LAYERS):
+        mid = layer_mid_arr[idx]
         print(
-            f"[step3] {cfg['name']}: +{cfg['low']:.0f}~+{cfg['high']:.0f} m AGL, "
-            f"abs={np.min(mid):.0f}~{np.max(mid):.0f} m"
+            f"[步骤3] {layer_cfg['name']}: 自适应层面，"
+            f"绝对高度={np.min(mid):.0f}~{np.max(mid):.0f} m"
         )
-    layer_mid_arr = np.stack(layer_mid, axis=0).astype(np.float32)
-    np.save("layer_mid.npy", layer_mid_arr)
-    print(f"[step3] layer_mid.npy saved, shape={layer_mid_arr.shape}")
+    np.save(out_dir / "layer_mid.npy", layer_mid_arr)
+    print(f"[步骤3] layer_mid.npy 已保存, shape={layer_mid_arr.shape}")
 
     x_km = np.arange(cols) * RESOLUTION / 1000.0
     y_km = np.arange(rows) * RESOLUTION / 1000.0
     extent = [0.0, cols * RESOLUTION / 1000.0, 0.0, rows * RESOLUTION / 1000.0]
-    peak_pos = load_peak_positions(rows, cols, z)
+    targets = target_specs(scene_cfg) if use_scene else PEAKS
+    names = display_names(scene_cfg) if use_scene else {}
+    peak_pos = load_peak_positions(rows, cols, z, geo_path, targets, names)
 
     fig = plt.figure(figsize=(22, 12), dpi=300)
-    fig.suptitle("Huashan Flyable Corridor and Layered Decks", fontsize=15, y=0.98)
+    fig.suptitle(f"{scene_name} Flyable Corridor and Layered Decks", fontsize=15, y=0.98)
 
     # 1) East-west profile
     ax1 = fig.add_subplot(2, 3, 1)
@@ -144,7 +318,7 @@ def main() -> None:
     plt.colorbar(im2, ax=ax2, label="Corridor Thickness (m)", shrink=0.82)
     ax2.set_xlabel("East-West (km)")
     ax2.set_ylabel("South-North (km)")
-    ax2.set_title(f"Corridor Thickness (constant {H_MAX_OFFSET - H_MIN_OFFSET:.0f} m)")
+    ax2.set_title("Adaptive Corridor Thickness")
     ax2.grid(True, alpha=0.25, ls="--")
     if peak_pos:
         for name, p in peak_pos.items():
@@ -241,12 +415,16 @@ def main() -> None:
                 )
 
     plt.tight_layout()
-    plt.savefig("corridor_vis.png", dpi=300, bbox_inches="tight")
+    corridor_png = out_dir / "corridor_vis.png"
+    plt.savefig(corridor_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    print("[done] corridor_vis.png saved")
-    print("[done] outputs: floor.npy / ceiling.npy / layer_mid.npy")
-    print("[next] run layered_graph.py")
+    print(f"[完成] {corridor_png} 已保存")
+    print(
+        f"[完成] 输出: {out_dir / 'floor.npy'} / {out_dir / 'ceiling.npy'} / "
+        f"{out_dir / 'layer_mid.npy'} / {out_dir / 'layer_allowed.npy'}"
+    )
+    print("[下一步] 运行 layered_graph.py")
 
 
 if __name__ == "__main__":

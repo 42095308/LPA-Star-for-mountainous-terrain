@@ -19,6 +19,14 @@ import tifffile
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from pyproj import Transformer
 
+from scenario_config import (
+    display_names,
+    load_scenario_config,
+    resolve_path,
+    scenario_output_dir,
+    target_specs,
+)
+
 
 TIF_FILE = "AP_19438_FBD_F0680_RT1.dem.tif"
 CACHE_FILE = "Z_crop.npy"
@@ -160,41 +168,55 @@ def cache_matches(meta_path: Path, center_lon: float, center_lat: float, crop_si
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Crop Huashan DEM and export geo-aligned cache.")
+    parser = argparse.ArgumentParser(description="裁剪 DEM 并导出与地理坐标对齐的场景缓存。")
+    parser.add_argument("--scenario-config", type=str, default="")
+    parser.add_argument("--workdir", type=str, default=".")
     parser.add_argument("--center-lon", type=float, default=DEFAULT_CENTER_LON)
     parser.add_argument("--center-lat", type=float, default=DEFAULT_CENTER_LAT)
     parser.add_argument("--crop-size-m", type=float, default=DEFAULT_CROP_SIZE_M)
     parser.add_argument("--force-recrop", action="store_true")
     args = parser.parse_args()
 
-    center_lon = float(args.center_lon)
-    center_lat = float(args.center_lat)
-    crop_size_m = float(args.crop_size_m)
+    root = Path(args.workdir).resolve()
+    use_scene = bool(str(args.scenario_config).strip())
+    cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    scene_name = str(cfg.get("scene_name", "huashan")) if use_scene else "huashan"
+    out_dir = scenario_output_dir(cfg, root) if use_scene else root
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    tif_path = Path(TIF_FILE)
+    crop_cfg = cfg.get("crop", {}) if use_scene else {}
+    center_lon = float(crop_cfg.get("center_lon", args.center_lon))
+    center_lat = float(crop_cfg.get("center_lat", args.center_lat))
+    crop_size_m = float(crop_cfg.get("crop_size_m", args.crop_size_m))
+
+    cache_file = out_dir / CACHE_FILE
+    cache_geo = out_dir / CACHE_GEO
+    cache_meta = out_dir / CACHE_META
+
+    tif_path = resolve_path(str(cfg.get("dem_path", TIF_FILE)), root) if use_scene else root / TIF_FILE
     if not tif_path.exists():
         raise FileNotFoundError(f"Missing DEM file: {tif_path.resolve()}")
 
     use_cache = (
-        Path(CACHE_FILE).exists()
-        and Path(CACHE_GEO).exists()
-        and cache_matches(Path(CACHE_META), center_lon, center_lat, crop_size_m)
+        cache_file.exists()
+        and cache_geo.exists()
+        and cache_matches(cache_meta, center_lon, center_lat, crop_size_m)
         and (not args.force_recrop)
     )
 
     if use_cache:
-        print("[cache] using existing crop cache (center and size match).")
-        z_crop = np.asarray(np.load(CACHE_FILE), dtype=float)
-        geo = np.load(CACHE_GEO)
+        print("[缓存] 使用已有裁剪缓存（中心点和尺寸匹配）。")
+        z_crop = np.asarray(np.load(cache_file), dtype=float)
+        geo = np.load(cache_geo)
         lon_grid = np.asarray(geo["lon_grid"], dtype=float)
         lat_grid = np.asarray(geo["lat_grid"], dtype=float)
-        meta = json.loads(Path(CACHE_META).read_text(encoding="utf-8"))
+        meta = json.loads(cache_meta.read_text(encoding="utf-8"))
         row_min = int(meta["row_min"])
         row_max = int(meta["row_max"])
         col_min = int(meta["col_min"])
         col_max = int(meta["col_max"])
     else:
-        print("[crop] reading source DEM and recropping...")
+        print("[裁剪] 读取源 DEM 并重新裁剪...")
         dem, x0, y0, sx, sy = read_tiff_with_georef(tif_path)
         dem[dem < -9000] = np.nan
         n_rows, n_cols = dem.shape
@@ -215,20 +237,22 @@ def main() -> None:
 
         d_lon = lon_new_chk - lon_old
         d_lat = lat_new_chk - lat_old
-        print(f"[debug] legacy center pixel: row={legacy_row}, col={legacy_col}")
-        print(f"[debug] legacy center lon/lat: lon={lon_old:.6f}, lat={lat_old:.6f}")
-        print(f"[debug] target center lon/lat: lon={center_lon:.6f}, lat={center_lat:.6f}")
-        print(f"[debug] target center pixel: row={center_row}, col={center_col}")
-        print(f"[debug] snapped target lon/lat: lon={lon_new_chk:.6f}, lat={lat_new_chk:.6f}")
-        print(f"[debug] offset from legacy to target: dlon={d_lon:+.6f}, dlat={d_lat:+.6f}")
+        print(f"[调试] 旧中心像元: row={legacy_row}, col={legacy_col}")
+        print(f"[调试] 旧中心经纬度: lon={lon_old:.6f}, lat={lat_old:.6f}")
+        print(f"[调试] 目标中心经纬度: lon={center_lon:.6f}, lat={center_lat:.6f}")
+        print(f"[调试] 目标中心像元: row={center_row}, col={center_col}")
+        print(f"[调试] 吸附后目标经纬度: lon={lon_new_chk:.6f}, lat={lat_new_chk:.6f}")
+        print(f"[调试] 相对旧中心偏移: dlon={d_lon:+.6f}, dlat={d_lat:+.6f}")
 
         row_min, row_max, col_min, col_max = bounded_crop_window(center_row, center_col, half, n_rows, n_cols)
         z_crop = dem[row_min:row_max, col_min:col_max]
         lon_grid, lat_grid = build_lonlat_grids(row_min, row_max, col_min, col_max, x0, y0, sx, sy)
 
-        np.save(CACHE_FILE, z_crop.astype(np.float32))
-        np.savez(CACHE_GEO, lon_grid=lon_grid.astype(np.float64), lat_grid=lat_grid.astype(np.float64))
+        np.save(cache_file, z_crop.astype(np.float32))
+        np.savez(cache_geo, lon_grid=lon_grid.astype(np.float64), lat_grid=lat_grid.astype(np.float64))
         meta = {
+            "scene_name": scene_name,
+            "dem_path": str(tif_path),
             "center_lon": center_lon,
             "center_lat": center_lat,
             "crop_size_m": crop_size_m,
@@ -238,23 +262,27 @@ def main() -> None:
             "col_max": col_max,
             "row0_orientation": "north",
         }
-        Path(CACHE_META).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
-        print("[crop] cache saved: Z_crop.npy / Z_crop_geo.npz / Z_crop_meta.json")
+        cache_meta.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[裁剪] 缓存已保存到: {out_dir}")
 
     rows, cols = z_crop.shape
-    print(f"[info] DEM shape: {rows} x {cols}")
-    print(f"[info] elevation range: {np.nanmin(z_crop):.1f} m .. {np.nanmax(z_crop):.1f} m")
-    print(f"[info] lon range: {lon_grid.min():.6f} .. {lon_grid.max():.6f}")
-    print(f"[info] lat range: {lat_grid.min():.6f} .. {lat_grid.max():.6f}")
-    print(f"[info] center (grid mean): lon={np.mean(lon_grid):.6f}, lat={np.mean(lat_grid):.6f}")
+    print(f"[信息] 场景: {scene_name}")
+    print(f"[信息] DEM shape: {rows} x {cols}")
+    print(f"[信息] 高程范围: {np.nanmin(z_crop):.1f} m .. {np.nanmax(z_crop):.1f} m")
+    print(f"[信息] 经度范围: {lon_grid.min():.6f} .. {lon_grid.max():.6f}")
+    print(f"[信息] 纬度范围: {lat_grid.min():.6f} .. {lat_grid.max():.6f}")
+    print(f"[信息] 网格中心: lon={np.mean(lon_grid):.6f}, lat={np.mean(lat_grid):.6f}")
 
     # Peak marker coordinates in current crop.
     peak_plot: Dict[str, Dict[str, float]] = {}
-    for name, p in PEAKS_WGS84.items():
+    configured_targets = target_specs(cfg) if use_scene else PEAKS_WGS84
+    configured_display = display_names(cfg) if use_scene else {}
+    for name, p in configured_targets.items():
         r, c = nearest_rc_from_lonlat(lon_grid, lat_grid, p["lon"], p["lat"])
         x_km = c * RESOLUTION_M / 1000.0
         y_km = (rows - 1 - r) * RESOLUTION_M / 1000.0
-        peak_plot[name] = {
+        label = configured_display.get(name, name)
+        peak_plot[label] = {
             "x": x_km,
             "y": y_km,
             "lon": float(lon_grid[r, c]),
@@ -283,7 +311,7 @@ def main() -> None:
 
     ax1.set_xlabel("East-West (km)")
     ax1.set_ylabel("South-North (km)")
-    ax1.set_title("Huashan Core DEM (Top View)")
+    ax1.set_title(f"{scene_name} Core DEM (Top View)")
     ax1.grid(True, alpha=0.3, linestyle="--")
 
     annot = ax1.annotate(
@@ -339,11 +367,12 @@ def main() -> None:
     ax2.set_xlabel("East-West (km)", labelpad=8)
     ax2.set_ylabel("South-North (km)", labelpad=8)
     ax2.set_zlabel("Elevation (m)", labelpad=8)
-    ax2.set_title("Huashan Core DEM (3D View)")
+    ax2.set_title(f"{scene_name} Core DEM (3D View)")
 
     plt.tight_layout()
-    plt.savefig("huashan_final.png", dpi=300, bbox_inches="tight")
-    print("[done] huashan_final.png")
+    final_png = out_dir / f"{scene_name}_final.png"
+    plt.savefig(final_png, dpi=300, bbox_inches="tight")
+    print(f"[完成] {final_png}")
     plt.close(fig)
 
 

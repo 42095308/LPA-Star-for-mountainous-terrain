@@ -14,7 +14,7 @@
 
 【三阶段流程】
     阶段1 初始规划：compute_shortest_path()，等价于 A*，同时建立 g/rhs 状态表
-    阶段2 触发事件：update_edge_cost(u, v, new_cost)，模拟阵风/禁飞区封锁
+    阶段2 触发事件：区域扰动映射到受影响边集合，模拟禁飞区、强风区或通信风险上升区
     阶段3 增量重规划：再次调用 compute_shortest_path()，只遍历受影响的局部节点
 
 【实验设计】
@@ -44,10 +44,15 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.font_manager import FontProperties
-from matplotlib.patches import Polygon
+from matplotlib.patches import Circle, Polygon
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import splprep, splev
 from scipy.spatial import ConvexHull, QhullError
+from pathlib import Path
+
+from dynamic_events import build_area_event_from_path, event_edge_cost, normalize_pair
+from scenario_config import display_names as load_display_names
+from scenario_config import communication_params, load_scenario_config, scenario_output_dir, target_specs
 
 matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -88,7 +93,7 @@ DISPLAY_NAMES = {
     "西部基地": "West Depot",
 }
 
-# 触发事件：随机封锁路径上的 N_BLOCK 条边
+# 触发事件：区域扰动；N_BLOCK 仅保留为旧命令行兼容参数
 N_BLOCK    = 2
 
 
@@ -103,12 +108,23 @@ def parse_seed_list(raw):
 
 
 parser = argparse.ArgumentParser(description="LPA* main experiment runner")
-parser.add_argument("--n-block", type=int, default=N_BLOCK, help="Number of blocked edges in stage-2 event.")
+parser.add_argument("--scenario-config", type=str, default="", help="场景配置 JSON。")
+parser.add_argument("--workdir", type=str, default=".", help="项目根目录。")
+parser.add_argument("--n-block", type=int, default=N_BLOCK, help="旧兼容参数，区域事件默认不按单边随机封锁。")
+parser.add_argument(
+    "--event-type",
+    type=str,
+    choices=["no_fly", "wind", "comm_risk"],
+    default="no_fly",
+    help="区域扰动类型：no_fly=临时禁飞区，wind=阵风/强风区，comm_risk=通信风险上升区。",
+)
+parser.add_argument("--event-radius-km", type=float, default=0.8, help="区域扰动半径（km）。")
+parser.add_argument("--event-severity", type=float, default=1.0, help="区域扰动强度。")
 parser.add_argument(
     "--event-seed",
     type=int,
     default=-1,
-    help="Random seed for stage-2 blocked-edge sampling (-1 means auto by current time).",
+    help="区域事件中心采样随机种子（-1 表示使用当前时间自动生成）。",
 )
 parser.add_argument(
     "--seed-sweep",
@@ -135,7 +151,22 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+ROOT = Path(args.workdir).resolve()
+USE_SCENE = bool(str(args.scenario_config).strip())
+SCENE_CFG = load_scenario_config(args.scenario_config or None, ROOT) if USE_SCENE else {}
+DATA_DIR = scenario_output_dir(SCENE_CFG, ROOT) if USE_SCENE else ROOT
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+os.chdir(DATA_DIR)
+if USE_SCENE:
+    scene_targets = target_specs(SCENE_CFG)
+    DISPLAY_NAMES.update(load_display_names(SCENE_CFG))
+    START_NAME = str(SCENE_CFG.get("default_start") or START_NAME)
+    GOAL_NAME = str(SCENE_CFG.get("default_goal") or GOAL_NAME)
+
 N_BLOCK = max(1, int(args.n_block))
+EVENT_TYPE = str(args.event_type)
+EVENT_RADIUS_KM = max(1e-6, float(args.event_radius_km))
+EVENT_SEVERITY = max(0.0, float(args.event_severity))
 MAIN_EVENT_SEED = int(args.event_seed) if int(args.event_seed) >= 0 else int(time.time_ns() % (2**32 - 1))
 if args.disable_seed_sweep:
     SEED_SWEEP_LIST = []
@@ -147,7 +178,11 @@ else:
         n_seed = max(1, int(args.seed_sweep_count))
         base_seed = int(args.seed_sweep_base)
         SEED_SWEEP_LIST = [base_seed + i for i in range(n_seed)]
-print(f"[事件采样] n_block={N_BLOCK}, main_seed={MAIN_EVENT_SEED}, seed_sweep_n={len(SEED_SWEEP_LIST)}")
+print(
+    f"[事件采样] type={EVENT_TYPE}, radius={EVENT_RADIUS_KM:.2f}km, "
+    f"severity={EVENT_SEVERITY:.2f}, compat_n_block={N_BLOCK}, "
+    f"main_seed={MAIN_EVENT_SEED}, seed_sweep_n={len(SEED_SWEEP_LIST)}"
+)
 
 # ===== 读取数据 =====
 assert os.path.exists("graph_nodes.npy"), "缺少 graph_nodes.npy"
@@ -157,6 +192,10 @@ assert os.path.exists("Z_crop.npy"),      "缺少 Z_crop.npy"
 nodes = np.load("graph_nodes.npy")
 edges = np.load("graph_edges.npy")
 Z     = np.load("Z_crop.npy")
+layer_mid_map = np.load("layer_mid.npy") if os.path.exists("layer_mid.npy") else None
+floor_grid = np.load("floor.npy") if os.path.exists("floor.npy") else None
+ceiling_grid = np.load("ceiling.npy") if os.path.exists("ceiling.npy") else None
+layer_allowed_grid = np.load("layer_allowed.npy").astype(bool) if os.path.exists("layer_allowed.npy") else None
 rows, cols = Z.shape
 N = len(nodes)
 print(f"[读取] |V|={N}，|E|={len(edges)}")
@@ -169,7 +208,10 @@ risk_l4 = np.zeros((rows, cols), dtype=float)
 risk_trail = np.zeros((rows, cols), dtype=float)
 risk_hotspot = np.zeros((rows, cols), dtype=float)
 risk_human = np.zeros((rows, cols), dtype=float)
+risk_comm = np.zeros((3, rows, cols), dtype=float)
 risk_mode = "terrain_only"
+comm_params = communication_params(SCENE_CFG) if USE_SCENE else communication_params({})
+comm_risk_threshold = float(comm_params.get("risk_threshold", 0.55))
 
 if os.path.exists("risk_l1.npy"):
     arr = np.load("risk_l1.npy").astype(float)
@@ -199,6 +241,10 @@ if os.path.exists("risk_human.npy"):
     arr = np.load("risk_human.npy").astype(float)
     if arr.shape == (rows, cols):
         risk_human = np.clip(arr, 0.0, 1.0)
+if os.path.exists("risk_comm.npy"):
+    arr = np.load("risk_comm.npy").astype(float)
+    if arr.shape == (3, rows, cols):
+        risk_comm = np.clip(arr, 0.0, 1.0)
 
 has_level_split = (
     (np.max(risk_l1) > 0.0)
@@ -209,6 +255,7 @@ has_level_split = (
 has_legacy_split = (np.max(risk_trail) > 0.0) or (np.max(risk_hotspot) > 0.0)
 has_split = has_level_split or has_legacy_split
 has_combined = np.max(risk_human) > 0.0
+has_comm = np.max(risk_comm) > 0.0
 # NOTE: split mode must be prioritized, otherwise combined risk would mask L1~L4.
 if has_split:
     risk_mode = "terrain_trail_hotspot"
@@ -225,21 +272,79 @@ if (not has_level_split) and has_legacy_split:
 
 print(f"[风险场] mode={risk_mode}")
 
+raw_risk_weights = dict(comm_params.get("weights", {}))
+terrain_group_w = float(raw_risk_weights.get("terrain", 0.45))
+human_group_w = float(raw_risk_weights.get("human", 0.35)) if (has_split or has_combined) else 0.0
+comm_group_w = float(raw_risk_weights.get("communication", 0.20)) if has_comm else 0.0
+if terrain_group_w <= 0.0:
+    terrain_group_w = 1.0
+wsum = max(terrain_group_w + human_group_w + comm_group_w, 1e-9)
+terrain_group_w /= wsum
+human_group_w /= wsum
+comm_group_w /= wsum
+print(
+    f"[风险权重] terrain={terrain_group_w:.2f}, human={human_group_w:.2f}, "
+    f"communication={comm_group_w:.2f}, comm_available={has_comm}"
+)
+
 # ===== 工具函数 =====
 def km_to_rc(x_km, y_km):
     c = int(np.clip(x_km * 1000 / RESOLUTION, 0, cols - 1))
     r = int(np.clip((rows - 1) - y_km * 1000 / RESOLUTION, 0, rows - 1))
     return r, c
 
+def nearest_layer_id(r, c, z_m, fallback_lid=2):
+    if layer_mid_map is None:
+        return int(np.clip(fallback_lid, 0, 2))
+    vals = layer_mid_map[:, int(r), int(c)]
+    return int(np.argmin(np.abs(vals - float(z_m))))
+
+def point_in_corridor(x_km, y_km, z_m, fallback_lid=None):
+    r, c = km_to_rc(x_km, y_km)
+    if z_m - float(Z[r, c]) < SAFETY_HEIGHT:
+        return False
+    if floor_grid is not None and z_m < float(floor_grid[r, c]) - 1e-6:
+        return False
+    if ceiling_grid is not None and z_m > float(ceiling_grid[r, c]) + 1e-6:
+        return False
+    if layer_allowed_grid is not None:
+        lid = nearest_layer_id(r, c, z_m) if fallback_lid is None else int(fallback_lid)
+        lid = int(np.clip(lid, 0, layer_allowed_grid.shape[0] - 1))
+        if not bool(layer_allowed_grid[lid, r, c]):
+            return False
+    return True
+
 def collision_free(n1, n2):
     for t in np.linspace(0, 1, COLLISION_SAMPLES):
         x = n1[0] + t*(n2[0]-n1[0])
         y = n1[1] + t*(n2[1]-n1[1])
         z = n1[2] + t*(n2[2]-n1[2])
-        r, c = km_to_rc(x, y)
-        if z - float(Z[r, c]) < SAFETY_HEIGHT:
+        lid = int(round(n1[3] + t * (n2[3] - n1[3]))) if len(n1) >= 4 and len(n2) >= 4 else None
+        if not point_in_corridor(x, y, z, fallback_lid=lid):
             return False
     return True
+
+def human_point_risk(r, c):
+    if risk_mode == "terrain_trail_hotspot":
+        split_sum = max(RISK_W_L1 + RISK_W_L2 + RISK_W_L3 + RISK_W_L4, 1e-9)
+        return float(
+            (RISK_W_L1 / split_sum) * risk_l1[r, c]
+            + (RISK_W_L2 / split_sum) * risk_l2[r, c]
+            + (RISK_W_L3 / split_sum) * risk_l3[r, c]
+            + (RISK_W_L4 / split_sum) * risk_l4[r, c]
+        )
+    if risk_mode == "terrain_human_combined":
+        return float(risk_human[r, c])
+    return 0.0
+
+def fused_risk_at(x_km, y_km, z_m, fallback_lid=2):
+    r, c = km_to_rc(x_km, y_km)
+    terrain = float(Z[r, c])
+    r_terrain = max(0.0, 1.0 - (z_m - terrain) / 200.0)
+    lid = nearest_layer_id(r, c, z_m, fallback_lid=fallback_lid)
+    r_comm = float(risk_comm[lid, r, c]) if has_comm else 0.0
+    r_total = terrain_group_w * r_terrain + human_group_w * human_point_risk(r, c) + comm_group_w * r_comm
+    return float(np.clip(r_total, 0.0, 1.0))
 
 # ===== 预计算边代价 =====
 def compute_raw_edge_costs():
@@ -256,27 +361,8 @@ def compute_raw_edge_costs():
         risk_samples = []
         for t in np.linspace(0, 1, 10):
             x = xi + t*(xj-xi); y = yi + t*(yj-yi); z = zi + t*(zj-zi)
-            r, c = km_to_rc(x, y)
-            terrain = float(Z[r, c])
-            r_terrain = max(0.0, 1.0 - (z - terrain) / 200.0)
-
-            if risk_mode == "terrain_trail_hotspot":
-                r_total = (
-                    RISK_W_TERRAIN * r_terrain
-                    + RISK_W_L1 * float(risk_l1[r, c])
-                    + RISK_W_L2 * float(risk_l2[r, c])
-                    + RISK_W_L3 * float(risk_l3[r, c])
-                    + RISK_W_L4 * float(risk_l4[r, c])
-                )
-            elif risk_mode == "terrain_human_combined":
-                r_total = (
-                    (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain
-                    + RISK_W_HUMAN_COMBINED * float(risk_human[r, c])
-                )
-            else:
-                r_total = r_terrain
-
-            risk_samples.append(float(np.clip(r_total, 0.0, 1.0)))
+            lid = int(round(nodes[i, 3] + t * (nodes[j, 3] - nodes[i, 3])))
+            risk_samples.append(fused_risk_at(x, y, z, fallback_lid=lid))
         R_raw = float(np.mean(risk_samples))
         raw.append([t_raw, E_raw, R_raw])
     raw = np.array(raw)
@@ -285,21 +371,23 @@ def compute_raw_edge_costs():
     R_max = raw[:,2].max() + 1e-9
     norm  = raw / np.array([t_max, E_max, R_max])
     weights = ALPHA*norm[:,0] + BETA*norm[:,1] + GAMMA*norm[:,2]
-    return weights, t_max, E_max, R_max
+    return weights, t_max, E_max, R_max, raw
 
 print("[预计算] 边代价...")
-edge_weights_base, EDGE_T_MAX, EDGE_E_MAX, EDGE_R_MAX = compute_raw_edge_costs()
+edge_weights_base, EDGE_T_MAX, EDGE_E_MAX, EDGE_R_MAX, EDGE_RAW_COMPONENTS = compute_raw_edge_costs()
 print("[heuristic] key1=min(g,rhs)+h; h=LB(time)+LB(energy), risk LB=0")
 
 # 构建邻接表：adj[u] = [(v, edge_key), ...]
 # edge_cost 存在字典里方便动态修改
 adj       = [[] for _ in range(N)]
 edge_cost = {}   # (min(u,v), max(u,v)) -> cost
+edge_id_by_pair = {}
 
 for k, e in enumerate(edges):
     i, j = int(e[0]), int(e[1])
     key = (min(i,j), max(i,j))
     edge_cost[key] = float(edge_weights_base[k])
+    edge_id_by_pair[key] = int(k)
     adj[i].append(j)
     adj[j].append(i)
 
@@ -314,26 +402,32 @@ def reset_edge_costs_to_base():
         edge_cost[(min(i, j), max(i, j))] = float(edge_weights_base[k])
 
 
+def cost_under_area_event(u, v, area_event):
+    """根据区域事件类型计算受影响边的新代价。"""
+    eid = edge_id_by_pair.get((min(int(u), int(v)), max(int(u), int(v))))
+    if eid is None:
+        return np.inf
+    return event_edge_cost(
+        area_event.event_type,
+        area_event.severity,
+        EDGE_RAW_COMPONENTS[eid],
+        (EDGE_T_MAX, EDGE_E_MAX, EDGE_R_MAX),
+        (ALPHA, BETA, GAMMA),
+    )
+
+
+def apply_area_event_to_planner(planner, area_event):
+    """把区域事件映射到 LPA* 边代价更新。"""
+    applied = []
+    for u, v in area_event.affected_edges:
+        new_cost = cost_under_area_event(u, v, area_event)
+        planner.update_edge_cost(int(u), int(v), new_cost)
+        applied.append((int(u), int(v), float(new_cost)))
+    return applied
+
+
 def fused_point_risk(x_km, y_km, z_m):
-    r, c = km_to_rc(x_km, y_km)
-    terrain = float(Z[r, c])
-    r_terrain = max(0.0, 1.0 - (z_m - terrain) / 200.0)
-    if risk_mode == "terrain_trail_hotspot":
-        r_total = (
-            RISK_W_TERRAIN * r_terrain
-            + RISK_W_L1 * float(risk_l1[r, c])
-            + RISK_W_L2 * float(risk_l2[r, c])
-            + RISK_W_L3 * float(risk_l3[r, c])
-            + RISK_W_L4 * float(risk_l4[r, c])
-        )
-    elif risk_mode == "terrain_human_combined":
-        r_total = (
-            (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain
-            + RISK_W_HUMAN_COMBINED * float(risk_human[r, c])
-        )
-    else:
-        r_total = r_terrain
-    return float(np.clip(r_total, 0.0, 1.0))
+    return fused_risk_at(x_km, y_km, z_m)
 
 
 def build_cost_profile(curve_xyz):
@@ -399,8 +493,27 @@ def build_cost_profile(curve_xyz):
 PEAKS_ORDER  = ["南峰","东峰","西峰","北峰","中峰"]
 DEPOTS_ORDER = ["北部基地","西部基地"]
 ALL_TERMINALS = PEAKS_ORDER + DEPOTS_ORDER
+TERMINAL_STATUS = {}
+if os.path.exists("graph_terminal_status.json"):
+    with open("graph_terminal_status.json", "r", encoding="utf-8") as f:
+        TERMINAL_STATUS = json.load(f)
+    ALL_TERMINALS = [str(v) for v in TERMINAL_STATUS.get("terminal_order", ALL_TERMINALS)]
+    for name in ALL_TERMINALS:
+        DISPLAY_NAMES.setdefault(name, name)
+elif USE_SCENE:
+    generated_names = []
+    if os.path.exists("generated_depots.json"):
+        with open("generated_depots.json", "r", encoding="utf-8") as f:
+            depot_payload = json.load(f)
+        generated_names = [str(d["name"]) for d in depot_payload.get("depots", [])]
+    ALL_TERMINALS = list(target_specs(SCENE_CFG).keys()) + generated_names
 
 def find_best_terminal(name):
+    if name not in ALL_TERMINALS:
+        raise ValueError(f"终端点 {name} 不在当前图的 terminal_order 中: {ALL_TERMINALS}")
+    st = (TERMINAL_STATUS.get("terminals") or {}).get(name, {})
+    if st and not bool(st.get("reachable", True)):
+        raise RuntimeError(f"终端点 {name} 已被标记为不可达，不能作为起点或终点。")
     # 临时构建邻接查询
     tmp_adj = [[] for _ in range(N)]
     for e in edges:
@@ -686,56 +799,241 @@ def bspline_smooth(node_path, n_points=120, smooth_factor=0.0):
     return np.column_stack([x_s, y_s, z_s])
 
 
+def interpolate_node_path(node_path, points_per_segment=12):
+    """把节点折线加密成连续轨迹点，用于回退输出和指标统计。"""
+    if len(node_path) == 0:
+        return np.zeros((0, 3), dtype=float)
+    coords = np.array([[nodes[n, 0], nodes[n, 1], nodes[n, 2]] for n in node_path], dtype=float)
+    if len(coords) == 1:
+        return coords.copy()
+    out = []
+    for k in range(len(coords) - 1):
+        p1 = coords[k]
+        p2 = coords[k + 1]
+        for t in np.linspace(0.0, 1.0, max(2, int(points_per_segment)), endpoint=False):
+            out.append(p1 + t * (p2 - p1))
+    out.append(coords[-1])
+    return np.asarray(out, dtype=float)
+
+
+def validate_curve_corridor(curve_xyz, sample_per_segment=3):
+    """验证轨迹是否始终位于安全走廊内。"""
+    if curve_xyz is None or len(curve_xyz) == 0:
+        return {
+            "ok": False,
+            "violations": 1,
+            "sample_count": 0,
+            "min_clearance_m": None,
+            "min_floor_margin_m": None,
+            "min_ceiling_margin_m": None,
+        }
+
+    samples = []
+    arr = np.asarray(curve_xyz, dtype=float)
+    if len(arr) == 1:
+        samples.append(arr[0])
+    else:
+        for i in range(len(arr) - 1):
+            p1 = arr[i]
+            p2 = arr[i + 1]
+            for t in np.linspace(0.0, 1.0, max(2, int(sample_per_segment)), endpoint=False):
+                samples.append(p1 + t * (p2 - p1))
+        samples.append(arr[-1])
+
+    violations = 0
+    min_clearance = float("inf")
+    min_floor_margin = float("inf")
+    min_ceiling_margin = float("inf")
+    for p in samples:
+        x, y, z = float(p[0]), float(p[1]), float(p[2])
+        r, c = km_to_rc(x, y)
+        clearance = z - float(Z[r, c])
+        min_clearance = min(min_clearance, clearance)
+        if floor_grid is not None:
+            min_floor_margin = min(min_floor_margin, z - float(floor_grid[r, c]))
+        if ceiling_grid is not None:
+            min_ceiling_margin = min(min_ceiling_margin, float(ceiling_grid[r, c]) - z)
+        if not point_in_corridor(x, y, z):
+            violations += 1
+
+    return {
+        "ok": violations == 0,
+        "violations": int(violations),
+        "sample_count": int(len(samples)),
+        "min_clearance_m": float(min_clearance) if np.isfinite(min_clearance) else None,
+        "min_floor_margin_m": float(min_floor_margin) if np.isfinite(min_floor_margin) else None,
+        "min_ceiling_margin_m": float(min_ceiling_margin) if np.isfinite(min_ceiling_margin) else None,
+    }
+
+
+def validate_node_path_corridor(node_path):
+    """按图边所属层验证折线路径，避免把安全图边误判到相邻层。"""
+    if len(node_path) <= 1:
+        return {
+            "ok": False,
+            "violations": 1,
+            "sample_count": 0,
+            "min_clearance_m": None,
+            "min_floor_margin_m": None,
+            "min_ceiling_margin_m": None,
+        }
+
+    violations = 0
+    sample_count = 0
+    min_clearance = float("inf")
+    min_floor_margin = float("inf")
+    min_ceiling_margin = float("inf")
+    for seg_idx in range(len(node_path) - 1):
+        n1 = nodes[node_path[seg_idx]]
+        n2 = nodes[node_path[seg_idx + 1]]
+        for t in np.linspace(0.0, 1.0, COLLISION_SAMPLES):
+            x = float(n1[0] + t * (n2[0] - n1[0]))
+            y = float(n1[1] + t * (n2[1] - n1[1]))
+            z = float(n1[2] + t * (n2[2] - n1[2]))
+            lid = int(round(n1[3] + t * (n2[3] - n1[3])))
+            r, c = km_to_rc(x, y)
+            clearance = z - float(Z[r, c])
+            min_clearance = min(min_clearance, clearance)
+            if floor_grid is not None:
+                min_floor_margin = min(min_floor_margin, z - float(floor_grid[r, c]))
+            if ceiling_grid is not None:
+                min_ceiling_margin = min(min_ceiling_margin, float(ceiling_grid[r, c]) - z)
+            if not point_in_corridor(x, y, z, fallback_lid=lid):
+                violations += 1
+            sample_count += 1
+
+    return {
+        "ok": violations == 0,
+        "violations": int(violations),
+        "sample_count": int(sample_count),
+        "min_clearance_m": float(min_clearance) if np.isfinite(min_clearance) else None,
+        "min_floor_margin_m": float(min_floor_margin) if np.isfinite(min_floor_margin) else None,
+        "min_ceiling_margin_m": float(min_ceiling_margin) if np.isfinite(min_ceiling_margin) else None,
+    }
+
+
+def node_path_corridor_ok(node_path):
+    """验证折线路径每条线段都满足走廊约束。"""
+    return bool(validate_node_path_corridor(node_path)["ok"])
+
+
+def comm_risk_at(x_km, y_km, z_m, fallback_lid=2):
+    """读取当前位置对应飞行层的通信风险。"""
+    if not has_comm:
+        return 0.0
+    r, c = km_to_rc(x_km, y_km)
+    lid = nearest_layer_id(r, c, z_m, fallback_lid=fallback_lid)
+    lid = int(np.clip(lid, 0, risk_comm.shape[0] - 1))
+    return float(np.clip(risk_comm[lid, r, c], 0.0, 1.0))
+
+
+def communication_metrics(curve_xyz):
+    """统计路径通信覆盖率和连续失联指标；通信风险缺失时自动退化。"""
+    if curve_xyz is None or len(curve_xyz) < 2:
+        return {
+            "available": bool(has_comm),
+            "coverage_ratio": 0.0,
+            "max_continuous_lost_time_s": 0.0,
+            "max_lost_segment_km": 0.0,
+            "lost_length_km": 0.0,
+            "mean_comm_risk": 0.0,
+        }
+    if not has_comm:
+        return {
+            "available": False,
+            "coverage_ratio": 1.0,
+            "max_continuous_lost_time_s": 0.0,
+            "max_lost_segment_km": 0.0,
+            "lost_length_km": 0.0,
+            "mean_comm_risk": 0.0,
+        }
+
+    arr = np.asarray(curve_xyz, dtype=float)
+    total_len_km = 0.0
+    covered_len_km = 0.0
+    lost_len_km = 0.0
+    cur_lost_len_km = 0.0
+    max_lost_len_km = 0.0
+    risk_weighted_sum = 0.0
+
+    for i in range(len(arr) - 1):
+        p1 = arr[i]
+        p2 = arr[i + 1]
+        dx = (float(p2[0]) - float(p1[0])) * 1000.0
+        dy = (float(p2[1]) - float(p1[1])) * 1000.0
+        dz = float(p2[2]) - float(p1[2])
+        seg_len_km = float(np.sqrt(dx * dx + dy * dy + dz * dz) / 1000.0)
+        if seg_len_km <= 1e-9:
+            continue
+        mid = 0.5 * (p1 + p2)
+        risk = comm_risk_at(float(mid[0]), float(mid[1]), float(mid[2]))
+        risk_weighted_sum += risk * seg_len_km
+        total_len_km += seg_len_km
+        if risk <= comm_risk_threshold:
+            covered_len_km += seg_len_km
+            cur_lost_len_km = 0.0
+        else:
+            lost_len_km += seg_len_km
+            cur_lost_len_km += seg_len_km
+            max_lost_len_km = max(max_lost_len_km, cur_lost_len_km)
+
+    total_len_km = max(total_len_km, 1e-9)
+    return {
+        "available": True,
+        "coverage_ratio": float(covered_len_km / total_len_km),
+        "max_continuous_lost_time_s": float(max_lost_len_km * 1000.0 / UAV_SPEED),
+        "max_lost_segment_km": float(max_lost_len_km),
+        "lost_length_km": float(lost_len_km),
+        "mean_comm_risk": float(risk_weighted_sum / total_len_km),
+    }
+
+
 def smooth_path(raw_path):
-    """完整两步平滑：LOS 剪枝 + B 样条 + 事后碰撞验证"""
+    """完整两步平滑；若 B 样条违规则回退到 LOS，必要时回退到原始图路径。"""
     step1 = los_smooth(raw_path)
     curve = bspline_smooth(step1)
-    # 事后碰撞验证：检查 B 样条曲线每个插值点是否满足安全高度约束
-    violations = 0
-    min_clearance = float('inf')
-    for k in range(len(curve)):
-        r, c = km_to_rc(curve[k, 0], curve[k, 1])
-        clearance = curve[k, 2] - float(Z[r, c])
-        if clearance < min_clearance:
-            min_clearance = clearance
-        if clearance < SAFETY_HEIGHT:
-            violations += 1
-    if violations > 0:
-        print(f"[警告] B样条曲线有 {violations}/{len(curve)} 个点"
-              f"低于安全高度 {SAFETY_HEIGHT}m（最小间隙={min_clearance:.1f}m），"
-              f"需要检查平滑参数或增加约束")
-    else:
-        print(f"[碰撞验证] B样条曲线全部通过安全高度检查"
-              f"（最小间隙={min_clearance:.1f}m）")
-    return step1, curve   # 返回剪枝后节点列表 + 样条曲线坐标
+    bspline_check = validate_curve_corridor(curve)
+    los_curve = interpolate_node_path(step1)
+    los_check = validate_node_path_corridor(step1)
+    los_ok = bool(los_check["ok"])
+
+    status = {
+        "status": "bspline_ok",
+        "bspline": bspline_check,
+        "los": los_check,
+        "los_ok": bool(los_ok),
+        "raw_ok": bool(node_path_corridor_ok(raw_path)),
+    }
+    if bspline_check["ok"]:
+        print(
+            f"[平滑验证] B样条通过走廊约束，最小净空={bspline_check['min_clearance_m']:.1f}m"
+        )
+        return step1, curve, status
+
+    if los_ok:
+        status["status"] = "fallback_los"
+        print(
+            f"[平滑回退] B样条有 {bspline_check['violations']}/{bspline_check['sample_count']} "
+            f"个采样点违反走廊约束，已回退到 LOS 折线。"
+        )
+        return step1, los_curve, status
+
+    raw_curve = interpolate_node_path(raw_path)
+    raw_check = validate_node_path_corridor(raw_path)
+    status["status"] = "fallback_raw"
+    status["raw"] = raw_check
+    if not raw_check["ok"]:
+        raise RuntimeError(
+            "原始图路径仍违反走廊约束，请检查 graph_edges.npy 是否由新版安全校验生成。"
+        )
+    print(
+        f"[平滑回退] LOS 折线仍不满足走廊约束，已回退到原始图路径；"
+        f"原始路径最小净空={raw_check['min_clearance_m']:.1f}m。"
+    )
+    return raw_path, raw_curve, status
 
 
-def choose_blocked_edges_from_path(raw_path, n_block, rng):
-    """按随机种子从路径中采样待封锁边，避免固定封锁同一条边。"""
-    blocked = []
-    if len(raw_path) >= 3:
-        n = len(raw_path)
-        lo = max(1, n // 3)
-        hi = max(lo + 1, 2 * n // 3)
-        interior = list(range(lo, hi))
-        if not interior:
-            interior = [max(1, n // 2)]
-        pick = rng.choice(interior, size=min(int(n_block), len(interior)), replace=False)
-        pick = np.atleast_1d(pick).astype(int)
-        for bi in pick:
-            u = int(raw_path[int(bi)])
-            v = int(raw_path[int(bi) + 1])
-            blocked.append((u, v))
-        return blocked
-
-    if len(edges) > 0:
-        k = int(rng.integers(0, len(edges)))
-        u, v = int(edges[k, 0]), int(edges[k, 1])
-        blocked.append((u, v))
-    return blocked
-
-
-def repeated_timing_eval(start, goal, blocked_edges, repeats=TIMING_REPEATS):
+def repeated_timing_eval(start, goal, area_event, repeats=TIMING_REPEATS):
     """固定同一事件场景重复计时，输出 mean/std，降低单次 wall-clock 偶然误差。"""
     phase1_ms = []
     phase3_ms = []
@@ -751,8 +1049,7 @@ def repeated_timing_eval(start, goal, blocked_edges, repeats=TIMING_REPEATS):
         if not ok1:
             continue
 
-        for u, v in blocked_edges:
-            p.update_edge_cost(int(u), int(v), np.inf)
+        apply_area_event_to_planner(p, area_event)
 
         t2 = time.perf_counter()
         ok3 = p.compute_shortest_path()
@@ -779,16 +1076,21 @@ def repeated_timing_eval(start, goal, blocked_edges, repeats=TIMING_REPEATS):
     }
 
 
-def seed_sweep_eval(start, goal, n_block, seed_list):
+def seed_sweep_eval(start, goal, seed_list):
     """
-    主实验多种子统计（与 benchmark 的统计口径保持一致）：不同随机种子对应不同封锁边组合。
+    主实验多种子统计：不同随机种子对应不同区域扰动中心和受影响边集合。
     """
     records = []
     for seed in seed_list:
         base_row = {
             "seed": int(seed),
-            "n_block": int(n_block),
-            "blocked_edges": "",
+            "event_type": EVENT_TYPE,
+            "event_radius_km": float(EVENT_RADIUS_KM),
+            "event_severity": float(EVENT_SEVERITY),
+            "affected_edge_count": 0,
+            "affected_edges": "",
+            "event_center_x_km": np.nan,
+            "event_center_y_km": np.nan,
             "success": False,
             "phase1_ms": np.nan,
             "phase3_ms": np.nan,
@@ -812,15 +1114,22 @@ def seed_sweep_eval(start, goal, n_block, seed_list):
 
         p1 = p.extract_path()
         rng = np.random.default_rng(int(seed))
-        blocked = choose_blocked_edges_from_path(p1, n_block=n_block, rng=rng)
-        if not blocked:
+        area_event = build_area_event_from_path(
+            nodes,
+            edges[:, :2],
+            p1,
+            rng,
+            event_type=EVENT_TYPE,
+            radius_km=EVENT_RADIUS_KM,
+            severity=EVENT_SEVERITY,
+        )
+        if not area_event.affected_edges:
             row = dict(base_row)
-            row["note"] = "no_blocked_edges"
+            row["note"] = "no_affected_edges"
             records.append(row)
             continue
 
-        for u, v in blocked:
-            p.update_edge_cost(int(u), int(v), np.inf)
+        apply_area_event_to_planner(p, area_event)
 
         t2 = time.perf_counter()
         ok3 = p.compute_shortest_path()
@@ -831,7 +1140,10 @@ def seed_sweep_eval(start, goal, n_block, seed_list):
         row = dict(base_row)
         row.update(
             {
-                "blocked_edges": str(blocked),
+                "affected_edge_count": int(len(area_event.affected_edges)),
+                "affected_edges": str(area_event.affected_edges),
+                "event_center_x_km": float(area_event.center_x_km),
+                "event_center_y_km": float(area_event.center_y_km),
                 "success": bool(ok3),
                 "phase1_ms": float((t1 - t0) * 1000.0),
                 "phase3_ms": float((t3 - t2) * 1000.0) if ok3 else np.nan,
@@ -895,9 +1207,10 @@ t1 = time.perf_counter()
 phase1_time_ms    = (t1 - t0) * 1000
 phase1_expanded   = planner.nodes_expanded
 path1_raw         = planner.extract_path()
-path1, curve1     = smooth_path(path1_raw)   # path1=剪枝节点, curve1=B样条坐标
+path1, curve1, smoothing1 = smooth_path(path1_raw)   # path1=最终折线节点, curve1=最终轨迹坐标
 path1_len         = planner.path_length_km(path1)
 phase1_cost       = float(planner.g[goal_node])
+comm_metrics1     = communication_metrics(curve1)
 
 print(f"  找到路径: {'OK' if found else 'FAIL'}")
 print(f"  遍历节点数:   {phase1_expanded}")
@@ -905,26 +1218,49 @@ print(f"  规划耗时:     {phase1_time_ms:.2f} ms")
 print(f"  路径节点数:   {len(path1_raw)} → LOS剪枝 {len(path1)} → B样条 {len(curve1)} 点")
 print(f"  路径长度:     {path1_len:.2f} km")
 print(f"  路径代价:     {phase1_cost:.4f}")
+print(f"  平滑状态:     {smoothing1['status']}")
+print(
+    f"  通信覆盖率:   {comm_metrics1['coverage_ratio']*100:.1f}% "
+    f"（最大连续失联 {comm_metrics1['max_continuous_lost_time_s']:.1f}s / "
+    f"{comm_metrics1['max_lost_segment_km']:.3f}km）"
+)
 
 # ------------------------------------------------------------------
-# 阶段2：触发突发事件——封锁路径上的边
+# 阶段2：触发突发事件——区域扰动
 # ------------------------------------------------------------------
 print("\n" + "="*55)
-print("阶段2：触发突发事件（封锁路径上的边）")
+print("阶段2：触发突发事件（区域扰动）")
 print("="*55)
 print(f"  随机种子: {MAIN_EVENT_SEED}")
 
-blocked_edges = []
 rng_main = np.random.default_rng(MAIN_EVENT_SEED)
-blocked_edges = choose_blocked_edges_from_path(path1_raw, n_block=N_BLOCK, rng=rng_main)
-if not blocked_edges:
-    print("  未采样到可封锁边，跳过阶段2动态事件。")
+area_event = build_area_event_from_path(
+    nodes,
+    edges[:, :2],
+    path1_raw,
+    rng_main,
+    event_type=EVENT_TYPE,
+    radius_km=EVENT_RADIUS_KM,
+    severity=EVENT_SEVERITY,
+)
+affected_edges = area_event.affected_edges
+blocked_edges = affected_edges  # 兼容旧变量名，含义已变为“区域事件影响边”
+if not affected_edges:
+    print("  区域事件未映射到受影响边，跳过阶段2动态事件。")
 else:
-    for u, v in blocked_edges:
-        print(f"  封锁边: ({u}, {v})  "
+    print(
+        f"  事件类型={area_event.event_type}, 中心=({area_event.center_x_km:.2f},"
+        f"{area_event.center_y_km:.2f})km, 半径={area_event.radius_km:.2f}km, "
+        f"强度={area_event.severity:.2f}, 受影响边={len(affected_edges)}"
+    )
+    preview_edges = affected_edges[:10]
+    for u, v in preview_edges:
+        print(f"  受影响边: ({u}, {v})  "
               f"节点({nodes[u,0]:.2f},{nodes[u,1]:.2f}km) → "
               f"({nodes[v,0]:.2f},{nodes[v,1]:.2f}km)")
-        planner.update_edge_cost(u, v, np.inf)   # 代价设为无穷大
+    if len(affected_edges) > len(preview_edges):
+        print(f"  ... 其余 {len(affected_edges) - len(preview_edges)} 条受影响边省略显示")
+    apply_area_event_to_planner(planner, area_event)
 
 # ------------------------------------------------------------------
 # 阶段3：增量重规划
@@ -941,10 +1277,11 @@ phase3_time_ms  = (t3 - t2) * 1000
 phase3_expanded = planner.nodes_expanded
 phase3_expanded_nodes_order = planner.expanded_nodes_order.copy()
 path3_raw       = planner.extract_path()
-path3, curve3   = smooth_path(path3_raw)
+path3, curve3, smoothing3 = smooth_path(path3_raw)
 path3_len       = planner.path_length_km(path3)
 phase3_cost     = float(planner.g[goal_node])
 cost_delta_pct  = ((phase3_cost - phase1_cost) / max(abs(phase1_cost), 1e-9)) * 100.0
+comm_metrics3   = communication_metrics(curve3)
 
 print(f"  找到路径: {'OK' if found2 else 'FAIL'}")
 print(f"  遍历节点数:   {phase3_expanded}  （初始规划: {phase1_expanded}）")
@@ -953,8 +1290,14 @@ print(f"  路径节点数:   {len(path3_raw)} → 平滑后 {len(path3)}")
 print(f"  路径长度:     {path3_len:.2f} km  （初始: {path1_len:.2f} km）")
 print(f"  路径代价:     {phase3_cost:.4f}")
 print(f"  代价变化:     {cost_delta_pct:+.2f}% （无量纲加权总代价）")
+print(f"  平滑状态:     {smoothing3['status']}")
+print(
+    f"  通信覆盖率:   {comm_metrics3['coverage_ratio']*100:.1f}% "
+    f"（最大连续失联 {comm_metrics3['max_continuous_lost_time_s']:.1f}s / "
+    f"{comm_metrics3['max_lost_segment_km']:.3f}km）"
+)
 
-timing_repeat = repeated_timing_eval(start_node, goal_node, blocked_edges, repeats=TIMING_REPEATS)
+timing_repeat = repeated_timing_eval(start_node, goal_node, area_event, repeats=TIMING_REPEATS)
 if timing_repeat is not None:
     print("\n  [重复计时统计]")
     print(
@@ -973,7 +1316,7 @@ seed_sweep_records = []
 seed_sweep_summary = None
 if len(SEED_SWEEP_LIST) > 0:
     print("\n  [多种子主实验统计]")
-    seed_sweep_records = seed_sweep_eval(start_node, goal_node, N_BLOCK, SEED_SWEEP_LIST)
+    seed_sweep_records = seed_sweep_eval(start_node, goal_node, SEED_SWEEP_LIST)
     seed_sweep_summary = summarize_seed_sweep(seed_sweep_records)
     if seed_sweep_summary is None:
         print("  未获得有效样本（请检查可达性或增大 seed-sweep 样本数）。")
@@ -1012,8 +1355,13 @@ if len(SEED_SWEEP_LIST) > 0:
         seed_csv = "lpa_seed_sweep.csv"
         fields = [
             "seed",
-            "n_block",
-            "blocked_edges",
+            "event_type",
+            "event_radius_km",
+            "event_severity",
+            "affected_edge_count",
+            "affected_edges",
+            "event_center_x_km",
+            "event_center_y_km",
             "success",
             "phase1_ms",
             "phase3_ms",
@@ -1032,7 +1380,9 @@ if len(SEED_SWEEP_LIST) > 0:
     if seed_sweep_summary is not None:
         summary_json = "lpa_seed_sweep_summary.json"
         payload = {
-            "n_block": int(N_BLOCK),
+            "event_type": EVENT_TYPE,
+            "event_radius_km": float(EVENT_RADIUS_KM),
+            "event_severity": float(EVENT_SEVERITY),
             "main_event_seed": int(MAIN_EVENT_SEED),
             "seed_list": [int(s) for s in SEED_SWEEP_LIST],
             "summary": seed_sweep_summary,
@@ -1076,6 +1426,46 @@ if seed_sweep_summary is not None:
         f"  {'均值加速比(右偏)':<18} {'—':>12} {'—':>12} "
         f"{seed_sweep_summary['ratio_mean']:>9.2f}×"
     )
+
+path_summary = {
+    "scene_name": str(SCENE_CFG.get("scene_name", "huashan")) if USE_SCENE else "huashan",
+    "start": START_NAME,
+    "goal": GOAL_NAME,
+    "event": area_event.to_dict(),
+    "risk_mode": risk_mode,
+    "risk_weights": {
+        "terrain": float(terrain_group_w),
+        "human": float(human_group_w),
+        "communication": float(comm_group_w),
+    },
+    "communication": {
+        "available": bool(has_comm),
+        "risk_threshold": float(comm_risk_threshold),
+    },
+    "phase1": {
+        "found": bool(found),
+        "raw_node_count": int(len(path1_raw)),
+        "final_node_count": int(len(path1)),
+        "curve_point_count": int(len(curve1)),
+        "path_len_km": float(path1_len),
+        "path_cost": float(phase1_cost),
+        "smoothing_status": smoothing1,
+        "communication_metrics": comm_metrics1,
+    },
+    "phase3": {
+        "found": bool(found2),
+        "raw_node_count": int(len(path3_raw)),
+        "final_node_count": int(len(path3)),
+        "curve_point_count": int(len(curve3)),
+        "path_len_km": float(path3_len),
+        "path_cost": float(phase3_cost),
+        "smoothing_status": smoothing3,
+        "communication_metrics": comm_metrics3,
+    },
+}
+with open("lpa_path_summary.json", "w", encoding="utf-8") as f:
+    json.dump(path_summary, f, ensure_ascii=False, indent=2)
+print("[保存] lpa_path_summary.json 已保存")
 
 # ===================================================================
 # ============ 阶段1 详细路径图（俯视 + 3D地面投影）=================
@@ -1361,7 +1751,7 @@ def draw_base(ax, title):
     ax.grid(True, alpha=0.2, linestyle='--')
 
 def draw_blocked_topology(ax, blocked_edges, color='#E53935'):
-    """强调离散图中真正被封锁/修改的底层拓扑边。"""
+    """强调离散图中被区域事件修改的底层拓扑边。"""
     for u, v in blocked_edges:
         mx = (nodes[u,0] + nodes[v,0]) / 2
         my = (nodes[u,1] + nodes[v,1]) / 2
@@ -1372,10 +1762,35 @@ def draw_blocked_topology(ax, blocked_edges, color='#E53935'):
                    zorder=9, edgecolors='white', linewidths=0.6,
                    alpha=0.95, label='_nolegend_')
 
+def draw_event_region(ax, area_event):
+    """绘制区域扰动范围。"""
+    patch = Circle(
+        (area_event.center_x_km, area_event.center_y_km),
+        area_event.radius_km,
+        fill=False,
+        edgecolor="#D50000",
+        linewidth=2.0,
+        linestyle="--",
+        alpha=0.85,
+        zorder=7.8,
+        label="Area event footprint",
+    )
+    ax.add_patch(patch)
+    ax.scatter(
+        [area_event.center_x_km],
+        [area_event.center_y_km],
+        c="#D50000",
+        s=80,
+        marker="x",
+        linewidths=2.0,
+        zorder=8.2,
+        label="Event center",
+    )
+
 def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
                                         path_alpha=0.85, blocked_alpha=0.95):
     """
-    画出原始离散拓扑路径，并把受阻边在该折线上高亮，消除“平滑轨迹与断边错位”疑问。
+    画出原始离散拓扑路径，并把受区域事件影响的路径段高亮。
     """
     if len(raw_path) < 2:
         return
@@ -1393,7 +1808,7 @@ def draw_raw_path_with_blocked_segments(ax, raw_path, blocked_edges,
         key = (min(u, v), max(u, v))
         if key not in blocked_set:
             continue
-        label = 'Blocked segment on original path' if first_hit else None
+        label = 'Affected segment on original path' if first_hit else None
         ax.plot([nodes[u,0], nodes[v,0]], [nodes[u,1], nodes[v,1]],
                 color='#D50000', lw=4.2, zorder=8.6, alpha=blocked_alpha,
                 solid_capstyle='round', label=label)
@@ -1476,8 +1891,8 @@ ax1.legend(prop=font, fontsize=7, loc='lower right')
 draw_base(
     ax2,
     (
-        f"Stage 2: Event trigger on discrete topology\n"
-        f"blocked edges: {len(blocked_edges)}  |  "
+        f"Stage 2: Area event trigger on topology\n"
+        f"type={EVENT_TYPE}, affected edges: {len(blocked_edges)}  |  "
         f"next replanning expanded: {phase3_expanded} nodes  |  base cost={phase1_cost:.4f} (unitless)"
     ),
 )
@@ -1486,6 +1901,7 @@ if path1:
                                         path_alpha=0.90, blocked_alpha=0.95)
     ax2.plot(curve1[:,0], curve1[:,1], color='red', lw=1.7, zorder=4.0, alpha=0.40,
              linestyle='--', label='Original path (smoothed)')
+draw_event_region(ax2, area_event)
 draw_update_ripple(ax2, phase3_expanded_nodes_order)
 draw_blocked_topology(ax2, blocked_edges)
 apply_compact_legend(
@@ -1494,7 +1910,9 @@ apply_compact_legend(
         'LPA* Local Update Area',
         'Update start',
         'Update end',
-        'Blocked segment on original path',
+        'Area event footprint',
+        'Event center',
+        'Affected segment on original path',
         'Original path (raw polyline)',
         'Original path (smoothed)',
     ],
@@ -1515,7 +1933,8 @@ if path1:
     draw_raw_path_with_blocked_segments(ax3, path1_raw, blocked_edges,
                                         path_alpha=0.45, blocked_alpha=0.70)
     ax3.plot(curve1[:,0], curve1[:,1], color='red', lw=1.5, zorder=3.3, alpha=0.28,
-             linestyle='--', dashes=(5,3), label='Original smoothed path (blocked)')
+             linestyle='--', dashes=(5,3), label='Original smoothed path (affected)')
+draw_event_region(ax3, area_event)
 draw_update_ripple(ax3, phase3_expanded_nodes_order)
 draw_blocked_topology(ax3, blocked_edges)
 if path3:
@@ -1537,9 +1956,11 @@ apply_compact_legend(
         'LPA* Local Update Area',
         'Update start',
         'Update end',
-        'Blocked segment on original path',
+        'Area event footprint',
+        'Event center',
+        'Affected segment on original path',
         'Replanned path (B-spline)',
-        'Original smoothed path (blocked)',
+        'Original smoothed path (affected)',
     ],
     loc='upper left'
 )

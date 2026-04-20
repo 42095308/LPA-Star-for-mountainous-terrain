@@ -28,6 +28,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
+from scenario_config import communication_params, load_scenario_config, scenario_output_dir
+
 try:
     from scipy.stats import ttest_rel
 except Exception:  # pragma: no cover - optional
@@ -80,7 +82,7 @@ def terrain_at_xy(x_km: float, y_km: float, z_grid: np.ndarray) -> float:
     return float(z_grid[r, c])
 
 
-def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray | str]:
+def load_risk_fields(root: Path, shape: Tuple[int, int], config: Optional[dict] = None) -> Dict[str, object]:
     rows, cols = int(shape[0]), int(shape[1])
     risk_l1 = np.zeros((rows, cols), dtype=float)
     risk_l2 = np.zeros((rows, cols), dtype=float)
@@ -89,6 +91,7 @@ def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray
     risk_trail = np.zeros((rows, cols), dtype=float)
     risk_hotspot = np.zeros((rows, cols), dtype=float)
     risk_human = np.zeros((rows, cols), dtype=float)
+    risk_comm = np.zeros((3, rows, cols), dtype=float)
     mode = "terrain_only"
 
     p = root / "risk_l1.npy"
@@ -133,6 +136,12 @@ def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray
         if arr.shape == (rows, cols):
             risk_human = np.clip(arr, 0.0, 1.0)
 
+    p = root / "risk_comm.npy"
+    if p.exists():
+        arr = np.asarray(np.load(p), dtype=float)
+        if arr.shape == (3, rows, cols):
+            risk_comm = np.clip(arr, 0.0, 1.0)
+
     has_level_split = (
         (float(np.max(risk_l1)) > 0.0)
         or (float(np.max(risk_l2)) > 0.0)
@@ -155,6 +164,21 @@ def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray
         risk_l3 = risk_hotspot.copy()
         risk_l4 = np.zeros_like(risk_l1)
 
+    has_comm = float(np.max(risk_comm)) > 0.0
+    params = communication_params(config or {})
+    raw_weights = dict(params.get("weights", {}))
+    terrain_w = float(raw_weights.get("terrain", 0.45))
+    human_w = float(raw_weights.get("human", 0.35)) if has_split or has_combined else 0.0
+    comm_w = float(raw_weights.get("communication", 0.20)) if has_comm else 0.0
+    if terrain_w <= 0.0:
+        terrain_w = 1.0
+    w_sum = max(terrain_w + human_w + comm_w, EPS)
+    risk_weights = {
+        "terrain": float(terrain_w / w_sum),
+        "human": float(human_w / w_sum),
+        "communication": float(comm_w / w_sum),
+    }
+
     return {
         "mode": mode,
         "risk_l1": risk_l1,
@@ -164,6 +188,10 @@ def load_risk_fields(root: Path, shape: Tuple[int, int]) -> Dict[str, np.ndarray
         "risk_trail": risk_trail,
         "risk_hotspot": risk_hotspot,
         "risk_human": risk_human,
+        "risk_comm": risk_comm,
+        "has_comm": bool(has_comm),
+        "risk_weights": risk_weights,
+        "comm_risk_threshold": float(params.get("risk_threshold", 0.55)),
     }
 
 
@@ -184,6 +212,124 @@ def collision_free_segment(
     return True
 
 
+def fused_risk_at_point(
+    x_km: float,
+    y_km: float,
+    z_m: float,
+    z_grid: np.ndarray,
+    risk_fields: Optional[Dict[str, object]],
+    fallback_lid: int = 1,
+) -> Tuple[float, float]:
+    """返回综合风险和通信风险，用于路径级暴露指标。"""
+    rows, cols = z_grid.shape
+    r, c = km_to_rc(x_km, y_km, rows, cols)
+    terrain = float(z_grid[r, c])
+    r_terrain = max(0.0, 1.0 - (z_m - terrain) / 200.0)
+    if not risk_fields:
+        return float(np.clip(r_terrain, 0.0, 1.0)), 0.0
+
+    risk_mode = str(risk_fields.get("mode", "terrain_only"))
+    risk_weights = dict(risk_fields.get("risk_weights", {"terrain": 1.0, "human": 0.0, "communication": 0.0}))
+    r_human = 0.0
+    if risk_mode == "terrain_trail_hotspot":
+        risk_l1 = risk_fields.get("risk_l1")
+        risk_l2 = risk_fields.get("risk_l2")
+        risk_l3 = risk_fields.get("risk_l3")
+        risk_l4 = risk_fields.get("risk_l4")
+        if risk_l1 is not None and risk_l2 is not None and risk_l3 is not None and risk_l4 is not None:
+            split_sum = max(RISK_W_L1 + RISK_W_L2 + RISK_W_L3 + RISK_W_L4, EPS)
+            r_human = (
+                (RISK_W_L1 / split_sum) * float(risk_l1[r, c])
+                + (RISK_W_L2 / split_sum) * float(risk_l2[r, c])
+                + (RISK_W_L3 / split_sum) * float(risk_l3[r, c])
+                + (RISK_W_L4 / split_sum) * float(risk_l4[r, c])
+            )
+    elif risk_mode == "terrain_human_combined" and risk_fields.get("risk_human") is not None:
+        r_human = float(risk_fields["risk_human"][r, c])
+
+    r_comm = 0.0
+    if bool(risk_fields.get("has_comm", False)) and risk_fields.get("risk_comm") is not None:
+        lid = int(np.clip(fallback_lid, 0, 2))
+        r_comm = float(risk_fields["risk_comm"][lid, r, c])
+    r_total = (
+        float(risk_weights.get("terrain", 1.0)) * r_terrain
+        + float(risk_weights.get("human", 0.0)) * r_human
+        + float(risk_weights.get("communication", 0.0)) * r_comm
+    )
+    return float(np.clip(r_total, 0.0, 1.0)), float(np.clip(r_comm, 0.0, 1.0))
+
+
+def compute_node_path_extra_metrics(
+    nodes: np.ndarray,
+    path: Sequence[int],
+    z_grid: Optional[np.ndarray],
+    risk_fields: Optional[Dict[str, object]],
+) -> Dict[str, float]:
+    """统计山地安全和通信指标：最小净空、风险暴露积分、覆盖率和最大连续失联。"""
+    defaults = {
+        "min_clearance_m": float("nan"),
+        "risk_exposure_integral": float("nan"),
+        "comm_coverage_ratio": float("nan"),
+        "max_comm_loss_time_s": float("nan"),
+        "max_comm_loss_length_km": float("nan"),
+    }
+    if z_grid is None or not path or len(path) < 2:
+        return defaults
+
+    has_comm = bool(risk_fields and risk_fields.get("has_comm", False))
+    comm_threshold = float((risk_fields or {}).get("comm_risk_threshold", 0.55))
+    min_clearance = float("inf")
+    exposure = 0.0
+    total_len_km = 0.0
+    covered_len_km = 0.0
+    cur_lost_km = 0.0
+    max_lost_km = 0.0
+
+    for idx in range(len(path) - 1):
+        u = int(path[idx])
+        v = int(path[idx + 1])
+        p1 = nodes[u]
+        p2 = nodes[v]
+        dx = (float(p2[0]) - float(p1[0])) * 1000.0
+        dy = (float(p2[1]) - float(p1[1])) * 1000.0
+        dz = float(p2[2]) - float(p1[2])
+        seg_len_km = float(np.sqrt(dx * dx + dy * dy + dz * dz) / 1000.0)
+        if seg_len_km <= EPS:
+            continue
+        seg_risk = 0.0
+        seg_comm = 0.0
+        sample_n = max(2, RISK_SAMPLES)
+        for s in np.linspace(0.0, 1.0, sample_n):
+            x = float(p1[0] + s * (p2[0] - p1[0]))
+            y = float(p1[1] + s * (p2[1] - p1[1]))
+            z = float(p1[2] + s * (p2[2] - p1[2]))
+            r, c = km_to_rc(x, y, z_grid.shape[0], z_grid.shape[1])
+            min_clearance = min(min_clearance, z - float(z_grid[r, c]))
+            lid = int(round(float(p1[3]) + s * (float(p2[3]) - float(p1[3])))) if nodes.shape[1] >= 4 else 1
+            risk, comm = fused_risk_at_point(x, y, z, z_grid, risk_fields, fallback_lid=lid)
+            seg_risk += risk
+            seg_comm += comm
+        seg_risk /= sample_n
+        seg_comm /= sample_n
+        exposure += seg_risk * seg_len_km
+        total_len_km += seg_len_km
+        if (not has_comm) or seg_comm <= comm_threshold:
+            covered_len_km += seg_len_km
+            cur_lost_km = 0.0
+        else:
+            cur_lost_km += seg_len_km
+            max_lost_km = max(max_lost_km, cur_lost_km)
+
+    total_len_km = max(total_len_km, EPS)
+    return {
+        "min_clearance_m": float(min_clearance) if np.isfinite(min_clearance) else float("nan"),
+        "risk_exposure_integral": float(exposure),
+        "comm_coverage_ratio": float(covered_len_km / total_len_km),
+        "max_comm_loss_time_s": float(max_lost_km * 1000.0 / UAV_SPEED),
+        "max_comm_loss_length_km": float(max_lost_km),
+    }
+
+
 @dataclass
 class WeightedGraph:
     name: str
@@ -201,6 +347,8 @@ class WeightedGraph:
     pair_to_eid: Dict[Tuple[int, int], int]
     edge_midpoints: np.ndarray
     edge_mid_tree: cKDTree
+    z_grid: Optional[np.ndarray] = None
+    risk_fields: Optional[Dict[str, object]] = None
 
     @property
     def n_nodes(self) -> int:
@@ -255,13 +403,15 @@ class WeightedGraph:
             dy = (self.nodes[v, 1] - self.nodes[u, 1]) * 1000.0
             dz = self.nodes[v, 2] - self.nodes[u, 2]
             total_len_km += float(np.sqrt(dx * dx + dy * dy + dz * dz) / 1000.0)
-        return {
+        out = {
             "cost": total_cost,
             "time_s": total_t,
             "energy_kj": total_e,
             "risk": total_r,
             "length_km": total_len_km,
         }
+        out.update(compute_node_path_extra_metrics(self.nodes, path, self.z_grid, self.risk_fields))
+        return out
 
     def heuristic(self, s: int, goal: int) -> float:
         dx = (self.nodes[goal, 0] - self.nodes[s, 0]) * 1000.0
@@ -278,7 +428,7 @@ def compute_edge_costs(
     nodes: np.ndarray,
     edge_pairs: np.ndarray,
     z_grid: np.ndarray,
-    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+    risk_fields: Optional[Dict[str, object]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float, float]:
     m = edge_pairs.shape[0]
     t_raw = np.zeros(m, dtype=float)
@@ -291,6 +441,9 @@ def compute_edge_costs(
     risk_l3 = None
     risk_l4 = None
     risk_human = None
+    risk_comm = None
+    has_comm = False
+    risk_weights = {"terrain": 1.0, "human": 0.0, "communication": 0.0}
     if risk_fields:
         risk_mode = str(risk_fields.get("mode", "terrain_only"))
         risk_l1 = risk_fields.get("risk_l1")
@@ -298,6 +451,9 @@ def compute_edge_costs(
         risk_l3 = risk_fields.get("risk_l3")
         risk_l4 = risk_fields.get("risk_l4")
         risk_human = risk_fields.get("risk_human")
+        risk_comm = risk_fields.get("risk_comm")
+        has_comm = bool(risk_fields.get("has_comm", False))
+        risk_weights = dict(risk_fields.get("risk_weights", risk_weights))
 
     for k in range(m):
         i = int(edge_pairs[k, 0])
@@ -317,6 +473,7 @@ def compute_edge_costs(
             r, c = km_to_rc(float(x), float(y), rows, cols)
             terrain = float(z_grid[r, c])
             r_terrain = max(0.0, 1.0 - (z - terrain) / 200.0)
+            r_human = 0.0
             if (
                 risk_mode == "terrain_trail_hotspot"
                 and risk_l1 is not None
@@ -324,19 +481,25 @@ def compute_edge_costs(
                 and risk_l3 is not None
                 and risk_l4 is not None
             ):
-                r_total = (
-                    RISK_W_TERRAIN * r_terrain
-                    + RISK_W_L1 * float(risk_l1[r, c])
-                    + RISK_W_L2 * float(risk_l2[r, c])
-                    + RISK_W_L3 * float(risk_l3[r, c])
-                    + RISK_W_L4 * float(risk_l4[r, c])
+                split_sum = max(RISK_W_L1 + RISK_W_L2 + RISK_W_L3 + RISK_W_L4, EPS)
+                r_human = (
+                    (RISK_W_L1 / split_sum) * float(risk_l1[r, c])
+                    + (RISK_W_L2 / split_sum) * float(risk_l2[r, c])
+                    + (RISK_W_L3 / split_sum) * float(risk_l3[r, c])
+                    + (RISK_W_L4 / split_sum) * float(risk_l4[r, c])
                 )
             elif risk_mode == "terrain_human_combined" and risk_human is not None:
-                r_total = (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain + RISK_W_HUMAN_COMBINED * float(
-                    risk_human[r, c]
-                )
-            else:
-                r_total = r_terrain
+                r_human = float(risk_human[r, c])
+            r_comm = 0.0
+            if has_comm and risk_comm is not None:
+                fallback_lid = int(round(nodes[i, 3] + s * (nodes[j, 3] - nodes[i, 3]))) if nodes.shape[1] >= 4 else 1
+                fallback_lid = int(np.clip(fallback_lid, 0, 2))
+                r_comm = float(risk_comm[fallback_lid, r, c])
+            r_total = (
+                float(risk_weights.get("terrain", 1.0)) * r_terrain
+                + float(risk_weights.get("human", 0.0)) * r_human
+                + float(risk_weights.get("communication", 0.0)) * r_comm
+            )
             risk += float(np.clip(r_total, 0.0, 1.0))
         risk /= RISK_SAMPLES
         t_raw[k] = t
@@ -355,7 +518,7 @@ def build_weighted_graph(
     nodes: np.ndarray,
     edges: np.ndarray,
     z_grid: np.ndarray,
-    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+    risk_fields: Optional[Dict[str, object]] = None,
 ) -> WeightedGraph:
     edge_pairs = np.asarray(edges[:, :2], dtype=int)
     if edges.shape[1] >= 3:
@@ -395,6 +558,8 @@ def build_weighted_graph(
         pair_to_eid=pair_to_eid,
         edge_midpoints=mids,
         edge_mid_tree=mid_tree,
+        z_grid=z_grid,
+        risk_fields=risk_fields,
     )
 
 
@@ -404,7 +569,7 @@ def build_single_layer_graph(
     z_offset_m: float = 75.0,
     intra_dist_m: float = 250.0,
     collision_samples: int = 10,
-    risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+    risk_fields: Optional[Dict[str, object]] = None,
 ) -> WeightedGraph:
     """构建单层展平图（B3 基线）。
 
@@ -755,7 +920,7 @@ class TraditionalVoxelDijkstra:
     def _compute_path_metrics(
         self,
         path_sids: List[int],
-        risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+        risk_fields: Optional[Dict[str, object]] = None,
     ) -> Dict[str, float]:
         """沿已回溯的路径逐段事后计算时间、能耗、风险和多目标加权代价。
 
@@ -768,11 +933,19 @@ class TraditionalVoxelDijkstra:
                 "path_energy_kj": float("inf"),
                 "path_risk": float("inf"),
                 "path_multi_cost": float("inf"),
+                "min_clearance_m": float("nan"),
+                "risk_exposure_integral": float("nan"),
+                "comm_coverage_ratio": float("nan"),
+                "max_comm_loss_time_s": float("nan"),
+                "max_comm_loss_length_km": float("nan"),
             }
 
         # 解析风险场
         risk_mode = "terrain_only"
         risk_l1 = risk_l2 = risk_l3 = risk_l4 = risk_human = None
+        risk_comm = None
+        has_comm = False
+        risk_weights = {"terrain": 1.0, "human": 0.0, "communication": 0.0}
         if risk_fields:
             risk_mode = str(risk_fields.get("mode", "terrain_only"))
             risk_l1 = risk_fields.get("risk_l1")
@@ -780,11 +953,20 @@ class TraditionalVoxelDijkstra:
             risk_l3 = risk_fields.get("risk_l3")
             risk_l4 = risk_fields.get("risk_l4")
             risk_human = risk_fields.get("risk_human")
+            risk_comm = risk_fields.get("risk_comm")
+            has_comm = bool(risk_fields.get("has_comm", False))
+            risk_weights = dict(risk_fields.get("risk_weights", risk_weights))
 
         total_len = 0.0
         total_time = 0.0
         total_energy = 0.0
         total_risk = 0.0
+        min_clearance = float("inf")
+        risk_exposure = 0.0
+        covered_len_km = 0.0
+        cur_lost_km = 0.0
+        max_lost_km = 0.0
+        comm_threshold = float((risk_fields or {}).get("comm_risk_threshold", 0.55))
         n_segments = len(path_sids) - 1
 
         for k in range(n_segments):
@@ -803,13 +985,16 @@ class TraditionalVoxelDijkstra:
 
             # 沿线段采样风险（与 compute_edge_costs 一致）
             seg_risk = 0.0
+            seg_comm = 0.0
             for s in np.linspace(0.0, 1.0, RISK_SAMPLES):
                 x = x1 + s * (x2 - x1)
                 y = y1 + s * (y2 - y1)
                 z = z1 + s * (z2 - z1)
                 r, c = km_to_rc(float(x), float(y), self.rows, self.cols)
                 terrain_z = float(self.Z[r, c])
+                min_clearance = min(min_clearance, z - terrain_z)
                 r_terrain = max(0.0, 1.0 - (z - terrain_z) / 200.0)
+                r_human = 0.0
                 if (
                     risk_mode == "terrain_trail_hotspot"
                     and risk_l1 is not None
@@ -817,27 +1002,42 @@ class TraditionalVoxelDijkstra:
                     and risk_l3 is not None
                     and risk_l4 is not None
                 ):
-                    r_total = (
-                        RISK_W_TERRAIN * r_terrain
-                        + RISK_W_L1 * float(risk_l1[r, c])
-                        + RISK_W_L2 * float(risk_l2[r, c])
-                        + RISK_W_L3 * float(risk_l3[r, c])
-                        + RISK_W_L4 * float(risk_l4[r, c])
+                    split_sum = max(RISK_W_L1 + RISK_W_L2 + RISK_W_L3 + RISK_W_L4, EPS)
+                    r_human = (
+                        (RISK_W_L1 / split_sum) * float(risk_l1[r, c])
+                        + (RISK_W_L2 / split_sum) * float(risk_l2[r, c])
+                        + (RISK_W_L3 / split_sum) * float(risk_l3[r, c])
+                        + (RISK_W_L4 / split_sum) * float(risk_l4[r, c])
                     )
                 elif risk_mode == "terrain_human_combined" and risk_human is not None:
-                    r_total = (
-                        (1.0 - RISK_W_HUMAN_COMBINED) * r_terrain
-                        + RISK_W_HUMAN_COMBINED * float(risk_human[r, c])
-                    )
-                else:
-                    r_total = r_terrain
+                    r_human = float(risk_human[r, c])
+                r_comm = 0.0
+                if has_comm and risk_comm is not None:
+                    agl = z - terrain_z
+                    lid = 0 if agl < 60.0 else (1 if agl < 90.0 else 2)
+                    r_comm = float(risk_comm[lid, r, c])
+                r_total = (
+                    float(risk_weights.get("terrain", 1.0)) * r_terrain
+                    + float(risk_weights.get("human", 0.0)) * r_human
+                    + float(risk_weights.get("communication", 0.0)) * r_comm
+                )
                 seg_risk += float(np.clip(r_total, 0.0, 1.0))
+                seg_comm += float(np.clip(r_comm, 0.0, 1.0))
             seg_risk /= RISK_SAMPLES
+            seg_comm /= RISK_SAMPLES
 
             total_len += d3d / 1000.0  # km
             total_time += seg_time
             total_energy += seg_energy
             total_risk += seg_risk
+            seg_len_km = d3d / 1000.0
+            risk_exposure += seg_risk * seg_len_km
+            if (not has_comm) or seg_comm <= comm_threshold:
+                covered_len_km += seg_len_km
+                cur_lost_km = 0.0
+            else:
+                cur_lost_km += seg_len_km
+                max_lost_km = max(max_lost_km, cur_lost_km)
 
         # 归一化时取自身路径的单段最大值（与 compute_edge_costs 思路一致）
         t_max = max(total_time / max(n_segments, 1), EPS)
@@ -855,6 +1055,11 @@ class TraditionalVoxelDijkstra:
             "path_energy_kj": total_energy,
             "path_risk": total_risk,
             "path_multi_cost": multi_cost,
+            "min_clearance_m": float(min_clearance) if np.isfinite(min_clearance) else float("nan"),
+            "risk_exposure_integral": float(risk_exposure),
+            "comm_coverage_ratio": float(covered_len_km / max(total_len, EPS)),
+            "max_comm_loss_time_s": float(max_lost_km * 1000.0 / UAV_SPEED),
+            "max_comm_loss_length_km": float(max_lost_km),
         }
 
     def search(
@@ -864,7 +1069,7 @@ class TraditionalVoxelDijkstra:
         storm_mask_xy: np.ndarray,
         timeout_s: float,
         max_expansions: int = 2_000_000,
-        risk_fields: Optional[Dict[str, np.ndarray | str]] = None,
+        risk_fields: Optional[Dict[str, object]] = None,
     ) -> Dict[str, object]:
         """Dijkstra 搜索并事后计算多目标代价。
 
@@ -893,7 +1098,10 @@ class TraditionalVoxelDijkstra:
         t0 = time.perf_counter()
         fail = {"ok": False, "path_len_km": float("inf"), "expanded": 0,
                 "path_time_s": float("nan"), "path_energy_kj": float("nan"),
-                "path_risk": float("nan"), "path_multi_cost": float("nan")}
+                "path_risk": float("nan"), "path_multi_cost": float("nan"),
+                "min_clearance_m": float("nan"), "risk_exposure_integral": float("nan"),
+                "comm_coverage_ratio": float("nan"), "max_comm_loss_time_s": float("nan"),
+                "max_comm_loss_length_km": float("nan")}
 
         while heap:
             if (time.perf_counter() - t0) > timeout_s:
@@ -927,6 +1135,11 @@ class TraditionalVoxelDijkstra:
                     "path_energy_kj": metrics["path_energy_kj"],
                     "path_risk": metrics["path_risk"],
                     "path_multi_cost": metrics["path_multi_cost"],
+                    "min_clearance_m": metrics["min_clearance_m"],
+                    "risk_exposure_integral": metrics["risk_exposure_integral"],
+                    "comm_coverage_ratio": metrics["comm_coverage_ratio"],
+                    "max_comm_loss_time_s": metrics["max_comm_loss_time_s"],
+                    "max_comm_loss_length_km": metrics["max_comm_loss_length_km"],
                 }
 
             expanded += 1
@@ -1057,6 +1270,10 @@ def summarise_baseline(records: List[dict], baseline: str) -> dict:
         "mean_cost": float("nan"),
         "mean_energy_kj": float("nan"),
         "mean_length_km": float("nan"),
+        "mean_min_clearance_m": float("nan"),
+        "mean_risk_exposure_integral": float("nan"),
+        "mean_comm_coverage_ratio": float("nan"),
+        "mean_max_comm_loss_time_s": float("nan"),
     }
     if not ok:
         return out
@@ -1066,6 +1283,10 @@ def summarise_baseline(records: List[dict], baseline: str) -> dict:
     c = np.array([r["path_cost"] for r in ok], dtype=float)
     e = np.array([r["path_energy_kj"] for r in ok], dtype=float)
     l = np.array([r["path_len_km"] for r in ok], dtype=float)
+    clr = np.array([r.get("min_clearance_m", float("nan")) for r in ok], dtype=float)
+    exp = np.array([r.get("risk_exposure_integral", float("nan")) for r in ok], dtype=float)
+    cov = np.array([r.get("comm_coverage_ratio", float("nan")) for r in ok], dtype=float)
+    loss = np.array([r.get("max_comm_loss_time_s", float("nan")) for r in ok], dtype=float)
 
     out.update(
         {
@@ -1079,6 +1300,10 @@ def summarise_baseline(records: List[dict], baseline: str) -> dict:
             "mean_cost": float(np.mean(c)),
             "mean_energy_kj": float(np.mean(e)),
             "mean_length_km": float(np.mean(l)),
+            "mean_min_clearance_m": float(np.nanmean(clr)),
+            "mean_risk_exposure_integral": float(np.nanmean(exp)),
+            "mean_comm_coverage_ratio": float(np.nanmean(cov)),
+            "mean_max_comm_loss_time_s": float(np.nanmean(loss)),
         }
     )
     return out
@@ -1138,16 +1363,18 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
     lines.append("## Per-baseline summary")
     lines.append("")
     lines.append(
-        "| Baseline | Success | Replan ms (mean+/-std) | P50/P95 ms | Expanded (mean) | Cost (mean) | Energy kJ (mean) | Length km (mean) |"
+        "| Baseline | Success | Replan ms (mean+/-std) | P50/P95 ms | Expanded (mean) | Cost (mean) | Energy kJ (mean) | Length km (mean) | Min clearance m | Comm coverage | Max loss s | Risk exposure |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in summary_rows:
         succ = f"{r['n_success']}/{r['n_trials']} ({100.0*r['success_rate']:.1f}%)"
         ms = f"{r['mean_replan_ms']:.2f}+/-{r['std_replan_ms']:.2f}"
         p = f"{r['p50_replan_ms']:.2f}/{r['p95_replan_ms']:.2f}"
         lines.append(
             f"| {r['baseline']} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
-            f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} |"
+            f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} | "
+            f"{r['mean_min_clearance_m']:.1f} | {100.0*r['mean_comm_coverage_ratio']:.1f}% | "
+            f"{r['mean_max_comm_loss_time_s']:.1f} | {r['mean_risk_exposure_integral']:.3f} |"
         )
     lines.append("")
     lines.append("## Paired significance checks")
@@ -1184,8 +1411,8 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
         f"- Trials: `{args.trials}`, seed: `{args.seed}`, blocked edges: `{args.n_block}`"
     )
     lines.append("")
-    lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Energy (kJ) | Success Rate |")
-    lines.append("|---|---:|---:|---:|---:|---:|")
+    lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Energy (kJ) | Min Clearance (m) | Comm Coverage | Max Loss (s) | Risk Exposure | Success Rate |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for key in ordered:
         r = row_by_baseline.get(key)
         if r is None:
@@ -1195,9 +1422,17 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
         l = float(r.get("mean_length_km", float("nan")))
         c = float(r.get("mean_cost", float("nan")))
         e = float(r.get("mean_energy_kj", float("nan")))
+        clr = float(r.get("mean_min_clearance_m", float("nan")))
+        cov = float(r.get("mean_comm_coverage_ratio", float("nan")))
+        loss = float(r.get("mean_max_comm_loss_time_s", float("nan")))
+        exp = float(r.get("mean_risk_exposure_integral", float("nan")))
         succ = 100.0 * float(r.get("success_rate", 0.0))
         e_str = f"{e:.2f}" if np.isfinite(e) else "—"
-        lines.append(f"| {label_map[key]} | {t:.2f} | {l:.3f} | {c:.4f} | {e_str} | {succ:.1f}% |")
+        cov_str = f"{100.0*cov:.1f}%" if np.isfinite(cov) else "—"
+        lines.append(
+            f"| {label_map[key]} | {t:.2f} | {l:.3f} | {c:.4f} | {e_str} | "
+            f"{clr:.1f} | {cov_str} | {loss:.1f} | {exp:.3f} | {succ:.1f}% |"
+        )
     lines.append("")
     lines.append(
         "Note: All four baselines use the same multi-objective weighted cost "
@@ -1209,15 +1444,21 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
 
 def run_benchmark(args: argparse.Namespace) -> None:
     root = Path(args.workdir).resolve()
-    os.chdir(root)
+    use_scene = bool(str(getattr(args, "scenario_config", "")).strip())
+    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    data_root = scenario_output_dir(scene_cfg, root) if use_scene else root
+    os.chdir(data_root)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     z_grid = np.load("Z_crop.npy")
     layered_nodes = np.load("graph_nodes.npy")
     layered_edges = np.load("graph_edges.npy")
-    risk_fields = load_risk_fields(root, z_grid.shape)
-    print(f"[risk] mode={risk_fields['mode']}")
+    risk_fields = load_risk_fields(data_root, z_grid.shape, scene_cfg if use_scene else {})
+    print(
+        f"[risk] mode={risk_fields['mode']}, comm={risk_fields['has_comm']}, "
+        f"weights={risk_fields['risk_weights']}"
+    )
 
     print("[build] loading layered graph...")
     layered_graph = build_weighted_graph(
@@ -1306,6 +1547,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "path_cost": m_b4.get("cost", float("nan")),
                 "path_energy_kj": m_b4.get("energy_kj", float("nan")),
                 "path_len_km": m_b4.get("length_km", float("nan")),
+                "min_clearance_m": m_b4.get("min_clearance_m", float("nan")),
+                "risk_exposure_integral": m_b4.get("risk_exposure_integral", float("nan")),
+                "comm_coverage_ratio": m_b4.get("comm_coverage_ratio", float("nan")),
+                "max_comm_loss_time_s": m_b4.get("max_comm_loss_time_s", float("nan")),
+                "max_comm_loss_length_km": m_b4.get("max_comm_loss_length_km", float("nan")),
                 "note": "",
             }
         )
@@ -1329,6 +1575,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "path_cost": m_b2.get("cost", float("nan")),
                 "path_energy_kj": m_b2.get("energy_kj", float("nan")),
                 "path_len_km": m_b2.get("length_km", float("nan")),
+                "min_clearance_m": m_b2.get("min_clearance_m", float("nan")),
+                "risk_exposure_integral": m_b2.get("risk_exposure_integral", float("nan")),
+                "comm_coverage_ratio": m_b2.get("comm_coverage_ratio", float("nan")),
+                "max_comm_loss_time_s": m_b2.get("max_comm_loss_time_s", float("nan")),
+                "max_comm_loss_length_km": m_b2.get("max_comm_loss_length_km", float("nan")),
                 "note": "",
             }
         )
@@ -1356,6 +1607,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "path_cost": m_b3.get("cost", float("nan")),
                 "path_energy_kj": m_b3.get("energy_kj", float("nan")),
                 "path_len_km": m_b3.get("length_km", float("nan")),
+                "min_clearance_m": m_b3.get("min_clearance_m", float("nan")),
+                "risk_exposure_integral": m_b3.get("risk_exposure_integral", float("nan")),
+                "comm_coverage_ratio": m_b3.get("comm_coverage_ratio", float("nan")),
+                "max_comm_loss_time_s": m_b3.get("max_comm_loss_time_s", float("nan")),
+                "max_comm_loss_length_km": m_b3.get("max_comm_loss_length_km", float("nan")),
                 "note": "",
             }
         else:
@@ -1371,6 +1627,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "path_cost": float("nan"),
                 "path_energy_kj": float("nan"),
                 "path_len_km": float("nan"),
+                "min_clearance_m": float("nan"),
+                "risk_exposure_integral": float("nan"),
+                "comm_coverage_ratio": float("nan"),
+                "max_comm_loss_time_s": float("nan"),
+                "max_comm_loss_length_km": float("nan"),
                 "note": "init_fail_or_no_storm_mapping",
             }
         records.append(rec_b3)
@@ -1412,6 +1673,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "path_cost": float(b1_result["path_multi_cost"]) if ok_b1 else float("nan"),
                     "path_energy_kj": float(b1_result["path_energy_kj"]) if ok_b1 else float("nan"),
                     "path_len_km": float(b1_result["path_len_km"]) if ok_b1 else float("nan"),
+                    "min_clearance_m": float(b1_result["min_clearance_m"]) if ok_b1 else float("nan"),
+                    "risk_exposure_integral": float(b1_result["risk_exposure_integral"]) if ok_b1 else float("nan"),
+                    "comm_coverage_ratio": float(b1_result["comm_coverage_ratio"]) if ok_b1 else float("nan"),
+                    "max_comm_loss_time_s": float(b1_result["max_comm_loss_time_s"]) if ok_b1 else float("nan"),
+                    "max_comm_loss_length_km": float(b1_result["max_comm_loss_length_km"]) if ok_b1 else float("nan"),
                     "note": "" if ok_b1 else "timeout_or_unreachable",
                 }
             )
@@ -1484,6 +1750,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "path_cost",
         "path_energy_kj",
         "path_len_km",
+        "min_clearance_m",
+        "risk_exposure_integral",
+        "comm_coverage_ratio",
+        "max_comm_loss_time_s",
+        "max_comm_loss_length_km",
         "note",
     ]
     write_csv(out_dir / "benchmark_trials.csv", records, trial_fields)
@@ -1523,6 +1794,15 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
     script = Path(__file__).with_name("benchmark_matrix.py")
     if not script.exists():
         raise RuntimeError("benchmark_matrix.py is missing; cannot run matrix benchmark mode.")
+
+    root = Path(args.workdir).resolve()
+    use_scene = bool(str(getattr(args, "scenario_config", "")).strip())
+    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    data_root = scenario_output_dir(scene_cfg, root) if use_scene else root
+    out_dir_arg = Path(args.out_dir)
+    if not out_dir_arg.is_absolute():
+        out_dir_arg = data_root / out_dir_arg
+    args.out_dir = str(out_dir_arg)
 
     cmd = [
         sys.executable,
@@ -1574,6 +1854,8 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         "--progress-every",
         str(args.progress_every),
     ]
+    if str(getattr(args, "scenario_config", "")).strip():
+        cmd.extend(["--scenario-config", str(args.scenario_config)])
     if args.disable_plots:
         cmd.append("--disable-plots")
 
@@ -1676,6 +1958,7 @@ def parse_args() -> argparse.Namespace:
         help="single: one-shot benchmark; matrix: A/B/C/D final experiment set in one output dir.",
     )
     parser.add_argument("--workdir", type=str, default=".", help="Project root containing *.npy data files.")
+    parser.add_argument("--scenario-config", type=str, default="", help="场景配置 JSON。")
     parser.add_argument("--trials", type=int, default=50, help="Required accepted Monte Carlo trials.")
     parser.add_argument("--seed", type=int, default=20260309, help="Random seed.")
     parser.add_argument("--n-block", type=int, default=2, help="Number of storm-blocked edges per trial.")

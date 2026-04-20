@@ -1,0 +1,96 @@
+{
+  "scene_name": "huashan",
+  "dem_path": "AP_19438_FBD_F0680_RT1.dem.tif",
+  "output_dir": "outputs/{scene_name}",
+  "crop": {
+    "center_lon": 110.0798,
+    "center_lat": 34.4829,
+    "crop_size_m": 10000.0,
+    "resolution_m": 12.5
+  },
+  "targets": {
+    "南峰": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0, "display_name": "South Peak"},
+    "东峰": {"lon": 110.0820, "lat": 34.4811, "elev": 2100.0, "display_name": "East Peak"},
+    "西峰": {"lon": 110.0768, "lat": 34.4816, "elev": 2038.0, "display_name": "West Peak"},
+    "北峰": {"lon": 110.0813, "lat": 34.4934, "elev": 1615.0, "display_name": "North Peak"},
+    "中峰": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0, "display_name": "Central Peak"}
+  },
+  "default_start": "虚拟配送站1",
+  "default_goal": "南峰",
+  "display_names": {
+    "虚拟配送站1": "Virtual Depot 1",
+    "虚拟配送站2": "Virtual Depot 2"
+  },
+  "virtual_depots": {
+    "count": 2,
+    "slope_max_deg": 12.0,
+    "elevation_percentile_max": 35.0,
+    "foot_elevation_percentile": 20.0,
+    "edge_buffer_km": 1.0,
+    "min_target_distance_km": 1.2,
+    "min_depot_spacing_km": 1.5,
+    "risk_max": 0.2,
+    "name_prefix": "虚拟配送站"
+  },
+  "terrain_sampling": {
+    "branch_node_budget": 3364,
+    "backbone_node_budget": 3364,
+    "terrain_ratio": 0.70,
+    "supplement_grid_ratio": 0.30,
+    "min_spacing_m": 130.0,
+    "branch_terminal_radius_km": 1.4,
+    "branch_corridor_width_km": 0.55,
+    "low_risk_threshold": 0.30
+  },
+  "adaptive_corridor": {
+    "base_floor_offset_m": 30.0,
+    "base_ceiling_offset_m": 120.0,
+    "slope_threshold_deg": 18.0,
+    "slope_high_deg": 42.0,
+    "slope_floor_extra_m": 35.0,
+    "ridge_floor_extra_m": 20.0,
+    "open_ceiling_extra_m": 35.0,
+    "terminal_radius_km": 0.75,
+    "terminal_thickness_m": 72.0,
+    "min_thickness_m": 60.0,
+    "high_risk_threshold": 0.65,
+    "layer_positions": [0.22, 0.52, 0.82]
+  },
+  "communication": {
+    "enabled": true,
+    "source_height_agl_m": 35.0,
+    "edge_source_count": 2,
+    "max_range_km": 5.0,
+    "los_samples": 18,
+    "coarse_stride": 4,
+    "risk_threshold": 0.55,
+    "weights": {
+      "terrain": 0.45,
+      "human": 0.35,
+      "communication": 0.20
+    },
+    "base_stations": []
+  },
+  "task_generation": {
+    "depot_count": 2,
+    "target_count": 8,
+    "pair_count": 12,
+    "min_pair_distance_km": 1.5,
+    "target_min_spacing_km": 0.8,
+    "target_elevation_percentile_min": 65.0,
+    "max_target_slope_deg": 38.0,
+    "risk_max": 0.65,
+    "distance_bins_km": [2.5, 5.0],
+    "elevation_bins_m": [300.0, 900.0],
+    "ridge_prominence_m": 120.0,
+    "random_seed": 20260420
+  },
+  "osm_file": "map.osm",
+  "osm_risk_keywords": {
+    "L1_DANGEROUS_NAMES": ["天梯", "长空栈道", "智取华山路", "苍龙岭", "百尺峡", "老君犁沟", "千尺幢", "鹞子翻身", "回心石"],
+    "L2_PEAK_NAMES": ["华山南峰", "华山东峰", "华山西峰", "华山北峰", "华山中峰"],
+    "L2_HIGH_NAMES": ["金锁关", "南天门", "下棋亭", "自古华山一条路"],
+    "L3_MEDIUM_NAMES": ["东峰酒店", "思过崖", "毛仙庙", "山神庙", "群仙观"],
+    "L4_LOW_ROAD_NAMES": ["瓮峪旅游公路", "黄甫峪公路"]
+  }
+}

@@ -37,49 +37,41 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
+from scenario_config import load_scenario_config, scenario_output_dir
+
 
 RESOLUTION_M = 12.5
 LEVELS = (1, 2, 3, 4)
 
-# ---- Name keywords (ASCII with Unicode escapes, to avoid source encoding issues) ----
-L1_DANGEROUS_NAMES = [
-    "\u5929\u68af",            # 天梯
-    "\u957f\u7a7a\u6808\u9053",  # 长空栈道
-    "\u667a\u53d6\u534e\u5c71\u8def",  # 智取华山路
-    "\u82cd\u9f99\u5cad",      # 苍龙岭
-    "\u767e\u5c3a\u5ce1",      # 百尺峡
-    "\u8001\u541b\u7281\u6c9f",  # 老君犁沟
-    "\u5343\u5c3a\u5e62",      # 千尺幢
-    "\u9e5e\u5b50\u7ffb\u8eab",  # 鹞子翻身
-    "\u56de\u5fc3\u77f3",      # 回心石
-]
+# 通用标签规则是跨 DEM 的底座；场景专有名称只从配置文件注入。
+GENERIC_RISK_RULES = {
+    "L1": [
+        {"key": "sac_scale", "values": ["demanding_mountain_hiking", "alpine_hiking", "demanding_alpine_hiking"]},
+        {"key": "via_ferrata", "values": ["yes"]},
+        {"key": "hazard", "values": ["falling_rocks", "cliff", "steep_slope"]},
+    ],
+    "L2": [
+        {"key": "highway", "values": ["path", "steps", "footway", "bridleway"]},
+        {"key": "tourism", "values": ["viewpoint", "attraction", "picnic_site"]},
+        {"key": "natural", "values": ["peak", "ridge", "cliff"]},
+    ],
+    "L3": [
+        {"key": "aerialway", "values": ["*"]},
+        {"key": "tourism", "values": ["guest_house", "alpine_hut", "camp_site", "information"]},
+        {"key": "amenity", "values": ["place_of_worship", "restaurant", "cafe", "shelter", "drinking_water"]},
+    ],
+    "L4": [
+        {"key": "highway", "values": ["tertiary", "service", "unclassified", "track"]},
+        {"key": "amenity", "values": ["toilets", "parking", "bus_station", "parking_entrance"]},
+        {"key": "tourism", "values": ["hotel", "museum"]},
+    ],
+}
 
-L2_PEAK_NAMES = [
-    "\u534e\u5c71\u5357\u5cf0",  # 华山南峰
-    "\u534e\u5c71\u4e1c\u5cf0",  # 华山东峰
-    "\u534e\u5c71\u897f\u5cf0",  # 华山西峰
-    "\u534e\u5c71\u5317\u5cf0",  # 华山北峰
-    "\u534e\u5c71\u4e2d\u5cf0",  # 华山中峰
-]
-L2_HIGH_NAMES = [
-    "\u91d1\u9501\u5173",                  # 金锁关
-    "\u5357\u5929\u95e8",                  # 南天门
-    "\u4e0b\u68cb\u4ead",                  # 下棋亭
-    "\u81ea\u53e4\u534e\u5c71\u4e00\u6761\u8def",  # 自古华山一条路
-]
-
-L3_MEDIUM_NAMES = [
-    "\u4e1c\u5cf0\u9152\u5e97",  # 东峰酒店
-    "\u601d\u8fc7\u5d16",        # 思过崖
-    "\u6bdb\u4ed9\u5e99",        # 毛仙庙
-    "\u5c71\u795e\u5e99",        # 山神庙
-    "\u7fa4\u4ed9\u89c2",        # 群仙观
-]
-
-L4_LOW_ROAD_NAMES = [
-    "\u74ee\u5cea\u65c5\u6e38\u516c\u8def",  # 瓮峪旅游公路
-    "\u9ec4\u752b\u5cea\u516c\u8def",        # 黄甫峪公路
-]
+L1_DANGEROUS_NAMES: List[str] = []
+L2_PEAK_NAMES: List[str] = []
+L2_HIGH_NAMES: List[str] = []
+L3_MEDIUM_NAMES: List[str] = []
+L4_LOW_ROAD_NAMES: List[str] = []
 
 # Label verification list for summary output.
 EXPECTED_LABELS = {
@@ -88,6 +80,46 @@ EXPECTED_LABELS = {
     "L3": L3_MEDIUM_NAMES,
     "L4": L4_LOW_ROAD_NAMES,
 }
+
+
+def apply_scene_risk_keywords(config: Dict[str, object]) -> None:
+    """用场景配置覆盖专属名称词典，并允许替换通用标签规则。"""
+    global L1_DANGEROUS_NAMES
+    global L2_PEAK_NAMES
+    global L2_HIGH_NAMES
+    global L3_MEDIUM_NAMES
+    global L4_LOW_ROAD_NAMES
+    global EXPECTED_LABELS
+    global GENERIC_RISK_RULES
+
+    kw = config.get("osm_risk_keywords") if isinstance(config, dict) else None
+    rule_cfg = config.get("osm_risk_rules") if isinstance(config, dict) else None
+    if isinstance(rule_cfg, dict) and isinstance(rule_cfg.get("generic"), dict):
+        merged = {k: list(v) for k, v in GENERIC_RISK_RULES.items()}
+        for level, rules in rule_cfg["generic"].items():
+            merged[str(level)] = [dict(v) for v in rules]
+        GENERIC_RISK_RULES = merged
+
+    if not isinstance(kw, dict):
+        kw = {}
+
+    if "L1_DANGEROUS_NAMES" in kw:
+        L1_DANGEROUS_NAMES = [str(v) for v in kw["L1_DANGEROUS_NAMES"]]
+    if "L2_PEAK_NAMES" in kw:
+        L2_PEAK_NAMES = [str(v) for v in kw["L2_PEAK_NAMES"]]
+    if "L2_HIGH_NAMES" in kw:
+        L2_HIGH_NAMES = [str(v) for v in kw["L2_HIGH_NAMES"]]
+    if "L3_MEDIUM_NAMES" in kw:
+        L3_MEDIUM_NAMES = [str(v) for v in kw["L3_MEDIUM_NAMES"]]
+    if "L4_LOW_ROAD_NAMES" in kw:
+        L4_LOW_ROAD_NAMES = [str(v) for v in kw["L4_LOW_ROAD_NAMES"]]
+
+    EXPECTED_LABELS = {
+        "L1": L1_DANGEROUS_NAMES,
+        "L2": L2_PEAK_NAMES + L2_HIGH_NAMES,
+        "L3": L3_MEDIUM_NAMES,
+        "L4": L4_LOW_ROAD_NAMES,
+    }
 
 
 @dataclass
@@ -109,6 +141,24 @@ def _contains_any(text: str, keywords: Sequence[str]) -> bool:
     if not text:
         return False
     return any(k in text for k in keywords)
+
+
+def _match_rule_value(actual: str, values: Sequence[str]) -> bool:
+    if not actual:
+        return False
+    vals = {str(v).strip().lower() for v in values}
+    return "*" in vals or actual.lower() in vals
+
+
+def classify_generic_level(tags: Dict[str, str]) -> Optional[int]:
+    """先按通用 OSM 标签规则分类，保证换场景后仍有风险底座。"""
+    for level_name in ("L1", "L2", "L3", "L4"):
+        for rule in GENERIC_RISK_RULES.get(level_name, []):
+            key = str(rule.get("key", "")).strip()
+            vals = rule.get("values", [])
+            if key and _match_rule_value(_tag_l(tags, key), vals):
+                return int(level_name[1])
+    return None
 
 
 def parse_osm(osm_path: Path) -> Tuple[Dict[int, Tuple[float, float]], List[Tuple[int, Dict[str, str]]], List[WayRecord], List[str]]:
@@ -171,42 +221,43 @@ def classify_level(tags: Dict[str, str]) -> Optional[int]:
     amenity = _tag_l(tags, "amenity")
     building = _tag_l(tags, "building")
 
-    # ---- L1: extreme risk ----
+    # 场景专有名称优先于通用标签，便于把某些险段提升到更高风险等级。
     if _contains_any(name, L1_DANGEROUS_NAMES):
         return 1
 
-    # ---- L3: medium risk (explicit cableway tags have higher priority than name-based peak matching) ----
-    if aerialway in {"cable_car", "gondola", "station"}:
-        return 3
-
-    # ---- L2: high risk ----
     if _contains_any(name, L2_PEAK_NAMES):
         return 2
     if _contains_any(name, L2_HIGH_NAMES):
         return 2
+
+    if _contains_any(name, L3_MEDIUM_NAMES):
+        return 3
+
+    if _contains_any(name, L4_LOW_ROAD_NAMES):
+        return 4
+
+    generic_level = classify_generic_level(tags)
+    if generic_level is not None:
+        return generic_level
+
+    # 下面保留旧规则作为兼容兜底，语义等价于通用规则。
+    if aerialway in {"cable_car", "gondola", "station"}:
+        return 3
     if highway in {"steps", "path", "footway"}:
         return 2
     if natural == "peak":
         return 2
-    if tourism in {"attraction", "viewpoint"} and _contains_any(name, L2_HIGH_NAMES):
+    if tourism in {"attraction", "viewpoint"}:
         return 2
-
-    # ---- L3: medium risk ----
     if tourism == "guest_house":
         return 3
     if amenity == "place_of_worship":
         return 3
-    if _contains_any(name, L3_MEDIUM_NAMES):
-        return 3
-    if building == "yes" and _contains_any(name, ["\u7fa4\u4ed9\u89c2"]):  # 群仙观
-        return 3
-
-    # ---- L4: low risk ----
     if highway in {"tertiary", "service", "unclassified"}:
         return 4
     if amenity in {"toilets", "parking", "bus_station"}:
         return 4
-    if _contains_any(name, L4_LOW_ROAD_NAMES):
+    if building == "yes" and amenity:
         return 4
 
     return None
@@ -405,7 +456,8 @@ def check_expected_labels(all_names: Sequence[str]) -> Dict[str, Dict[str, List[
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Huashan OSM human-risk raster aligned with Z_crop.npy")
+    parser = argparse.ArgumentParser(description="构建与 DEM 对齐的 OSM 人群暴露风险栅格。")
+    parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
     parser.add_argument("--osm-file", type=str, default="map.osm")
     parser.add_argument("--z-file", type=str, default="Z_crop.npy")
@@ -425,14 +477,23 @@ def main() -> None:
     args = parser.parse_args()
 
     root = Path(args.workdir).resolve()
+    use_scene = bool(str(args.scenario_config).strip())
+    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    apply_scene_risk_keywords(scene_cfg)
+    out_dir = scenario_output_dir(scene_cfg, root) if use_scene else root
+    out_dir.mkdir(parents=True, exist_ok=True)
+    scene_name = str(scene_cfg.get("scene_name", "current")) if use_scene else "current"
+
     osm_path = Path(args.osm_file)
+    if use_scene and args.osm_file == "map.osm":
+        osm_path = Path(str(scene_cfg.get("osm_file", args.osm_file)))
     if not osm_path.is_absolute():
         osm_path = root / osm_path
     if not osm_path.exists():
         raise FileNotFoundError(f"OSM file not found: {osm_path}")
 
-    z = np.asarray(np.load(root / args.z_file), dtype=float)
-    geo = np.load(root / args.geo_file)
+    z = np.asarray(np.load(out_dir / args.z_file), dtype=float)
+    geo = np.load(out_dir / args.geo_file)
     lon_grid = np.asarray(geo["lon_grid"], dtype=float)
     lat_grid = np.asarray(geo["lat_grid"], dtype=float)
     if z.shape != lon_grid.shape or z.shape != lat_grid.shape:
@@ -545,13 +606,13 @@ def main() -> None:
     risk_human = np.clip(risk_human, 0.0, 1.0)
 
     print("[5/5] saving risk rasters")
-    np.save(root / args.out_l1, risk_l1.astype(np.float32))
-    np.save(root / args.out_l2, risk_l2.astype(np.float32))
-    np.save(root / args.out_l3, risk_l3.astype(np.float32))
-    np.save(root / args.out_l4, risk_l4.astype(np.float32))
-    np.save(root / args.out_trail, risk_trail.astype(np.float32))
-    np.save(root / args.out_hotspot, risk_hotspot.astype(np.float32))
-    np.save(root / args.out_human, risk_human.astype(np.float32))
+    np.save(out_dir / args.out_l1, risk_l1.astype(np.float32))
+    np.save(out_dir / args.out_l2, risk_l2.astype(np.float32))
+    np.save(out_dir / args.out_l3, risk_l3.astype(np.float32))
+    np.save(out_dir / args.out_l4, risk_l4.astype(np.float32))
+    np.save(out_dir / args.out_trail, risk_trail.astype(np.float32))
+    np.save(out_dir / args.out_hotspot, risk_hotspot.astype(np.float32))
+    np.save(out_dir / args.out_human, risk_human.astype(np.float32))
 
     # ---- Paper preview ----
     level_style = {
@@ -679,12 +740,13 @@ def main() -> None:
         color="dimgray",
     )
 
-    fig.suptitle("Huashan Four-Level Human Risk Modeling from OSM", fontsize=13, y=0.995)
+    fig.suptitle(f"{scene_name} Four-Level Human Risk Modeling from OSM", fontsize=13, y=0.995)
     fig.subplots_adjust(left=0.04, right=0.985, bottom=0.06, top=0.93, wspace=0.18)
-    plt.savefig(root / args.out_preview, dpi=300, bbox_inches="tight")
+    plt.savefig(out_dir / args.out_preview, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     label_check = check_expected_labels(all_names)
+    scene_keyword_counts = {k: len(v["found"]) + len(v["missing"]) for k, v in label_check.items()}
     human_coverage_nonzero = float(np.mean(risk_human > 1e-6))
     human_coverage_ge_01 = float(np.mean(risk_human >= 0.1))
     human_p95 = float(np.percentile(risk_human, 95))
@@ -703,6 +765,9 @@ def main() -> None:
             "L2": {"risk": 0.8, "buffer_m": 30.0},
             "L3": {"risk": 0.5, "gaussian_sigma_m": 120.0},
             "L4": {"risk": 0.2, "buffer_m": 30.0},
+            "dictionary_mode": "generic_osm_rules_plus_scene_keywords",
+            "generic_osm_rules": GENERIC_RISK_RULES,
+            "scene_keyword_counts": scene_keyword_counts,
             "high_alt_background": {
                 "enabled": bool((not args.disable_high_alt_background) and float(args.high_alt_risk) > 0.0),
                 "threshold_m": float(args.high_alt_threshold_m),
@@ -739,18 +804,18 @@ def main() -> None:
             "human_coverage_ge_0p1": human_coverage_ge_01,
         },
     }
-    (root / args.summary_json).write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    (out_dir / args.summary_json).write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print("done:")
-    print(f"  {root / args.out_l1}")
-    print(f"  {root / args.out_l2}")
-    print(f"  {root / args.out_l3}")
-    print(f"  {root / args.out_l4}")
-    print(f"  {root / args.out_trail}")
-    print(f"  {root / args.out_hotspot}")
-    print(f"  {root / args.out_human}")
-    print(f"  {root / args.summary_json}")
-    print(f"  {root / args.out_preview}")
+    print(f"  {out_dir / args.out_l1}")
+    print(f"  {out_dir / args.out_l2}")
+    print(f"  {out_dir / args.out_l3}")
+    print(f"  {out_dir / args.out_l4}")
+    print(f"  {out_dir / args.out_trail}")
+    print(f"  {out_dir / args.out_hotspot}")
+    print(f"  {out_dir / args.out_human}")
+    print(f"  {out_dir / args.summary_json}")
+    print(f"  {out_dir / args.out_preview}")
     print(
         "  coverage: "
         f"nonzero={100.0*human_coverage_nonzero:.1f}%, "
