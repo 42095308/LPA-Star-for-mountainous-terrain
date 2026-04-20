@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.spatial import cKDTree
 
 try:
     import matplotlib.pyplot as plt
@@ -31,8 +30,10 @@ from benchmark import (
     build_weighted_graph,
     ci95,
     load_risk_fields,
+    load_logistics_task_bundle,
     normalize_pair,
-    sample_start_goal,
+    build_task_node_locator,
+    sample_logistics_start_goal,
     write_csv,
 )
 from dynamic_events import build_area_event_from_path
@@ -209,64 +210,23 @@ def build_scaled_graph(
     )
 
 
-def collect_event_candidates(
-    graph: WeightedGraph,
-    path: Sequence[int],
-    blocked_set: set,
-    radius_km: float,
-) -> List[Tuple[int, int]]:
-    if len(path) < 2:
-        return []
-
-    seq = [normalize_pair(int(path[i]), int(path[i + 1])) for i in range(len(path) - 1)]
-    seq = list(dict.fromkeys(seq))
-    interior = seq[1:-1] if len(seq) > 2 else seq
-
-    candidates: List[Tuple[int, int]] = []
-    used = set()
-    for e in interior:
-        if e in blocked_set or e in used:
-            continue
-        candidates.append(e)
-        used.add(e)
-
-    path_xy = graph.nodes[np.asarray(path, dtype=int), :2]
-    tree = cKDTree(path_xy)
-    d, _ = tree.query(graph.edge_midpoints, k=1)
-    order = np.argsort(d)
-
-    local_extra: List[Tuple[int, int]] = []
-    global_extra: List[Tuple[int, int]] = []
-    for eid in order:
-        pair = normalize_pair(int(graph.edge_pairs[eid, 0]), int(graph.edge_pairs[eid, 1]))
-        if pair in blocked_set or pair in used:
-            continue
-        if float(d[eid]) <= radius_km:
-            local_extra.append(pair)
-        else:
-            global_extra.append(pair)
-        used.add(pair)
-
-    candidates.extend(local_extra)
-    candidates.extend(global_extra)
-    return candidates
-
-
 def build_event_schedule(
     graph: WeightedGraph,
     path: Sequence[int],
-    blocked_set: set,
     n_block: int,
     k_events: int,
     rng: np.random.Generator,
     radius_km: float,
     pool_factor: int,
+    event_type: str,
+    event_severity: float,
 ) -> List[object]:
     if int(n_block) <= 0 or int(k_events) <= 0:
         return []
 
     _ = pool_factor  # 旧参数保留，用于兼容 benchmark.py 的命令行。
-    used = set(blocked_set)
+    # n_block 旧列名保留为“事件强度索引”；实际扰动为完整圆域，半径随强度放大。
+    effective_radius_km = float(radius_km) * float(np.sqrt(max(1, int(n_block)) / 2.0))
     schedule: List[object] = []
     for _event_idx in range(int(k_events)):
         event = build_area_event_from_path(
@@ -274,16 +234,12 @@ def build_event_schedule(
             graph.edge_pairs,
             path,
             rng,
-            event_type="no_fly",
-            radius_km=radius_km,
-            severity=1.0,
-            max_affected_edges=int(n_block),
-            used_edges=used,
+            event_type=event_type,
+            radius_km=effective_radius_km,
+            severity=event_severity,
         )
         if not event.affected_edges:
             return []
-        for e in event.affected_edges:
-            used.add(normalize_pair(int(e[0]), int(e[1])))
         schedule.append(event)
     return schedule
 
@@ -335,7 +291,11 @@ def run_event_stream_trial(
     rng: np.random.Generator,
     event_radius_km: float,
     event_pool_factor: int,
+    event_type: str,
+    event_severity: float,
+    task_meta: Optional[Dict[str, object]] = None,
 ) -> Optional[Tuple[List[dict], List[dict]]]:
+    task_meta = task_meta or {}
     b4 = LPAStarPlanner(graph, start, goal)
     ok_init = b4.compute_shortest_path()
     init_path = b4.extract_path() if ok_init else []
@@ -345,12 +305,13 @@ def run_event_stream_trial(
     schedule = build_event_schedule(
         graph,
         init_path,
-        blocked_set=set(),
         n_block=n_block,
         k_events=k_events,
         rng=rng,
         radius_km=event_radius_km,
         pool_factor=event_pool_factor,
+        event_type=event_type,
+        event_severity=event_severity,
     )
     if len(schedule) != k_events:
         return None
@@ -358,7 +319,8 @@ def run_event_stream_trial(
     event_rows: List[dict] = []
     trial_rows: List[dict] = []
 
-    blocked_set: set = set()
+    area_edge_set: set = set()
+    active_events: List[object] = []
     cum = {
         BASELINE_B4: empty_cumulative(),
         BASELINE_B2: empty_cumulative(),
@@ -378,16 +340,16 @@ def run_event_stream_trial(
 
     for event_idx, area_event in enumerate(schedule, start=1):
         event_edges = area_event.affected_edges
+        active_events.append(area_event)
         for e in event_edges:
-            blocked_set.add(normalize_pair(int(e[0]), int(e[1])))
-        blocked_cum = sorted(blocked_set)
+            area_edge_set.add(normalize_pair(int(e[0]), int(e[1])))
         affected_vertices = set()
         for u, v in event_edges:
             affected_vertices.add(int(u))
             affected_vertices.add(int(v))
 
         snap_before = b4.counter_snapshot()
-        added_edges_b4, aff_v_b4 = b4.block_edges(event_edges)
+        added_edges_b4, aff_v_b4 = b4.apply_area_event(area_event)
         t0 = time.perf_counter()
         ok_b4 = b4.compute_shortest_path()
         t1 = time.perf_counter()
@@ -414,13 +376,17 @@ def run_event_stream_trial(
                 "baseline": BASELINE_B4,
                 "start_node": start,
                 "goal_node": goal,
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
                 "event_type": area_event.event_type,
                 "event_center_x_km": float(area_event.center_x_km),
                 "event_center_y_km": float(area_event.center_y_km),
                 "event_radius_km": float(area_event.radius_km),
                 "event_severity": float(area_event.severity),
-                "blocked_edges_event": json.dumps(event_edges),
-                "blocked_edges_total": len(blocked_set),
+                "area_event_edges_event": json.dumps(event_edges),
+                "area_event_edges_total": len(area_edge_set),
                 "success": bool(ok_b4),
                 "replan_ms": float(b4_ms),
                 "expanded": int(stats_b4.get("expanded", 0)),
@@ -450,7 +416,7 @@ def run_event_stream_trial(
         )
 
         t0 = time.perf_counter()
-        ok_b2, path_b2, stats_b2 = astar_global_replan(graph, start, goal, blocked_cum)
+        ok_b2, path_b2, stats_b2 = astar_global_replan(graph, start, goal, [], area_events=active_events)
         t1 = time.perf_counter()
         b2_ms = (t1 - t0) * 1000.0
         m_b2 = graph.path_metrics(path_b2) if ok_b2 else {}
@@ -477,13 +443,17 @@ def run_event_stream_trial(
                 "baseline": BASELINE_B2,
                 "start_node": start,
                 "goal_node": goal,
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
                 "event_type": area_event.event_type,
                 "event_center_x_km": float(area_event.center_x_km),
                 "event_center_y_km": float(area_event.center_y_km),
                 "event_radius_km": float(area_event.radius_km),
                 "event_severity": float(area_event.severity),
-                "blocked_edges_event": json.dumps(event_edges),
-                "blocked_edges_total": len(blocked_set),
+                "area_event_edges_event": json.dumps(event_edges),
+                "area_event_edges_total": len(area_edge_set),
                 "success": bool(ok_b2),
                 "replan_ms": float(b2_ms),
                 "expanded": int(stats_b2.get("expanded", 0)),
@@ -524,6 +494,10 @@ def run_event_stream_trial(
                 "baseline": baseline,
                 "start_node": start,
                 "goal_node": goal,
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
                 "n_events_target": k_events,
                 "n_events_succeeded": int(success_count[baseline]),
                 "success_all_events": ok_all,
@@ -544,7 +518,7 @@ def run_event_stream_trial(
                 "final_comm_coverage_ratio": fm.get("comm_coverage_ratio", float("nan")),
                 "final_max_comm_loss_time_s": fm.get("max_comm_loss_time_s", float("nan")),
                 "final_max_comm_loss_length_km": fm.get("max_comm_loss_length_km", float("nan")),
-                "blocked_edges_total": len(blocked_set),
+                "area_event_edges_total": len(area_edge_set),
                 "note": "" if ok_all else "fail_in_event_stream",
             }
         )
@@ -891,7 +865,7 @@ def render_markdown_matrix(
     lines.append("# Benchmark Matrix Table")
     lines.append("")
     lines.append(f"- Trials per combo: `{args.trials}`")
-    lines.append(f"- n_block grid: `{args.n_block_grid}`")
+    lines.append(f"- area-event intensity grid (legacy n_block column): `{args.n_block_grid}`")
     lines.append(f"- K grid: `{args.k_events_grid}`")
     lines.append(f"- Scales: `{args.scales}`")
     lines.append(f"- Seed: `{args.seed}`")
@@ -909,7 +883,7 @@ def render_markdown_matrix(
 
     lines.append("## Experiment A (Event Intensity)")
     lines.append("")
-    lines.append("| n_block | B4 event ms | B2 event ms | B2/B4 | B4 event expanded | B2 event expanded | B4 success | B2 success |")
+    lines.append("| Intensity index | B4 event ms | B2 event ms | B2/B4 | B4 event expanded | B2 event expanded | B4 success | B2 success |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in tables["A"]:
         lines.append(
@@ -1010,7 +984,7 @@ def diagnose_event_intensity_anomaly(
         f"to {b4_tail:.2f}ms (n_block={int(nbs[-1])}), while expanded nodes move from "
         f"{b4_head_e:.1f} to {b4_tail_e:.1f}. "
         "This indicates wall-clock is jointly affected by event geometry/locality and Python runtime overhead, "
-        "not only by n_block magnitude. A typical case is that more blocked edges can force an earlier detour "
+        "not only by n_block magnitude. A typical case is that a larger disturbed region can force an earlier detour "
         "into a cleaner subgraph, which shortens the actually affected middle segment and reduces updated states."
     )
     return diag_rows, note
@@ -1226,7 +1200,7 @@ def make_plots_matrix(
             y_lo = [y - c for y, c in zip(ys, ci_vals)]
             y_hi = [y + c for y, c in zip(ys, ci_vals)]
             ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
-    ax.set_xlabel("Blocked edges per event (n_block)")
+    ax.set_xlabel("Area-event intensity index (legacy n_block)")
     ax.set_ylabel("Mean replanning time per event (ms)")
     ax.set_title(f"Event Intensity vs Replanning Time (scale={scale_plot}, K={k_intensity})")
     ax.grid(alpha=0.3)
@@ -1294,7 +1268,7 @@ def make_plots_matrix(
             y_lo = [y - c for y, c in zip(ys, ci_vals)]
             y_hi = [y + c for y, c in zip(ys, ci_vals)]
             ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
-    ax.set_xlabel("Blocked edges per event (n_block)")
+    ax.set_xlabel("Area-event intensity index (legacy n_block)")
     ax.set_ylabel("Mean expanded nodes per event")
     ax.set_title(f"Event Intensity vs Expanded Nodes (scale={scale_plot}, K={k_intensity})")
     ax.grid(alpha=0.3)
@@ -1392,6 +1366,11 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         f"[risk] mode={risk_fields['mode']}, comm={risk_fields['has_comm']}, "
         f"weights={risk_fields['risk_weights']}"
     )
+    task_bundle = load_logistics_task_bundle(data_root)
+    print(
+        f"[tasks] logistics tasks={len(task_bundle.get('tasks', []))}, "
+        f"depots={len(task_bundle.get('depots', []))}, targets={len(task_bundle.get('targets', []))}"
+    )
     base_nodes = np.asarray(np.load("graph_nodes.npy"), dtype=float)
     base_edges = np.asarray(np.load("graph_edges.npy"), dtype=int)
 
@@ -1408,6 +1387,8 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         )
         scale_graphs[scale] = g
         print(f"[build] scale={scale} frac={frac:.3f}: |V|={g.n_nodes}, |E|={g.n_edges}")
+
+    task_locators = {scale: build_task_node_locator(graph) for scale, graph in scale_graphs.items()}
 
     event_records: List[dict] = []
     trial_records: List[dict] = []
@@ -1428,8 +1409,18 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                 print(f"[combo {combo_id}/{total_combo}] scale={scale}, n_block={n_block}, K={k_events}")
                 while accepted < args.trials and attempts < max_attempts:
                     attempts += 1
-                    start, goal = sample_start_goal(rng, graph.nodes, args.min_start_goal_dist_km)
                     trial_id = accepted + 1
+                    try:
+                        start, goal, task_meta = sample_logistics_start_goal(
+                            rng,
+                            graph,
+                            task_bundle,
+                            task_locators[scale],
+                            args.min_start_goal_dist_km,
+                            trial_id,
+                        )
+                    except RuntimeError:
+                        continue
                     result = run_event_stream_trial(
                         graph=graph,
                         scale=scale,
@@ -1441,6 +1432,9 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                         rng=rng,
                         event_radius_km=args.event_radius_km,
                         event_pool_factor=args.event_pool_factor,
+                        event_type=args.event_type,
+                        event_severity=args.event_severity,
+                        task_meta=task_meta,
                     )
                     if result is None:
                         continue
@@ -1603,6 +1597,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scales", type=str, default="large")
     parser.add_argument("--scale-fractions", type=str, default="small:0.55,medium:0.78,large:1.0")
     parser.add_argument("--event-radius-km", type=float, default=0.8)
+    parser.add_argument("--event-type", type=str, choices=["no_fly", "wind", "comm_risk"], default="no_fly")
+    parser.add_argument("--event-severity", type=float, default=1.0)
     parser.add_argument("--event-pool-factor", type=int, default=6)
     parser.add_argument("--disable-plots", action="store_true")
 

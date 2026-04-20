@@ -40,6 +40,8 @@ try:
 except Exception:  # pragma: no cover - optional
     plt = None
 
+from dynamic_events import AreaEvent, build_area_event_from_center, build_area_event_from_path, event_edge_cost
+
 
 ALPHA = 0.3
 BETA = 0.2
@@ -563,6 +565,41 @@ def build_weighted_graph(
     )
 
 
+def event_cost_for_eid(graph: WeightedGraph, eid: int, area_event: AreaEvent) -> float:
+    """按动态区域事件类型计算某条边的新代价。"""
+    return event_edge_cost(
+        area_event.event_type,
+        area_event.severity,
+        (
+            float(graph.edge_time_raw[eid]),
+            float(graph.edge_energy_raw[eid]),
+            float(graph.edge_risk_raw[eid]),
+        ),
+        (graph.t_max, graph.e_max, graph.r_max),
+        (ALPHA, BETA, GAMMA),
+    )
+
+
+def area_event_cost_overrides(graph: WeightedGraph, area_events: Sequence[AreaEvent]) -> Dict[int, float]:
+    """把一个或多个区域事件映射成 eid -> override cost。"""
+    overrides: Dict[int, float] = {}
+    for area_event in area_events:
+        for u, v in area_event.affected_edges:
+            eid = graph.edge_id(int(u), int(v))
+            if eid is None:
+                continue
+            new_cost = event_cost_for_eid(graph, eid, area_event)
+            old_cost = overrides.get(eid)
+            if old_cost is None:
+                overrides[eid] = float(new_cost)
+            elif not np.isfinite(old_cost) or not np.isfinite(new_cost):
+                overrides[eid] = float("inf")
+            else:
+                # 多个软扰动叠加时取更保守的代价。
+                overrides[eid] = max(float(old_cost), float(new_cost))
+    return overrides
+
+
 def build_single_layer_graph(
     layered_graph: WeightedGraph,
     z_grid: np.ndarray,
@@ -624,6 +661,7 @@ class LPAStarPlanner:
         self._heap: List[Tuple[float, float, int, int]] = []
         self._in_heap: Dict[int, Tuple[float, float]] = {}
         self.blocked_eids: set = set()
+        self.override_cost_by_eid: Dict[int, float] = {}
 
         self.nodes_expanded = 0
         self.expanded_order: List[int] = []
@@ -636,6 +674,8 @@ class LPAStarPlanner:
         self._push(self.start, self._calc_key(self.start))
 
     def _cost_by_eid(self, eid: int) -> float:
+        if eid in self.override_cost_by_eid:
+            return float(self.override_cost_by_eid[eid])
         if eid in self.blocked_eids:
             return self.inf
         return float(self.gp.edge_weight[eid])
@@ -702,6 +742,24 @@ class LPAStarPlanner:
             self.update_vertex(int(u))
             self.update_vertex(int(v))
         return n_added, len(affected)
+
+    def apply_area_event(self, area_event: AreaEvent) -> Tuple[int, int]:
+        """把区域事件应用到当前增量规划器。"""
+        overrides = area_event_cost_overrides(self.gp, [area_event])
+        affected = set()
+        n_changed = 0
+        for eid, new_cost in overrides.items():
+            old_cost = self.override_cost_by_eid.get(eid, float(self.gp.edge_weight[eid]))
+            if np.isclose(old_cost, new_cost, rtol=1e-12, atol=1e-12, equal_nan=True):
+                continue
+            self.override_cost_by_eid[int(eid)] = float(new_cost)
+            u, v = int(self.gp.edge_pairs[eid, 0]), int(self.gp.edge_pairs[eid, 1])
+            affected.add(u)
+            affected.add(v)
+            n_changed += 1
+            self.update_vertex(u)
+            self.update_vertex(v)
+        return n_changed, len(affected)
 
     def compute_shortest_path(self) -> bool:
         self.nodes_expanded = 0
@@ -777,8 +835,10 @@ def astar_global_replan(
     start: int,
     goal: int,
     blocked_pairs: Sequence[Tuple[int, int]],
+    area_events: Optional[Sequence[AreaEvent]] = None,
 ) -> Tuple[bool, List[int], Dict[str, int]]:
     blocked_eids = graph.blocked_eids(blocked_pairs)
+    override_cost = area_event_cost_overrides(graph, area_events or [])
     n = graph.n_nodes
     start = int(start)
     goal = int(goal)
@@ -807,9 +867,15 @@ def astar_global_replan(
         if u == goal:
             break
         for v, eid in graph.adj[u]:
-            if eid in blocked_eids:
+            if eid in override_cost:
+                step_cost = float(override_cost[eid])
+            elif eid in blocked_eids:
+                step_cost = float("inf")
+            else:
+                step_cost = float(graph.edge_weight[eid])
+            if not np.isfinite(step_cost):
                 continue
-            ng = g + float(graph.edge_weight[eid])
+            ng = g + step_cost
             if ng + EPS < dist[v]:
                 if closed[v]:
                     reopened_states += 1
@@ -1176,74 +1242,88 @@ class TraditionalVoxelDijkstra:
         return fail
 
 
-def choose_blocked_edges_from_path(path: Sequence[int], rng: np.random.Generator, n_block: int) -> List[Tuple[int, int]]:
-    if len(path) < 2:
-        return []
-    seq = [normalize_pair(int(path[i]), int(path[i + 1])) for i in range(len(path) - 1)]
-    seq = list(dict.fromkeys(seq))
-    if not seq:
-        return []
-    if len(seq) <= n_block:
-        return seq
-
-    interior = seq[1:-1] if len(seq) > 2 else seq
-    if not interior:
-        interior = seq
-
-    k = min(n_block, len(interior))
-    picked_idx = rng.choice(len(interior), size=k, replace=False)
-    picked = [interior[int(i)] for i in np.atleast_1d(picked_idx)]
-    return picked
+def load_logistics_task_bundle(root: Path) -> Dict[str, object]:
+    """读取任务生成器输出的物流任务集。"""
+    path = root / "generated_tasks.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"缺少 {path}。请先运行 task_generator.py，确保 benchmark 使用物流任务而不是随机节点对。"
+        )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not payload.get("tasks"):
+        raise RuntimeError(f"{path} 中没有可用任务对。")
+    return payload
 
 
-def map_blocked_edges_to_graph(
-    src_graph: WeightedGraph,
-    dst_graph: WeightedGraph,
-    blocked_pairs: Sequence[Tuple[int, int]],
-) -> List[Tuple[int, int]]:
-    mapped: List[Tuple[int, int]] = []
-    used = set()
-    for u, v in blocked_pairs:
-        key = normalize_pair(int(u), int(v))
-        if key in dst_graph.pair_to_eid:
-            if key not in used:
-                mapped.append(key)
-                used.add(key)
+def build_task_node_locator(graph: WeightedGraph) -> Dict[str, object]:
+    """为物流任务坐标建立最近可用图节点查询结构。"""
+    usable = np.asarray([i for i, adj_i in enumerate(graph.adj) if len(adj_i) > 0], dtype=int)
+    if usable.size == 0:
+        raise RuntimeError("图中没有可用于任务映射的连通节点。")
+    loc: Dict[str, object] = {
+        "all_idx": usable,
+        "all_tree": cKDTree(graph.nodes[usable, :2]),
+        "layer": {},
+    }
+    for lid in [1, 2, 0]:
+        idx = np.asarray([i for i in usable if int(round(graph.nodes[i, 3])) == lid], dtype=int)
+        if idx.size > 0:
+            loc["layer"][lid] = (idx, cKDTree(graph.nodes[idx, :2]))
+    return loc
+
+
+def nearest_task_node(graph: WeightedGraph, locator: Dict[str, object], item: Dict[str, object], prefer: Sequence[int]) -> int:
+    xy = np.array([float(item["x_km"]), float(item["y_km"])], dtype=float)
+    for lid in prefer:
+        layer_map = locator.get("layer", {})
+        if lid not in layer_map:
             continue
-
-        mid = (src_graph.nodes[key[0], :2] + src_graph.nodes[key[1], :2]) * 0.5
-        dist, eid = dst_graph.edge_mid_tree.query(mid, k=8)
-        _ = dist
-        eids = np.atleast_1d(eid).astype(int)
-        for candidate in eids:
-            pair = normalize_pair(
-                int(dst_graph.edge_pairs[candidate, 0]),
-                int(dst_graph.edge_pairs[candidate, 1]),
-            )
-            if pair not in used:
-                mapped.append(pair)
-                used.add(pair)
-                break
-    return mapped
+        idx, tree = layer_map[lid]
+        _d, local = tree.query(xy, k=1)
+        return int(idx[int(local)])
+    idx = locator["all_idx"]
+    tree = locator["all_tree"]
+    _d, local = tree.query(xy, k=1)
+    return int(idx[int(local)])
 
 
-def sample_start_goal(
+def sample_logistics_start_goal(
     rng: np.random.Generator,
-    nodes: np.ndarray,
+    graph: WeightedGraph,
+    task_bundle: Dict[str, object],
+    locator: Dict[str, object],
     min_dist_km: float,
-) -> Tuple[int, int]:
-    n = int(nodes.shape[0])
-    for _ in range(500):
-        s = int(rng.integers(0, n))
-        g = int(rng.integers(0, n))
-        if s == g:
+    trial_index: int,
+) -> Tuple[int, int, Dict[str, object]]:
+    """按任务生成器给出的配送站-目标点任务对抽样。"""
+    depots = {str(v["name"]): dict(v) for v in task_bundle.get("depots", [])}
+    targets = {str(v["name"]): dict(v) for v in task_bundle.get("targets", [])}
+    tasks = [dict(v) for v in task_bundle.get("tasks", [])]
+    if not tasks:
+        raise RuntimeError("任务集中没有 tasks。")
+    offset = int(rng.integers(0, len(tasks)))
+    for k in range(len(tasks)):
+        task = tasks[(int(trial_index) - 1 + offset + k) % len(tasks)]
+        depot = depots.get(str(task.get("depot")))
+        target = targets.get(str(task.get("target")))
+        if depot is None or target is None:
             continue
-        d = float(np.linalg.norm(nodes[s, :2] - nodes[g, :2]))
-        if d >= min_dist_km:
-            return s, g
-    s = int(rng.integers(0, n))
-    g = int((s + rng.integers(1, n)) % n)
-    return s, g
+        start = nearest_task_node(graph, locator, depot, prefer=(1, 2, 0))
+        goal = nearest_task_node(graph, locator, target, prefer=(1, 2, 0))
+        if start == goal:
+            continue
+        d = float(np.linalg.norm(graph.nodes[start, :2] - graph.nodes[goal, :2]))
+        if d < float(min_dist_km):
+            continue
+        task_meta = {
+            **task,
+            "start_node": int(start),
+            "goal_node": int(goal),
+            "start_xy_km": [float(graph.nodes[start, 0]), float(graph.nodes[start, 1])],
+            "goal_xy_km": [float(graph.nodes[goal, 0]), float(graph.nodes[goal, 1])],
+        }
+        return int(start), int(goal), task_meta
+    raise RuntimeError("没有找到可映射到当前图的物流任务对。")
 
 
 def ci95(arr: np.ndarray) -> float:
@@ -1353,7 +1433,8 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
     lines.append("# Benchmark Table")
     lines.append("")
     lines.append(
-        f"- Trials requested: `{args.trials}`, random seed: `{args.seed}`, blocked edges per trial: `{args.n_block}`"
+        f"- Trials requested: `{args.trials}`, random seed: `{args.seed}`, "
+        f"area event: `{args.event_type}`, radius `{args.event_radius_km:.2f} km`, severity `{args.event_severity:.2f}`"
     )
     lines.append(
         f"- B1 voxel config: `xy_step={args.b1_xy_step_m:.0f}m`, "
@@ -1408,7 +1489,8 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
     lines.append("# Four-Baseline Comparison Table")
     lines.append("")
     lines.append(
-        f"- Trials: `{args.trials}`, seed: `{args.seed}`, blocked edges: `{args.n_block}`"
+        f"- Trials: `{args.trials}`, seed: `{args.seed}`, "
+        f"area event: `{args.event_type}` / `{args.event_radius_km:.2f} km`"
     )
     lines.append("")
     lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Energy (kJ) | Min Clearance (m) | Comm Coverage | Max Loss (s) | Risk Exposure | Success Rate |")
@@ -1459,6 +1541,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
         f"[risk] mode={risk_fields['mode']}, comm={risk_fields['has_comm']}, "
         f"weights={risk_fields['risk_weights']}"
     )
+    task_bundle = load_logistics_task_bundle(data_root)
+    print(
+        f"[tasks] logistics tasks={len(task_bundle.get('tasks', []))}, "
+        f"depots={len(task_bundle.get('depots', []))}, targets={len(task_bundle.get('targets', []))}"
+    )
 
     print("[build] loading layered graph...")
     layered_graph = build_weighted_graph(
@@ -1469,6 +1556,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         risk_fields=risk_fields,
     )
     print(f"[build] layered graph: |V|={layered_graph.n_nodes}, |E|={layered_graph.n_edges}")
+    layered_task_locator = build_task_node_locator(layered_graph)
 
     print("[build] building flattened single-layer graph for B3...")
     b3_graph = build_single_layer_graph(
@@ -1507,26 +1595,39 @@ def run_benchmark(args: argparse.Namespace) -> None:
     while accepted < args.trials and attempts < max_attempts:
         attempts += 1
         trial = accepted + 1
-        start, goal = sample_start_goal(rng, layered_graph.nodes, args.min_start_goal_dist_km)
+        try:
+            start, goal, task_meta = sample_logistics_start_goal(
+                rng,
+                layered_graph,
+                task_bundle,
+                layered_task_locator,
+                args.min_start_goal_dist_km,
+                trial,
+            )
+        except RuntimeError:
+            continue
 
-        # B4 initial planning (to define scenario and storm edges)
+        # B4 初始规划，用路径中段附近采样区域扰动中心。
         b4 = LPAStarPlanner(layered_graph, start, goal)
         ok_init_b4 = b4.compute_shortest_path()
         path_init_b4 = b4.extract_path() if ok_init_b4 else []
         if not ok_init_b4 or len(path_init_b4) < 3:
             continue
 
-        blocked_b4 = choose_blocked_edges_from_path(path_init_b4, rng, args.n_block)
-        if not blocked_b4:
+        area_event = build_area_event_from_path(
+            layered_graph.nodes,
+            layered_graph.edge_pairs,
+            path_init_b4,
+            rng,
+            event_type=args.event_type,
+            radius_km=args.event_radius_km,
+            severity=args.event_severity,
+        )
+        if not area_event.affected_edges:
             continue
 
-        storm_midpoints = [
-            tuple((layered_graph.nodes[u, :2] + layered_graph.nodes[v, :2]) * 0.5)
-            for u, v in blocked_b4
-        ]
-
         # ---------- B4 (Proposed incremental LPA*) ----------
-        b4.block_edges(blocked_b4)
+        b4.apply_area_event(area_event)
         t0 = time.perf_counter()
         ok_b4 = b4.compute_shortest_path()
         t1 = time.perf_counter()
@@ -1540,7 +1641,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "baseline": "B4_Proposed_LPA_Layered",
                 "start_node": start,
                 "goal_node": goal,
-                "blocked_edges": json.dumps(blocked_b4),
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
+                "event_type": area_event.event_type,
+                "event_center_x_km": area_event.center_x_km,
+                "event_center_y_km": area_event.center_y_km,
+                "event_radius_km": area_event.radius_km,
+                "event_severity": area_event.severity,
+                "event_affected_edges": len(area_event.affected_edges),
+                "area_event_edges": json.dumps(area_event.affected_edges),
                 "success": bool(ok_b4),
                 "replan_ms": replan_b4_ms if ok_b4 else float("nan"),
                 "expanded": int(b4.nodes_expanded) if ok_b4 else -1,
@@ -1558,7 +1669,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
         # ---------- B2 (Global A* recompute) ----------
         t0 = time.perf_counter()
-        ok_b2, path_b2, st_b2 = astar_global_replan(layered_graph, start, goal, blocked_b4)
+        ok_b2, path_b2, st_b2 = astar_global_replan(layered_graph, start, goal, [], area_events=[area_event])
         t1 = time.perf_counter()
         replan_b2_ms = (t1 - t0) * 1000.0
         m_b2 = layered_graph.path_metrics(path_b2) if ok_b2 else {}
@@ -1568,7 +1679,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "baseline": "B2_GlobalAstar_Layered",
                 "start_node": start,
                 "goal_node": goal,
-                "blocked_edges": json.dumps(blocked_b4),
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
+                "event_type": area_event.event_type,
+                "event_center_x_km": area_event.center_x_km,
+                "event_center_y_km": area_event.center_y_km,
+                "event_radius_km": area_event.radius_km,
+                "event_severity": area_event.severity,
+                "event_affected_edges": len(area_event.affected_edges),
+                "area_event_edges": json.dumps(area_event.affected_edges),
                 "success": bool(ok_b2),
                 "replan_ms": replan_b2_ms if ok_b2 else float("nan"),
                 "expanded": int(st_b2.get("expanded", -1)) if ok_b2 else -1,
@@ -1585,11 +1706,19 @@ def run_benchmark(args: argparse.Namespace) -> None:
         )
 
         # ---------- B3 (Flattened single-layer + LPA*) ----------
-        blocked_b3 = map_blocked_edges_to_graph(layered_graph, b3_graph, blocked_b4)
+        area_event_b3 = build_area_event_from_center(
+            b3_graph.nodes,
+            b3_graph.edge_pairs,
+            area_event.center_x_km,
+            area_event.center_y_km,
+            event_type=area_event.event_type,
+            radius_km=area_event.radius_km,
+            severity=area_event.severity,
+        )
         b3 = LPAStarPlanner(b3_graph, start, goal)
         ok_init_b3 = b3.compute_shortest_path()
-        if ok_init_b3 and blocked_b3:
-            b3.block_edges(blocked_b3)
+        if ok_init_b3 and area_event_b3.affected_edges:
+            b3.apply_area_event(area_event_b3)
             t0 = time.perf_counter()
             ok_b3 = b3.compute_shortest_path()
             t1 = time.perf_counter()
@@ -1600,7 +1729,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "baseline": "B3_LPA_SingleLayer",
                 "start_node": start,
                 "goal_node": goal,
-                "blocked_edges": json.dumps(blocked_b3),
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
+                "event_type": area_event.event_type,
+                "event_center_x_km": area_event.center_x_km,
+                "event_center_y_km": area_event.center_y_km,
+                "event_radius_km": area_event.radius_km,
+                "event_severity": area_event.severity,
+                "event_affected_edges": len(area_event_b3.affected_edges),
+                "area_event_edges": json.dumps(area_event_b3.affected_edges),
                 "success": bool(ok_b3),
                 "replan_ms": (t1 - t0) * 1000.0 if ok_b3 else float("nan"),
                 "expanded": int(b3.nodes_expanded) if ok_b3 else -1,
@@ -1620,7 +1759,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "baseline": "B3_LPA_SingleLayer",
                 "start_node": start,
                 "goal_node": goal,
-                "blocked_edges": json.dumps(blocked_b3),
+                "task_id": task_meta.get("task_id", ""),
+                "task_depot": task_meta.get("depot", ""),
+                "task_target": task_meta.get("target", ""),
+                "task_stratum": task_meta.get("stratum", ""),
+                "event_type": area_event.event_type,
+                "event_center_x_km": area_event.center_x_km,
+                "event_center_y_km": area_event.center_y_km,
+                "event_radius_km": area_event.radius_km,
+                "event_severity": area_event.severity,
+                "event_affected_edges": len(area_event_b3.affected_edges),
+                "area_event_edges": json.dumps(area_event_b3.affected_edges),
                 "success": False,
                 "replan_ms": float("nan"),
                 "expanded": -1,
@@ -1632,7 +1781,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "comm_coverage_ratio": float("nan"),
                 "max_comm_loss_time_s": float("nan"),
                 "max_comm_loss_length_km": float("nan"),
-                "note": "init_fail_or_no_storm_mapping",
+                "note": "init_fail_or_no_area_event_mapping",
             }
         records.append(rec_b3)
 
@@ -1648,7 +1797,10 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 float(layered_graph.nodes[goal, 1]),
                 float(layered_graph.nodes[goal, 2]),
             )
-            mask = voxel_planner.build_storm_mask(storm_midpoints, radius_m=args.storm_radius_m)
+            mask = voxel_planner.build_storm_mask(
+                [(area_event.center_x_km, area_event.center_y_km)],
+                radius_m=area_event.radius_km * 1000.0,
+            )
             t0 = time.perf_counter()
             b1_result = voxel_planner.search(
                 start_xyz,
@@ -1666,7 +1818,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "baseline": "B1_Voxel_Dijkstra",
                     "start_node": start,
                     "goal_node": goal,
-                    "blocked_edges": json.dumps(blocked_b4),
+                    "task_id": task_meta.get("task_id", ""),
+                    "task_depot": task_meta.get("depot", ""),
+                    "task_target": task_meta.get("target", ""),
+                    "task_stratum": task_meta.get("stratum", ""),
+                    "event_type": area_event.event_type,
+                    "event_center_x_km": area_event.center_x_km,
+                    "event_center_y_km": area_event.center_y_km,
+                    "event_radius_km": area_event.radius_km,
+                    "event_severity": area_event.severity,
+                    "event_affected_edges": len(area_event.affected_edges),
+                    "area_event_edges": json.dumps(area_event.affected_edges),
                     "success": ok_b1,
                     "replan_ms": (t1 - t0) * 1000.0 if ok_b1 else float("nan"),
                     "expanded": int(b1_result["expanded"]) if ok_b1 else -1,
@@ -1743,7 +1905,17 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "baseline",
         "start_node",
         "goal_node",
-        "blocked_edges",
+        "task_id",
+        "task_depot",
+        "task_target",
+        "task_stratum",
+        "event_type",
+        "event_center_x_km",
+        "event_center_y_km",
+        "event_radius_km",
+        "event_severity",
+        "event_affected_edges",
+        "area_event_edges",
         "success",
         "replan_ms",
         "expanded",
@@ -1845,6 +2017,10 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         str(args.matrix_plot_k_distribution),
         "--event-radius-km",
         str(args.matrix_event_radius_km),
+        "--event-type",
+        str(args.event_type),
+        "--event-severity",
+        str(args.event_severity),
         "--event-pool-factor",
         str(args.matrix_event_pool_factor),
         "--min-start-goal-dist-km",
@@ -1961,8 +2137,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario-config", type=str, default="", help="场景配置 JSON。")
     parser.add_argument("--trials", type=int, default=50, help="Required accepted Monte Carlo trials.")
     parser.add_argument("--seed", type=int, default=20260309, help="Random seed.")
-    parser.add_argument("--n-block", type=int, default=2, help="Number of storm-blocked edges per trial.")
-    parser.add_argument("--min-start-goal-dist-km", type=float, default=1.5, help="Min XY distance for random start/goal.")
+    parser.add_argument("--n-block", type=int, default=2, help="旧兼容参数；单次 benchmark 已改用区域扰动。")
+    parser.add_argument("--event-type", type=str, choices=["no_fly", "wind", "comm_risk"], default="no_fly")
+    parser.add_argument("--event-radius-km", type=float, default=0.8)
+    parser.add_argument("--event-severity", type=float, default=1.0)
+    parser.add_argument("--min-start-goal-dist-km", type=float, default=1.5, help="物流任务起终点映射后的最小平面距离。")
     parser.add_argument("--max-attempt-factor", type=int, default=5, help="Max attempts multiplier to collect valid trials.")
     parser.add_argument("--progress-every", type=int, default=5, help="Progress print interval for matrix mode.")
     parser.add_argument("--out-dir", type=str, default="benchmark_out_final", help="Output directory.")
@@ -1978,7 +2157,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--b1-agl-step-m", type=float, default=5.0, help="B1 AGL step in meters.")
     parser.add_argument("--b1-timeout-s", type=float, default=8.0, help="Per-trial timeout for B1 search.")
     parser.add_argument("--b1-max-expansions", type=int, default=2_000_000, help="Hard cap for B1 expansions.")
-    parser.add_argument("--storm-radius-m", type=float, default=220.0, help="Storm radius used in B1 voxel blocking.")
+    parser.add_argument("--storm-radius-m", type=float, default=220.0, help="旧兼容参数；B1 当前使用区域事件半径。")
 
     # Matrix mode defaults aligned with final paper experiment settings.
     parser.add_argument("--matrix-n-block-grid", type=str, default="2,4,6,8")

@@ -133,6 +133,47 @@ def build_area_event_from_path(
     )
 
 
+def build_area_event_from_center(
+    nodes: np.ndarray,
+    edge_pairs: np.ndarray,
+    center_x_km: float,
+    center_y_km: float,
+    event_type: str = "no_fly",
+    radius_km: float = 0.8,
+    severity: float = 1.0,
+) -> AreaEvent:
+    """把给定圆域扰动映射到图边集合。"""
+    if event_type not in EVENT_TYPES:
+        raise ValueError(f"未知事件类型: {event_type}")
+
+    pairs = np.asarray(edge_pairs, dtype=int)
+    mids = edge_midpoints(nodes, pairs)
+    radius_km = max(float(radius_km), 1e-6)
+    center = np.array([float(center_x_km), float(center_y_km)], dtype=float)
+    affected: List[Tuple[int, int]] = []
+    if len(mids) > 0:
+        dist = np.linalg.norm(mids - center.reshape(1, 2), axis=1)
+        order = np.argsort(dist)
+        affected = [
+            normalize_pair(int(pairs[eid, 0]), int(pairs[eid, 1]))
+            for eid in order
+            if float(dist[eid]) <= radius_km
+        ]
+        if not affected:
+            eid = int(order[0])
+            affected = [normalize_pair(int(pairs[eid, 0]), int(pairs[eid, 1]))]
+
+    return AreaEvent(
+        event_type=event_type,
+        center_x_km=float(center[0]),
+        center_y_km=float(center[1]),
+        radius_km=radius_km,
+        severity=max(0.0, float(severity)),
+        affected_edges=affected,
+        source_edge=None,
+    )
+
+
 def event_edge_cost(
     event_type: str,
     severity: float,
@@ -158,4 +199,3 @@ def event_edge_cost(
         raise ValueError(f"未知事件类型: {event_type}")
 
     return alpha * (t_raw / t_max) + beta * (e_raw / e_max) + gamma * (r_raw / r_max)
-
