@@ -346,8 +346,6 @@ def run_scene(
             args.event_type,
             "--event-radius-km",
             str(args.event_radius_km),
-            "--matrix-event-radius-km",
-            str(args.event_radius_km),
             "--event-severity",
             str(args.event_severity),
             "--min-start-goal-dist-km",

@@ -416,7 +416,7 @@ def run_event_stream_trial(
         )
 
         t0 = time.perf_counter()
-        ok_b2, path_b2, stats_b2 = astar_global_replan(graph, start, goal, [], area_events=active_events)
+        ok_b2, path_b2, stats_b2 = astar_global_replan(graph, start, goal, area_events=active_events)
         t1 = time.perf_counter()
         b2_ms = (t1 - t0) * 1000.0
         m_b2 = graph.path_metrics(path_b2) if ok_b2 else {}

@@ -834,10 +834,10 @@ def astar_global_replan(
     graph: WeightedGraph,
     start: int,
     goal: int,
-    blocked_pairs: Sequence[Tuple[int, int]],
     area_events: Optional[Sequence[AreaEvent]] = None,
+    blocked_pairs: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> Tuple[bool, List[int], Dict[str, int]]:
-    blocked_eids = graph.blocked_eids(blocked_pairs)
+    blocked_eids = graph.blocked_eids(blocked_pairs or [])
     override_cost = area_event_cost_overrides(graph, area_events or [])
     n = graph.n_nodes
     start = int(start)
@@ -1669,7 +1669,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
         # ---------- B2 (Global A* recompute) ----------
         t0 = time.perf_counter()
-        ok_b2, path_b2, st_b2 = astar_global_replan(layered_graph, start, goal, [], area_events=[area_event])
+        ok_b2, path_b2, st_b2 = astar_global_replan(layered_graph, start, goal, area_events=[area_event])
         t1 = time.perf_counter()
         replan_b2_ms = (t1 - t0) * 1000.0
         m_b2 = layered_graph.path_metrics(path_b2) if ok_b2 else {}
@@ -2016,7 +2016,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         "--plot-k-distribution",
         str(args.matrix_plot_k_distribution),
         "--event-radius-km",
-        str(args.matrix_event_radius_km),
+        str(args.event_radius_km),
         "--event-type",
         str(args.event_type),
         "--event-severity",
@@ -2174,7 +2174,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--matrix-plot-k-intensity", type=int, default=5)
     parser.add_argument("--matrix-plot-n-block-cont", type=int, default=4)
     parser.add_argument("--matrix-plot-k-distribution", type=int, default=10)
-    parser.add_argument("--matrix-event-radius-km", type=float, default=0.8)
     parser.add_argument("--matrix-event-pool-factor", type=int, default=6)
     parser.add_argument("--disable-plots", action="store_true", help="Disable matrix plots.")
     parser.add_argument(
