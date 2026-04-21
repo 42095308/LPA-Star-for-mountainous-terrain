@@ -13,6 +13,7 @@ from typing import Any, Dict
 
 
 DEFAULT_SCENE_CONFIG = Path("scenarios") / "huashan.json"
+CROP_META_FILE = "Z_crop_meta.json"
 
 
 def _deep_update(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
@@ -29,12 +30,8 @@ def default_config() -> Dict[str, Any]:
     return {
         "scene_name": "default",
         "dem_path": "",
-        "crop": {
-            "center_lon": 0.0,
-            "center_lat": 0.0,
-            "crop_size_m": 10000.0,
-            "resolution_m": 12.5,
-        },
+        "source_crs": "",
+        "crop": {},
         "targets": {},
         "default_start": "",
         "default_goal": "",
@@ -146,6 +143,41 @@ def scenario_output_dir(config: Dict[str, Any], workdir: str | Path = ".") -> Pa
     if not out.is_absolute():
         out = root / out
     return out
+
+
+def read_crop_metadata(output_dir: str | Path) -> Dict[str, Any]:
+    """读取 init_graph.py 写出的裁剪元数据；不存在时返回空字典。"""
+    path = Path(output_dir) / CROP_META_FILE
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def require_config_float(config: Dict[str, Any], section: str, key: str) -> float:
+    """读取必填数值配置，缺失时明确报错。"""
+    value = (config.get(section) or {}).get(key)
+    if value is None or str(value).strip() == "":
+        scene_name = str(config.get("scene_name") or "default")
+        raise KeyError(f"场景 {scene_name} 缺少必填配置 {section}.{key}。")
+    return float(value)
+
+
+def resolve_resolution_m(config: Dict[str, Any], output_dir: str | Path | None = None) -> float:
+    """解析当前裁剪网格分辨率，优先使用 DEM 裁剪元数据。"""
+    if output_dir is not None:
+        meta = read_crop_metadata(output_dir)
+        if meta.get("resolution_m") is not None:
+            return float(meta["resolution_m"])
+
+    crop = config.get("crop") or {}
+    if crop.get("resolution_m") is not None:
+        return float(crop["resolution_m"])
+
+    scene_name = str(config.get("scene_name") or "default")
+    raise KeyError(
+        f"场景 {scene_name} 缺少分辨率信息。请先运行 init_graph.py 生成 Z_crop_meta.json，"
+        "或在场景 crop.resolution_m 中显式声明。"
+    )
 
 
 def resolve_path(path_value: str | Path, workdir: str | Path = ".") -> Path:

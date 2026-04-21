@@ -15,10 +15,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 from scipy.ndimage import zoom
 
-from article_planner.scenario_config import communication_params, load_scenario_config, scenario_output_dir
-
-
-RESOLUTION_M = 12.5
+from article_planner.scenario_config import communication_params, load_scenario_config, resolve_resolution_m, scenario_output_dir
 
 
 def km_to_rc(x_km: float, y_km: float, rows: int, cols: int, resolution_m: float) -> Tuple[int, int]:
@@ -225,7 +222,7 @@ def main() -> None:
     geo = np.load(out_dir / "Z_crop_geo.npz")
     lon_grid = np.asarray(geo["lon_grid"], dtype=float)
     lat_grid = np.asarray(geo["lat_grid"], dtype=float)
-    resolution_m = float((cfg.get("crop") or {}).get("resolution_m", RESOLUTION_M))
+    resolution_m = resolve_resolution_m(cfg, out_dir)
 
     sources = load_sources(z, lon_grid, lat_grid, out_dir, params, resolution_m)
     risk = build_comm_risk(z, layer_mid, sources, params, resolution_m)

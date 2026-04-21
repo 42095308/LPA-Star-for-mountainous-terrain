@@ -19,6 +19,7 @@ from article_planner.scenario_config import (
     depot_params,
     display_names,
     load_scenario_config,
+    resolve_resolution_m,
     scenario_output_dir,
     target_specs,
 )
@@ -26,7 +27,6 @@ from virtual_depots import generate_virtual_depots
 
 
 CACHE_DEM = "Z_crop.npy"
-RESOLUTION = 12.5  # m/pixel
 
 H_MIN_OFFSET = 30.0
 H_MAX_OFFSET = 120.0
@@ -37,7 +37,15 @@ LAYERS = [
     {"name": "Backbone Layer", "low": 90.0, "high": 120.0, "color": "#FF5722", "cmap": "Oranges"},
 ]
 
-def load_peak_positions(rows: int, cols: int, z: np.ndarray, geo_path: Path, targets: dict, names: dict) -> dict:
+def load_peak_positions(
+    rows: int,
+    cols: int,
+    z: np.ndarray,
+    geo_path: Path,
+    targets: dict,
+    names: dict,
+    resolution_m: float,
+) -> dict:
     if not geo_path.exists():
         return {}
     geo = np.load(geo_path)
@@ -50,8 +58,8 @@ def load_peak_positions(rows: int, cols: int, z: np.ndarray, geo_path: Path, tar
         d2 = (lon_grid - lon) ** 2 + (lat_grid - lat) ** 2
         idx = int(np.argmin(d2))
         r, c = np.unravel_index(idx, lon_grid.shape)
-        x_km = c * RESOLUTION / 1000.0
-        y_km = (rows - 1 - r) * RESOLUTION / 1000.0
+        x_km = c * resolution_m / 1000.0
+        y_km = (rows - 1 - r) * resolution_m / 1000.0
         label = names.get(name, name)
         out[label] = {
             "x_km": float(x_km),
@@ -81,11 +89,11 @@ def nearest_rc_from_lonlat(lon_grid: np.ndarray, lat_grid: np.ndarray, lon: floa
     return int(r), int(c)
 
 
-def terminal_distance_km(rows: int, cols: int, terminal_rcs: list[tuple[int, int]]) -> np.ndarray:
+def terminal_distance_km(rows: int, cols: int, terminal_rcs: list[tuple[int, int]], resolution_m: float) -> np.ndarray:
     rr, cc = np.indices((rows, cols))
     out = np.full((rows, cols), np.inf, dtype=float)
     for tr, tc in terminal_rcs:
-        d = np.sqrt((rr - tr) ** 2 + (cc - tc) ** 2) * RESOLUTION / 1000.0
+        d = np.sqrt((rr - tr) ** 2 + (cc - tc) ** 2) * float(resolution_m) / 1000.0
         out = np.minimum(out, d)
     return out
 
@@ -95,11 +103,12 @@ def build_adaptive_corridor(
     risk_human: np.ndarray,
     terminal_rcs: list[tuple[int, int]],
     params: dict,
+    resolution_m: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
     rows, cols = z.shape
     zf = np.asarray(z, dtype=float)
     z_smooth = gaussian_filter(zf, sigma=3)
-    gy, gx = np.gradient(z_smooth, RESOLUTION, RESOLUTION)
+    gy, gx = np.gradient(z_smooth, float(resolution_m), float(resolution_m))
     slope_deg = np.degrees(np.arctan(np.sqrt(gx * gx + gy * gy)))
     local_max = maximum_filter(z_smooth, size=21)
     local_min = minimum_filter(z_smooth, size=21)
@@ -126,7 +135,7 @@ def build_adaptive_corridor(
     floor_offset = base_floor + slope_extra * slope_factor + ridge_extra * np.clip(ridge_score - 0.55, 0.0, 1.0) / 0.45
     ceiling_offset = base_ceiling + open_extra * np.clip(open_score, 0.0, 1.0)
 
-    d_terminal = terminal_distance_km(rows, cols, terminal_rcs)
+    d_terminal = terminal_distance_km(rows, cols, terminal_rcs, resolution_m)
     terminal_mask = d_terminal <= terminal_radius
     ceiling_offset = np.where(terminal_mask, np.minimum(ceiling_offset, floor_offset + terminal_thickness), ceiling_offset)
     ceiling_offset = np.maximum(ceiling_offset, floor_offset + min_thickness)
@@ -175,6 +184,7 @@ def main() -> None:
     if not dem_path.exists():
         raise FileNotFoundError(f"缺少 {dem_path}，请先运行 init_graph.py。")
 
+    resolution_m = resolve_resolution_m(scene_cfg, out_dir)
     z = np.asarray(np.load(dem_path), dtype=float)
     rows, cols = z.shape
     print(f"[读取] 场景={scene_name}, DEM shape={z.shape}, 高程={np.nanmin(z):.0f}~{np.nanmax(z):.0f} m")
@@ -203,7 +213,7 @@ def main() -> None:
                 target_specs(scene_cfg),
                 depot_params(scene_cfg),
                 risk_human=risk_human,
-                resolution_m=RESOLUTION,
+                resolution_m=resolution_m,
             )
             depot_payload = {
                 "scene_name": scene_name,
@@ -227,6 +237,7 @@ def main() -> None:
         risk_human,
         terminal_rcs,
         corridor_params,
+        resolution_m,
     )
     np.save(out_dir / "floor.npy", floor.astype(np.float32))
     np.save(out_dir / "ceiling.npy", ceiling.astype(np.float32))
@@ -247,12 +258,12 @@ def main() -> None:
     np.save(out_dir / "layer_mid.npy", layer_mid_arr)
     print(f"[步骤3] layer_mid.npy 已保存, shape={layer_mid_arr.shape}")
 
-    x_km = np.arange(cols) * RESOLUTION / 1000.0
-    y_km = np.arange(rows) * RESOLUTION / 1000.0
-    extent = [0.0, cols * RESOLUTION / 1000.0, 0.0, rows * RESOLUTION / 1000.0]
+    x_km = np.arange(cols) * resolution_m / 1000.0
+    y_km = np.arange(rows) * resolution_m / 1000.0
+    extent = [0.0, cols * resolution_m / 1000.0, 0.0, rows * resolution_m / 1000.0]
     targets = target_specs(scene_cfg)
     names = display_names(scene_cfg)
-    peak_pos = load_peak_positions(rows, cols, z, geo_path, targets, names)
+    peak_pos = load_peak_positions(rows, cols, z, geo_path, targets, names, resolution_m)
 
     fig = plt.figure(figsize=(22, 12), dpi=300)
     fig.suptitle(f"{scene_name} Flyable Corridor and Layered Decks", fontsize=15, y=0.98)
@@ -329,8 +340,8 @@ def main() -> None:
     f_s = floor[::step, ::step]
     c_s = ceiling[::step, ::step]
     rs, cs = z_s.shape
-    xg = np.arange(cs) * step * RESOLUTION / 1000.0
-    yg = np.arange(rs) * step * RESOLUTION / 1000.0
+    xg = np.arange(cs) * step * resolution_m / 1000.0
+    yg = np.arange(rs) * step * resolution_m / 1000.0
     xg, yg = np.meshgrid(xg, yg)
     ax3.plot_surface(xg, yg, z_s, color="#8B4513", alpha=0.68, linewidth=0)
     ax3.plot_surface(xg, yg, f_s, color="#2196F3", alpha=0.20, linewidth=0)

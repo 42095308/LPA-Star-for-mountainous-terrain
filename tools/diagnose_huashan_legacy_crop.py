@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from article_planner.geo import WGS84_CRS, pixel_to_xy, read_tiff_profile, xy_to_pixel
 from article_planner.scenario_config import load_scenario_config, resolve_path
-from init_graph import EPSG_SRC, EPSG_WGS84, pixel_to_xy, read_tiff_with_georef, xy_to_pixel
 
 
 LEGACY_PEAK_PIXELS = {
@@ -47,18 +47,18 @@ def main() -> None:
     center_lat = float(crop_cfg["center_lat"])
 
     tif_path = resolve_path(str(cfg["dem_path"]), root)
-    _, x0, y0, sx, sy = read_tiff_with_georef(tif_path)
-    tf_to_wgs = Transformer.from_crs(EPSG_SRC, EPSG_WGS84, always_xy=True)
-    tf_to_utm = Transformer.from_crs(EPSG_WGS84, EPSG_SRC, always_xy=True)
+    profile = read_tiff_profile(tif_path, fallback_crs=cfg.get("source_crs"))
+    tf_to_wgs = Transformer.from_crs(profile.source_crs, WGS84_CRS, always_xy=True)
+    tf_to_src = Transformer.from_crs(WGS84_CRS, profile.source_crs, always_xy=True)
 
     legacy_row = int(np.mean([v["row"] for v in LEGACY_PEAK_PIXELS.values()]))
     legacy_col = int(np.mean([v["col"] for v in LEGACY_PEAK_PIXELS.values()]))
-    x_old, y_old = pixel_to_xy(legacy_row, legacy_col, x0, y0, sx, sy)
+    x_old, y_old = pixel_to_xy(legacy_row, legacy_col, profile.x0, profile.y0, profile.sx, profile.sy)
     lon_old, lat_old = tf_to_wgs.transform(x_old, y_old)
 
-    x_new, y_new = tf_to_utm.transform(center_lon, center_lat)
-    center_row, center_col = xy_to_pixel(x_new, y_new, x0, y0, sx, sy)
-    x_new_chk, y_new_chk = pixel_to_xy(center_row, center_col, x0, y0, sx, sy)
+    x_new, y_new = tf_to_src.transform(center_lon, center_lat)
+    center_row, center_col = xy_to_pixel(x_new, y_new, profile.x0, profile.y0, profile.sx, profile.sy)
+    x_new_chk, y_new_chk = pixel_to_xy(center_row, center_col, profile.x0, profile.y0, profile.sx, profile.sy)
     lon_new_chk, lat_new_chk = tf_to_wgs.transform(x_new_chk, y_new_chk)
 
     print(f"[旧中心像元] row={legacy_row}, col={legacy_col}")

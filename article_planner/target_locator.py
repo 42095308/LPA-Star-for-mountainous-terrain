@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
-from .geo import dem_rc_to_lonlat, lonlat_to_dem_rc, nearest_rc_from_lonlat, read_tiff_with_georef
+from .geo import dem_rc_to_lonlat, lonlat_to_dem_rc, nearest_rc_from_lonlat, read_tiff_profile
 from .scenario_config import load_scenario_config, resolve_path, scenario_output_dir, target_specs
 
 
@@ -84,17 +84,26 @@ def locate_targets_from_dem(
 ) -> List[Dict[str, Any]]:
     """直接在源 DEM 中定位目标点，不依赖裁剪缓存。"""
     tif_path = resolve_path(str(cfg.get("dem_path")), workdir)
-    dem, x0, y0, sx, sy = read_tiff_with_georef(tif_path)
+    profile = read_tiff_profile(tif_path, fallback_crs=cfg.get("source_crs"))
+    dem = profile.dem
     dem[dem < -9000] = np.nan
 
     rows: List[Dict[str, Any]] = []
     for name, spec in target_specs(cfg).items():
-        rough_row, rough_col = lonlat_to_dem_rc(float(spec["lon"]), float(spec["lat"]), x0, y0, sx, sy)
+        rough_row, rough_col = lonlat_to_dem_rc(
+            float(spec["lon"]),
+            float(spec["lat"]),
+            profile.x0,
+            profile.y0,
+            profile.sx,
+            profile.sy,
+            profile.source_crs,
+        )
         rough_row = int(np.clip(rough_row, 0, dem.shape[0] - 1))
         rough_col = int(np.clip(rough_col, 0, dem.shape[1] - 1))
         expected = float(spec["elev"]) if "elev" in spec else None
         row, col, elev, elev_error = _best_by_elevation(dem, rough_row, rough_col, expected, search_radius_px)
-        lon, lat = dem_rc_to_lonlat(row, col, x0, y0, sx, sy)
+        lon, lat = dem_rc_to_lonlat(row, col, profile.x0, profile.y0, profile.sx, profile.sy, profile.source_crs)
         rows.append(
             {
                 "name": name,

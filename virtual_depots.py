@@ -14,10 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from article_planner.scenario_config import depot_params, load_scenario_config, scenario_output_dir, target_specs
-
-
-RESOLUTION_M = 12.5
+from article_planner.scenario_config import depot_params, load_scenario_config, resolve_resolution_m, scenario_output_dir, target_specs
 
 
 def nearest_rc_by_lonlat(lon_grid: np.ndarray, lat_grid: np.ndarray, lon: float, lat: float) -> Tuple[int, int]:
@@ -59,8 +56,10 @@ def generate_virtual_depots(
     targets: Dict[str, Dict[str, Any]],
     params: Dict[str, Any],
     risk_human: Optional[np.ndarray] = None,
-    resolution_m: float = RESOLUTION_M,
+    resolution_m: float | None = None,
 ) -> List[Dict[str, Any]]:
+    if resolution_m is None:
+        raise ValueError("generate_virtual_depots 需要显式传入 resolution_m。")
     rows, cols = z.shape
     count = max(0, int(params.get("count", 2)))
     if count == 0:
@@ -195,7 +194,7 @@ def main() -> None:
         target_specs(cfg),
         depot_params(cfg),
         risk_human=risk,
-        resolution_m=float((cfg.get("crop") or {}).get("resolution_m", RESOLUTION_M)),
+        resolution_m=resolve_resolution_m(cfg, out_dir),
     )
     payload = {"scene_name": cfg.get("scene_name", "default"), "depots": depots}
     (out_dir / args.out_file).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

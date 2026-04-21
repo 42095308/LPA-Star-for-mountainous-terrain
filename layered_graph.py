@@ -27,7 +27,7 @@
     Method Section 3.2：三层拓扑航路网络构建
 
 【输入文件】
-    Z_crop.npy       高程矩阵（800×800，12.5m 分辨率）
+    Z_crop.npy       高程矩阵（分辨率见 Z_crop_meta.json）
     layer_mid.npy    三层中心高度矩阵
 
 【输出文件】
@@ -55,6 +55,7 @@ from article_planner.scenario_config import (
     depot_params,
     display_names as load_display_names,
     load_scenario_config,
+    resolve_resolution_m,
     scenario_output_dir,
     target_specs,
     terrain_sampling_params,
@@ -67,8 +68,6 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 font = FontProperties(family='DejaVu Sans')
 
 # ===== 配置参数 =====
-RESOLUTION        = 12.5   # 米/像元
-
 DECK_OFFSETS = {
     "末端进近层": 45,       # Z + 45m
     "区域支路层": 75,       # Z + 75m
@@ -103,6 +102,7 @@ scene_cfg = load_scenario_config(args.scenario_config or None, root)
 scene_name = str(scene_cfg.get("scene_name", "default"))
 data_dir = scenario_output_dir(scene_cfg, root)
 data_dir.mkdir(parents=True, exist_ok=True)
+RESOLUTION = resolve_resolution_m(scene_cfg, data_dir)
 os.chdir(data_dir)
 
 # ===== 读取数据 =====

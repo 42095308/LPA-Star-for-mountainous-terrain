@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+import benchmark as benchmark_core
+
 try:
     import matplotlib.pyplot as plt
 except Exception:  # pragma: no cover
@@ -1351,6 +1353,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     if use_scene and not str(getattr(args, "scenario_config", "")).strip():
         print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
+    benchmark_core.RESOLUTION = benchmark_core.resolve_resolution_m(scene_cfg, data_root)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 

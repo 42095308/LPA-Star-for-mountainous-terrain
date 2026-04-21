@@ -52,7 +52,13 @@ from pathlib import Path
 
 from dynamic_events import build_area_event_from_path, event_edge_cost, normalize_pair
 from article_planner.scenario_config import display_names as load_display_names
-from article_planner.scenario_config import communication_params, load_scenario_config, scenario_output_dir, target_specs
+from article_planner.scenario_config import (
+    communication_params,
+    load_scenario_config,
+    resolve_resolution_m,
+    scenario_output_dir,
+    target_specs,
+)
 
 matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -65,7 +71,6 @@ GAMMA      = 0.5
 UAV_SPEED  = 15.0
 UAV_POWER  = 500.0
 UAV_MASS   = 5.0    # kg, reference UAV mass (conservative)
-RESOLUTION = 12.5
 SAFETY_HEIGHT     = 30
 COLLISION_SAMPLES = 20
 TIMING_REPEATS    = 10
@@ -147,6 +152,7 @@ ROOT = Path(args.workdir).resolve()
 SCENE_CFG = load_scenario_config(args.scenario_config or None, ROOT)
 DATA_DIR = scenario_output_dir(SCENE_CFG, ROOT)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+RESOLUTION = resolve_resolution_m(SCENE_CFG, DATA_DIR)
 os.chdir(DATA_DIR)
 scene_targets = target_specs(SCENE_CFG)
 DISPLAY_NAMES.update(load_display_names(SCENE_CFG))

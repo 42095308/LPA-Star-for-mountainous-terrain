@@ -23,10 +23,9 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
-from article_planner.scenario_config import load_scenario_config, scenario_output_dir
+from article_planner.scenario_config import load_scenario_config, resolve_resolution_m, scenario_output_dir
 
 
-RESOLUTION_M = 12.5
 LEVELS = (1, 2, 3, 4)
 
 
@@ -386,17 +385,17 @@ def draw_line_mask(mask: np.ndarray, rc_line: Sequence[Tuple[int, int]]) -> None
         mask[rr, cc] = True
 
 
-def risk_from_buffer(mask: np.ndarray, risk_value: float, radius_m: float) -> np.ndarray:
+def risk_from_buffer(mask: np.ndarray, risk_value: float, radius_m: float, resolution_m: float) -> np.ndarray:
     if not np.any(mask):
         return np.zeros(mask.shape, dtype=float)
-    d_m = distance_transform_edt(~mask) * RESOLUTION_M
+    d_m = distance_transform_edt(~mask) * float(resolution_m)
     return np.where(d_m <= radius_m, risk_value, 0.0).astype(float)
 
 
-def risk_from_gaussian(mask: np.ndarray, risk_peak: float, sigma_m: float) -> np.ndarray:
+def risk_from_gaussian(mask: np.ndarray, risk_peak: float, sigma_m: float, resolution_m: float) -> np.ndarray:
     if not np.any(mask):
         return np.zeros(mask.shape, dtype=float)
-    d_m = distance_transform_edt(~mask) * RESOLUTION_M
+    d_m = distance_transform_edt(~mask) * float(resolution_m)
     return (risk_peak * np.exp(-(d_m ** 2) / (2.0 * sigma_m * sigma_m))).astype(float)
 
 
@@ -497,6 +496,7 @@ def main() -> None:
     geo = np.load(out_dir / args.geo_file)
     lon_grid = np.asarray(geo["lon_grid"], dtype=float)
     lat_grid = np.asarray(geo["lat_grid"], dtype=float)
+    resolution_m = resolve_resolution_m(scene_cfg, out_dir)
     if z.shape != lon_grid.shape or z.shape != lat_grid.shape:
         raise RuntimeError(f"Shape mismatch: Z={z.shape}, lon={lon_grid.shape}, lat={lat_grid.shape}")
 
@@ -581,10 +581,10 @@ def main() -> None:
             for r, c in rc_pts:
                 masks[lv][r, c] = True
 
-    risk_l1 = risk_from_buffer(masks[1], risk_value=1.0, radius_m=50.0)
-    risk_l2 = risk_from_buffer(masks[2], risk_value=0.8, radius_m=30.0)
-    risk_l3 = risk_from_gaussian(masks[3], risk_peak=0.5, sigma_m=120.0)
-    risk_l4 = risk_from_buffer(masks[4], risk_value=0.2, radius_m=30.0)
+    risk_l1 = risk_from_buffer(masks[1], risk_value=1.0, radius_m=50.0, resolution_m=resolution_m)
+    risk_l2 = risk_from_buffer(masks[2], risk_value=0.8, radius_m=30.0, resolution_m=resolution_m)
+    risk_l3 = risk_from_gaussian(masks[3], risk_peak=0.5, sigma_m=120.0, resolution_m=resolution_m)
+    risk_l4 = risk_from_buffer(masks[4], risk_value=0.2, radius_m=30.0, resolution_m=resolution_m)
     risk_l1 = np.clip(risk_l1, 0.0, 1.0)
     risk_l2 = np.clip(risk_l2, 0.0, 1.0)
     risk_l3 = np.clip(risk_l3, 0.0, 1.0)
@@ -767,7 +767,7 @@ def main() -> None:
             "lon_max": lon_max,
         },
         "shape": [int(rows), int(cols)],
-        "resolution_m": RESOLUTION_M,
+        "resolution_m": resolution_m,
         "risk_model": {
             "L1": {"risk": 1.0, "buffer_m": 50.0},
             "L2": {"risk": 0.8, "buffer_m": 30.0},

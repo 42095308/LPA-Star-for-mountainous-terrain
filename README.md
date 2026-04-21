@@ -67,7 +67,8 @@ pip install -e ".[dev]" -c constraints.txt
 | `scene_name` | 场景名称，也用于默认输出目录占位符。 |
 | `dem_path` | 原始 DEM 文件路径，相对路径以项目根目录为基准，建议放在 `data/raw/<scene_name>/`。 |
 | `output_dir` | 场景输出目录，通常使用 `outputs/{scene_name}`。 |
-| `crop` | DEM 裁剪参数：中心经纬度、裁剪边长和分辨率。 |
+| `crop` | DEM 裁剪参数：中心经纬度和裁剪边长。实际像元分辨率由 `init_graph.py` 从 GeoTIFF 像元尺度读取并写入 `Z_crop_meta.json`。 |
+| `source_crs` | 可选字段；仅当 GeoTIFF 缺少 CRS 元数据时填写，例如 `EPSG:xxxx`。正常情况下不需要配置。 |
 | `targets` | 任务目标点列表；每个目标可包含 `lon`、`lat`、`elev`、`display_name`。华山五峰只是这里的一组配置。 |
 | `default_start` / `default_goal` | 单次 LPA* 演示默认起终点名称。 |
 | `virtual_depots` | 虚拟配送站自动生成规则。 |
@@ -140,7 +141,7 @@ python lpa_star.py --scenario-config scenarios/huashan.json --workdir . --event-
 
 1. 复制 `scenarios/template.example.json` 为新文件，例如 `scenarios/new_mountain.json`。
 2. 创建 `data/raw/new_mountain/`，把该山体的 DEM、OSM 等原始输入放进去。
-3. 修改 `scene_name`、`dem_path`、`crop.center_lon`、`crop.center_lat` 和 `targets`。
+3. 修改 `scene_name`、`dem_path`、`crop.center_lon`、`crop.center_lat`、`crop.crop_size_m` 和 `targets`；分辨率默认由 DEM 元数据自动读取。
 4. 如有 OSM，填写 `osm_file` 和场景专有 `osm_risk_keywords`；没有 OSM 可在运行时使用 `--skip-osm-risk`。
 5. 运行多场景入口：
 
@@ -181,7 +182,7 @@ python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --wor
 |---|---|---|
 | `Z_crop.npy` | `init_graph.py` | 裁剪后的 DEM 高程矩阵。 |
 | `Z_crop_geo.npz` | `init_graph.py` | 与 `Z_crop.npy` 对齐的 `lon_grid`、`lat_grid`。 |
-| `Z_crop_meta.json` | `init_graph.py` | 裁剪中心、源 DEM、窗口行列范围和方向信息。 |
+| `Z_crop_meta.json` | `init_graph.py` | 裁剪中心、源 DEM、源 CRS、像元尺度、实际分辨率、窗口行列范围和方向信息。 |
 | `<scene_name>_final.png` | `init_graph.py` | 裁剪 DEM 的俯视和三维预览图。 |
 | `risk_l1.npy` | `human_risk_osm.py` | 高风险危险路线或危险地物风险。 |
 | `risk_l2.npy` | `human_risk_osm.py` | 主要游线、峰顶、景点等风险。 |

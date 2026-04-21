@@ -5,8 +5,7 @@
   "crop": {
     "center_lon": 110.0798,
     "center_lat": 34.4829,
-    "crop_size_m": 10000.0,
-    "resolution_m": 12.5
+    "crop_size_m": 10000.0
   },
   "targets": {
     "南峰": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0, "display_name": "South Peak"},

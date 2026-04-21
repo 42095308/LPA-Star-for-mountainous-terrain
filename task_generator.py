@@ -18,14 +18,12 @@ from scipy.ndimage import gaussian_filter, maximum_filter
 from article_planner.scenario_config import (
     depot_params,
     load_scenario_config,
+    resolve_resolution_m,
     scenario_output_dir,
     target_specs,
     task_generation_params,
 )
 from virtual_depots import generate_virtual_depots
-
-
-RESOLUTION_M = 12.5
 
 
 def pixel_to_km(r: int, c: int, rows: int, resolution_m: float) -> Tuple[float, float]:
@@ -310,7 +308,7 @@ def main() -> None:
     geo = np.load(out_dir / "Z_crop_geo.npz")
     lon_grid = np.asarray(geo["lon_grid"], dtype=float)
     lat_grid = np.asarray(geo["lat_grid"], dtype=float)
-    resolution_m = float((cfg.get("crop") or {}).get("resolution_m", RESOLUTION_M))
+    resolution_m = resolve_resolution_m(cfg, out_dir)
     risk_human = np.zeros_like(z, dtype=float)
     risk_path = out_dir / "risk_human.npy"
     if risk_path.exists():

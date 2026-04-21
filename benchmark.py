@@ -32,6 +32,7 @@ from article_planner.scenario_config import (
     DEFAULT_SCENE_CONFIG,
     communication_params,
     load_scenario_config,
+    resolve_resolution_m,
     scenario_output_dir,
 )
 
@@ -54,7 +55,7 @@ GAMMA = 0.5
 UAV_SPEED = 15.0
 UAV_POWER = 500.0
 UAV_MASS = 5.0  # kg, reference UAV mass (conservative)
-RESOLUTION = 12.5
+RESOLUTION: float | None = None
 SAFETY_HEIGHT = 30.0
 COLLISION_SAMPLES = 12
 RISK_SAMPLES = 10
@@ -1547,11 +1548,13 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
 
 
 def run_benchmark(args: argparse.Namespace) -> None:
+    global RESOLUTION
     root = Path(args.workdir).resolve()
     scene_cfg, data_root, use_scene = resolve_benchmark_data_context(args, root)
     if use_scene and not str(getattr(args, "scenario_config", "")).strip():
         print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
+    RESOLUTION = resolve_resolution_m(scene_cfg, data_root)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 

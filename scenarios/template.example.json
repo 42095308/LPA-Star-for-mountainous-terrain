@@ -5,8 +5,7 @@
   "crop": {
     "center_lon": 110.0000,
     "center_lat": 34.0000,
-    "crop_size_m": 10000.0,
-    "resolution_m": 12.5
+    "crop_size_m": 10000.0
   },
   "targets": {
     "目标点A": {

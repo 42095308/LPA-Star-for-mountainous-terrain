@@ -8,19 +8,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Dict, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-import tifffile
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from pyproj import Transformer
 
+from article_planner.geo import WGS84_CRS, read_tiff_profile
 from article_planner.scenario_config import (
     display_names,
     load_scenario_config,
+    require_config_float,
     resolve_path,
     scenario_output_dir,
     target_specs,
@@ -31,25 +31,10 @@ CACHE_FILE = "Z_crop.npy"
 CACHE_GEO = "Z_crop_geo.npz"
 CACHE_META = "Z_crop_meta.json"
 
-EPSG_SRC = "EPSG:32649"  # from GeoKeyDirectoryTag (WGS84 / UTM zone 49N)
-EPSG_WGS84 = "EPSG:4326"
-
-DEFAULT_CROP_SIZE_M = 10_000.0
-RESOLUTION_M = 12.5
-
 
 def read_tiff_with_georef(tif_path: Path) -> Tuple[np.ndarray, float, float, float, float]:
-    with tifffile.TiffFile(tif_path) as tif:
-        page = tif.pages[0]
-        dem = page.asarray().astype(float)
-        scale = page.tags["ModelPixelScaleTag"].value
-        tie = page.tags["ModelTiepointTag"].value
-
-    sx = float(scale[0])
-    sy = float(scale[1])
-    x0 = float(tie[3])  # upper-left corner x
-    y0 = float(tie[4])  # upper-left corner y
-    return dem, x0, y0, sx, sy
+    profile = read_tiff_profile(tif_path)
+    return profile.dem, profile.x0, profile.y0, profile.sx, profile.sy
 
 
 def pixel_to_xy(row: float, col: float, x0: float, y0: float, sx: float, sy: float) -> Tuple[float, float]:
@@ -67,14 +52,15 @@ def xy_to_pixel(x: float, y: float, x0: float, y0: float, sx: float, sy: float) 
 def bounded_crop_window(
     row_center: int,
     col_center: int,
-    half: int,
+    half_rows: int,
+    half_cols: int,
     n_rows: int,
     n_cols: int,
 ) -> Tuple[int, int, int, int]:
-    row_min = row_center - half
-    row_max = row_center + half
-    col_min = col_center - half
-    col_max = col_center + half
+    row_min = row_center - half_rows
+    row_max = row_center + half_rows
+    col_min = col_center - half_cols
+    col_max = col_center + half_cols
 
     if row_min < 0:
         row_max -= row_min
@@ -107,6 +93,7 @@ def build_lonlat_grids(
     y0: float,
     sx: float,
     sy: float,
+    source_crs: str,
 ) -> Tuple[np.ndarray, np.ndarray]:
     rows = row_max - row_min
     cols = col_max - col_min
@@ -116,7 +103,7 @@ def build_lonlat_grids(
     x2 = x0 + cc2 * sx
     y2 = y0 - rr2 * sy
 
-    tf_to_wgs = Transformer.from_crs(EPSG_SRC, EPSG_WGS84, always_xy=True)
+    tf_to_wgs = Transformer.from_crs(source_crs, WGS84_CRS, always_xy=True)
     lon_flat, lat_flat = tf_to_wgs.transform(x2.ravel(), y2.ravel())
     lon_grid = lon_flat.reshape(rows, cols)
     lat_grid = lat_flat.reshape(rows, cols)
@@ -130,7 +117,7 @@ def nearest_rc_from_lonlat(lon_grid: np.ndarray, lat_grid: np.ndarray, lon: floa
     return int(r), int(c)
 
 
-def cache_matches(meta_path: Path, center_lon: float, center_lat: float, crop_size_m: float) -> bool:
+def cache_matches(meta_path: Path, dem_path: Path, center_lon: float, center_lat: float, crop_size_m: float) -> bool:
     if not meta_path.exists():
         return False
     try:
@@ -141,6 +128,9 @@ def cache_matches(meta_path: Path, center_lon: float, center_lat: float, crop_si
         abs(float(meta.get("center_lon", 0.0)) - center_lon) < 1e-9
         and abs(float(meta.get("center_lat", 0.0)) - center_lat) < 1e-9
         and abs(float(meta.get("crop_size_m", 0.0)) - crop_size_m) < 1e-9
+        and Path(str(meta.get("dem_path", ""))).resolve() == dem_path.resolve()
+        and float(meta.get("resolution_m", 0.0)) > 0.0
+        and str(meta.get("source_crs", "")).strip() != ""
         and meta.get("row0_orientation", "") == "north"
     )
 
@@ -161,10 +151,9 @@ def main() -> None:
     out_dir = scenario_output_dir(cfg, root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    crop_cfg = cfg.get("crop", {})
-    center_lon = float(args.center_lon if args.center_lon is not None else crop_cfg["center_lon"])
-    center_lat = float(args.center_lat if args.center_lat is not None else crop_cfg["center_lat"])
-    crop_size_m = float(args.crop_size_m if args.crop_size_m is not None else crop_cfg.get("crop_size_m", DEFAULT_CROP_SIZE_M))
+    center_lon = float(args.center_lon if args.center_lon is not None else require_config_float(cfg, "crop", "center_lon"))
+    center_lat = float(args.center_lat if args.center_lat is not None else require_config_float(cfg, "crop", "center_lat"))
+    crop_size_m = float(args.crop_size_m if args.crop_size_m is not None else require_config_float(cfg, "crop", "crop_size_m"))
 
     cache_file = out_dir / CACHE_FILE
     cache_geo = out_dir / CACHE_GEO
@@ -177,7 +166,7 @@ def main() -> None:
     use_cache = (
         cache_file.exists()
         and cache_geo.exists()
-        and cache_matches(cache_meta, center_lon, center_lat, crop_size_m)
+        and cache_matches(cache_meta, tif_path, center_lon, center_lat, crop_size_m)
         and (not args.force_recrop)
     )
 
@@ -192,17 +181,24 @@ def main() -> None:
         row_max = int(meta["row_max"])
         col_min = int(meta["col_min"])
         col_max = int(meta["col_max"])
+        resolution_m = float(meta["resolution_m"])
     else:
         print("[裁剪] 读取源 DEM 并重新裁剪...")
-        dem, x0, y0, sx, sy = read_tiff_with_georef(tif_path)
+        fallback_crs = str(cfg.get("source_crs") or "").strip() or None
+        profile = read_tiff_profile(tif_path, fallback_crs=fallback_crs)
+        dem = profile.dem
+        x0, y0, sx, sy = profile.x0, profile.y0, profile.sx, profile.sy
+        source_crs = profile.source_crs
+        resolution_m = profile.resolution_m
         dem[dem < -9000] = np.nan
         n_rows, n_cols = dem.shape
-        half = int(round((crop_size_m / 2.0) / RESOLUTION_M))
+        half_rows = int(round((crop_size_m / 2.0) / abs(sy)))
+        half_cols = int(round((crop_size_m / 2.0) / abs(sx)))
 
-        tf_to_wgs = Transformer.from_crs(EPSG_SRC, EPSG_WGS84, always_xy=True)
-        tf_to_utm = Transformer.from_crs(EPSG_WGS84, EPSG_SRC, always_xy=True)
+        tf_to_wgs = Transformer.from_crs(source_crs, WGS84_CRS, always_xy=True)
+        tf_to_src = Transformer.from_crs(WGS84_CRS, source_crs, always_xy=True)
 
-        x_new, y_new = tf_to_utm.transform(center_lon, center_lat)
+        x_new, y_new = tf_to_src.transform(center_lon, center_lat)
         center_row, center_col = xy_to_pixel(x_new, y_new, x0, y0, sx, sy)
         x_new_chk, y_new_chk = pixel_to_xy(center_row, center_col, x0, y0, sx, sy)
         lon_new_chk, lat_new_chk = tf_to_wgs.transform(x_new_chk, y_new_chk)
@@ -211,9 +207,16 @@ def main() -> None:
         print(f"[调试] 目标中心像元: row={center_row}, col={center_col}")
         print(f"[调试] 吸附后目标经纬度: lon={lon_new_chk:.6f}, lat={lat_new_chk:.6f}")
 
-        row_min, row_max, col_min, col_max = bounded_crop_window(center_row, center_col, half, n_rows, n_cols)
+        row_min, row_max, col_min, col_max = bounded_crop_window(
+            center_row,
+            center_col,
+            half_rows,
+            half_cols,
+            n_rows,
+            n_cols,
+        )
         z_crop = dem[row_min:row_max, col_min:col_max]
-        lon_grid, lat_grid = build_lonlat_grids(row_min, row_max, col_min, col_max, x0, y0, sx, sy)
+        lon_grid, lat_grid = build_lonlat_grids(row_min, row_max, col_min, col_max, x0, y0, sx, sy, source_crs)
 
         np.save(cache_file, z_crop.astype(np.float32))
         np.savez(cache_geo, lon_grid=lon_grid.astype(np.float64), lat_grid=lat_grid.astype(np.float64))
@@ -223,6 +226,10 @@ def main() -> None:
             "center_lon": center_lon,
             "center_lat": center_lat,
             "crop_size_m": crop_size_m,
+            "source_crs": source_crs,
+            "pixel_size_x_m": abs(sx),
+            "pixel_size_y_m": abs(sy),
+            "resolution_m": resolution_m,
             "row_min": row_min,
             "row_max": row_max,
             "col_min": col_min,
@@ -246,8 +253,8 @@ def main() -> None:
     configured_display = display_names(cfg)
     for name, p in configured_targets.items():
         r, c = nearest_rc_from_lonlat(lon_grid, lat_grid, p["lon"], p["lat"])
-        x_km = c * RESOLUTION_M / 1000.0
-        y_km = (rows - 1 - r) * RESOLUTION_M / 1000.0
+        x_km = c * resolution_m / 1000.0
+        y_km = (rows - 1 - r) * resolution_m / 1000.0
         label = configured_display.get(name, name)
         peak_plot[label] = {
             "x": x_km,
@@ -260,7 +267,7 @@ def main() -> None:
     # Plot
     fig = plt.figure(figsize=(20, 8))
     ax1 = fig.add_subplot(121)
-    extent = [0.0, cols * RESOLUTION_M / 1000.0, 0.0, rows * RESOLUTION_M / 1000.0]
+    extent = [0.0, cols * resolution_m / 1000.0, 0.0, rows * resolution_m / 1000.0]
     im = ax1.imshow(z_crop, cmap="terrain", extent=extent, origin="upper", aspect="equal")
     plt.colorbar(im, ax=ax1, label="Elevation (m)", shrink=0.8)
 
@@ -301,8 +308,8 @@ def main() -> None:
         y_km = event.ydata
         if x_km is None or y_km is None:
             return
-        c = int(np.clip(x_km * 1000.0 / RESOLUTION_M, 0, cols - 1))
-        r = int(np.clip((rows - 1) - y_km * 1000.0 / RESOLUTION_M, 0, rows - 1))
+        c = int(np.clip(x_km * 1000.0 / resolution_m, 0, cols - 1))
+        r = int(np.clip((rows - 1) - y_km * 1000.0 / resolution_m, 0, rows - 1))
         elev = z_crop[r, c]
         if np.isnan(elev):
             annot.set_visible(False)
@@ -322,8 +329,8 @@ def main() -> None:
     r_idx = np.arange(0, rows, step, dtype=int)
     c_idx = np.arange(0, cols, step, dtype=int)
     z_s = z_crop[np.ix_(r_idx, c_idx)]
-    x_vals = c_idx * RESOLUTION_M / 1000.0
-    y_vals = (rows - 1 - r_idx) * RESOLUTION_M / 1000.0
+    x_vals = c_idx * resolution_m / 1000.0
+    y_vals = (rows - 1 - r_idx) * resolution_m / 1000.0
     xg, yg = np.meshgrid(x_vals, y_vals)
     ax2.plot_surface(xg, yg, z_s, cmap="terrain", alpha=0.85, linewidth=0)
     for name, p in peak_plot.items():

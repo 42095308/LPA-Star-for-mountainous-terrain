@@ -158,9 +158,11 @@ def build_terrain_samples(
     risk_human: np.ndarray | None,
     terminal_rcs: Sequence[Tuple[int, int]],
     params: Dict[str, Any],
-    resolution_m: float = 12.5,
+    resolution_m: float | None = None,
     layer_allowed: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, List[str], np.ndarray, List[str], Dict[str, Any]]:
+    if resolution_m is None:
+        raise ValueError("build_terrain_samples 需要显式传入 resolution_m。")
     rows, cols = z.shape
     features = terrain_features(z, resolution_m)
     risk = np.zeros((rows, cols), dtype=float)
@@ -276,4 +278,3 @@ def build_terrain_samples(
         "min_spacing_px": int(min_spacing_px),
     }
     return branch_pts, branch_roles, backbone_pts, backbone_roles, meta
-
