@@ -32,13 +32,12 @@ from benchmark import (
     load_risk_fields,
     load_logistics_task_bundle,
     normalize_pair,
+    resolve_benchmark_data_context,
     build_task_node_locator,
     sample_logistics_start_goal,
     write_csv,
 )
 from dynamic_events import build_area_event_from_path
-from scenario_config import load_scenario_config, scenario_output_dir
-
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
 BASELINE_B2 = "B2_GlobalAstar_Layered"
 
@@ -1348,9 +1347,9 @@ def make_plots_matrix(
 
 def run_benchmark_matrix(args: argparse.Namespace) -> None:
     root = Path(args.workdir).resolve()
-    use_scene = bool(str(getattr(args, "scenario_config", "")).strip())
-    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
-    data_root = scenario_output_dir(scene_cfg, root) if use_scene else root
+    scene_cfg, data_root, use_scene = resolve_benchmark_data_context(args, root)
+    if use_scene and not str(getattr(args, "scenario_config", "")).strip():
+        print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)

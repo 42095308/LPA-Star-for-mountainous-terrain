@@ -1,0 +1,22 @@
+{
+  "base_floor_offset_m": 30.0,
+  "base_ceiling_offset_m": 120.0,
+  "floor_offset_min_m": 30.0,
+  "floor_offset_max_m": 82.24927811337186,
+  "ceiling_offset_min_m": 102.0,
+  "ceiling_offset_max_m": 155.0,
+  "thickness_min_m": 59.999999999999545,
+  "thickness_max_m": 125.0,
+  "terminal_area_ratio": 0.0460421875,
+  "high_risk_area_ratio": 0.0327078125,
+  "layer_allowed_ratio": [
+    0.979021875,
+    0.979021875,
+    1.0
+  ],
+  "layer_positions": [
+    0.22,
+    0.52,
+    0.82
+  ]
+}

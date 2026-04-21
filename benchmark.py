@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
-from scenario_config import communication_params, load_scenario_config, scenario_output_dir
+from scenario_config import DEFAULT_SCENE_CONFIG, communication_params, load_scenario_config, scenario_output_dir
 
 try:
     from scipy.stats import ttest_rel
@@ -1255,6 +1255,23 @@ def load_logistics_task_bundle(root: Path) -> Dict[str, object]:
     return payload
 
 
+def resolve_benchmark_data_context(args: argparse.Namespace, root: Path) -> Tuple[Dict[str, object], Path, bool]:
+    """解析 benchmark 数据目录，并在默认场景存在时和 task_generator.py 保持一致。"""
+    requested_scene = bool(str(getattr(args, "scenario_config", "")).strip())
+    if requested_scene:
+        scene_cfg = load_scenario_config(args.scenario_config or None, root)
+        return scene_cfg, scenario_output_dir(scene_cfg, root), True
+
+    if (root / "generated_tasks.json").exists():
+        return {}, root, False
+
+    if (root / DEFAULT_SCENE_CONFIG).exists():
+        scene_cfg = load_scenario_config(None, root)
+        return scene_cfg, scenario_output_dir(scene_cfg, root), True
+
+    return {}, root, False
+
+
 def build_task_node_locator(graph: WeightedGraph) -> Dict[str, object]:
     """为物流任务坐标建立最近可用图节点查询结构。"""
     usable = np.asarray([i for i, adj_i in enumerate(graph.adj) if len(adj_i) > 0], dtype=int)
@@ -1526,9 +1543,9 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
 
 def run_benchmark(args: argparse.Namespace) -> None:
     root = Path(args.workdir).resolve()
-    use_scene = bool(str(getattr(args, "scenario_config", "")).strip())
-    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
-    data_root = scenario_output_dir(scene_cfg, root) if use_scene else root
+    scene_cfg, data_root, use_scene = resolve_benchmark_data_context(args, root)
+    if use_scene and not str(getattr(args, "scenario_config", "")).strip():
+        print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1968,9 +1985,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         raise RuntimeError("benchmark_matrix.py is missing; cannot run matrix benchmark mode.")
 
     root = Path(args.workdir).resolve()
-    use_scene = bool(str(getattr(args, "scenario_config", "")).strip())
-    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
-    data_root = scenario_output_dir(scene_cfg, root) if use_scene else root
+    _scene_cfg, data_root, _use_scene = resolve_benchmark_data_context(args, root)
     out_dir_arg = Path(args.out_dir)
     if not out_dir_arg.is_absolute():
         out_dir_arg = data_root / out_dir_arg
