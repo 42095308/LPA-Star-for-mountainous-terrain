@@ -1,0 +1,8 @@
+# 当前验证环境的依赖锁定版本，用于复现实验。
+numpy==2.3.5
+scipy==1.16.3
+matplotlib==3.10.6
+tifffile==2025.10.4
+pyproj==3.7.2
+pytest==8.4.2
+ruff==0.12.0

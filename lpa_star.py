@@ -51,8 +51,8 @@ from scipy.spatial import ConvexHull, QhullError
 from pathlib import Path
 
 from dynamic_events import build_area_event_from_path, event_edge_cost, normalize_pair
-from scenario_config import display_names as load_display_names
-from scenario_config import communication_params, load_scenario_config, scenario_output_dir, target_specs
+from article_planner.scenario_config import display_names as load_display_names
+from article_planner.scenario_config import communication_params, load_scenario_config, scenario_output_dir, target_specs
 
 matplotlib.rcParams['font.family'] = ['DejaVu Sans']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -80,18 +80,10 @@ RISK_W_L3      = 0.15
 RISK_W_L4      = 0.05
 RISK_W_HUMAN_COMBINED = 0.50
 
-START_NAME = "北部基地"
-GOAL_NAME  = "南峰"
+START_NAME = ""
+GOAL_NAME  = ""
 
-DISPLAY_NAMES = {
-    "南峰": "South Peak",
-    "东峰": "East Peak",
-    "西峰": "West Peak",
-    "北峰": "North Peak",
-    "中峰": "Central Peak",
-    "北部基地": "North Depot",
-    "西部基地": "West Depot",
-}
+DISPLAY_NAMES = {}
 
 # 触发事件：区域扰动；N_BLOCK 仅保留为旧命令行兼容参数
 N_BLOCK    = 2
@@ -152,16 +144,16 @@ parser.add_argument(
 args = parser.parse_args()
 
 ROOT = Path(args.workdir).resolve()
-USE_SCENE = bool(str(args.scenario_config).strip())
-SCENE_CFG = load_scenario_config(args.scenario_config or None, ROOT) if USE_SCENE else {}
-DATA_DIR = scenario_output_dir(SCENE_CFG, ROOT) if USE_SCENE else ROOT
+SCENE_CFG = load_scenario_config(args.scenario_config or None, ROOT)
+DATA_DIR = scenario_output_dir(SCENE_CFG, ROOT)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 os.chdir(DATA_DIR)
-if USE_SCENE:
-    scene_targets = target_specs(SCENE_CFG)
-    DISPLAY_NAMES.update(load_display_names(SCENE_CFG))
-    START_NAME = str(SCENE_CFG.get("default_start") or START_NAME)
-    GOAL_NAME = str(SCENE_CFG.get("default_goal") or GOAL_NAME)
+scene_targets = target_specs(SCENE_CFG)
+DISPLAY_NAMES.update(load_display_names(SCENE_CFG))
+START_NAME = str(SCENE_CFG.get("default_start") or START_NAME)
+GOAL_NAME = str(SCENE_CFG.get("default_goal") or GOAL_NAME)
+if not START_NAME or not GOAL_NAME:
+    raise ValueError("场景配置必须提供 default_start 和 default_goal，或在脚本中显式指定起终点。")
 
 N_BLOCK = max(1, int(args.n_block))
 EVENT_TYPE = str(args.event_type)
@@ -210,7 +202,7 @@ risk_hotspot = np.zeros((rows, cols), dtype=float)
 risk_human = np.zeros((rows, cols), dtype=float)
 risk_comm = np.zeros((3, rows, cols), dtype=float)
 risk_mode = "terrain_only"
-comm_params = communication_params(SCENE_CFG) if USE_SCENE else communication_params({})
+comm_params = communication_params(SCENE_CFG)
 comm_risk_threshold = float(comm_params.get("risk_threshold", 0.55))
 
 if os.path.exists("risk_l1.npy"):
@@ -490,9 +482,7 @@ def build_cost_profile(curve_xyz):
     }
 
 # ===== 找起终点 =====
-PEAKS_ORDER  = ["南峰","东峰","西峰","北峰","中峰"]
-DEPOTS_ORDER = ["北部基地","西部基地"]
-ALL_TERMINALS = PEAKS_ORDER + DEPOTS_ORDER
+ALL_TERMINALS = []
 TERMINAL_STATUS = {}
 if os.path.exists("graph_terminal_status.json"):
     with open("graph_terminal_status.json", "r", encoding="utf-8") as f:
@@ -500,7 +490,7 @@ if os.path.exists("graph_terminal_status.json"):
     ALL_TERMINALS = [str(v) for v in TERMINAL_STATUS.get("terminal_order", ALL_TERMINALS)]
     for name in ALL_TERMINALS:
         DISPLAY_NAMES.setdefault(name, name)
-elif USE_SCENE:
+else:
     generated_names = []
     if os.path.exists("generated_depots.json"):
         with open("generated_depots.json", "r", encoding="utf-8") as f:
@@ -1428,7 +1418,7 @@ if seed_sweep_summary is not None:
     )
 
 path_summary = {
-    "scene_name": str(SCENE_CFG.get("scene_name", "huashan")) if USE_SCENE else "huashan",
+    "scene_name": str(SCENE_CFG.get("scene_name", "default")),
     "start": START_NAME,
     "goal": GOAL_NAME,
     "event": area_event.to_dict(),

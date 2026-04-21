@@ -35,7 +35,26 @@ python -m venv env
 pip install -r requirements.txt
 ```
 
-当前必需依赖为 `numpy`、`scipy`、`matplotlib`、`tifffile`、`pyproj`。旧定位实验使用过 `rasterio`，现在的 `tools/locate_targets.py` 已改用 `tifffile + pyproj`，默认不再需要 `rasterio`。
+当前必需依赖为 `numpy`、`scipy`、`matplotlib`、`tifffile`、`pyproj`。`requirements.txt` 和 `pyproject.toml` 使用最低兼容版本，便于在新机器上安装；`constraints.txt` 锁定当前已验证环境版本，便于复现实验：
+
+```powershell
+pip install -r requirements.txt -c constraints.txt
+```
+
+旧定位实验使用过 `rasterio`，现在的 `tools/locate_targets.py` 已改用 `tifffile + pyproj`，默认不再需要 `rasterio`。
+
+工程同时提供轻量 `pyproject.toml`。如果希望以包形式安装，可使用：
+
+```powershell
+pip install -e .
+```
+
+开发工具可选安装：
+
+```powershell
+pip install -r requirements-dev.txt
+pip install -e ".[dev]" -c constraints.txt
+```
 
 ## 场景配置
 

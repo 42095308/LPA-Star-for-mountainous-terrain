@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 from scipy.ndimage import zoom
 
-from scenario_config import communication_params, load_scenario_config, scenario_output_dir
+from article_planner.scenario_config import communication_params, load_scenario_config, scenario_output_dir
 
 
 RESOLUTION_M = 12.5
@@ -253,4 +253,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

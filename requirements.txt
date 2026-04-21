@@ -1,5 +1,5 @@
-numpy
-scipy
-matplotlib
-tifffile
-pyproj
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+tifffile>=2023.7.10
+pyproj>=3.5

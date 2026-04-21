@@ -28,10 +28,10 @@ def _deep_update(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
 def default_config() -> Dict[str, Any]:
     return {
         "scene_name": "default",
-        "dem_path": "data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif",
+        "dem_path": "",
         "crop": {
-            "center_lon": 110.0798,
-            "center_lat": 34.4829,
+            "center_lon": 0.0,
+            "center_lat": 0.0,
             "crop_size_m": 10000.0,
             "resolution_m": 12.5,
         },
@@ -104,7 +104,7 @@ def default_config() -> Dict[str, Any]:
             "ridge_prominence_m": 120.0,
             "random_seed": 20260420,
         },
-        "osm_file": "data/raw/huashan/map.osm",
+        "osm_file": "",
         "osm_risk_keywords": {
             "L1_DANGEROUS_NAMES": [],
             "L2_PEAK_NAMES": [],

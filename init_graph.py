@@ -1,7 +1,7 @@
 """
 裁剪场景 DEM 并导出对齐的高程矩阵和经纬度网格。
 
-裁剪中心、裁剪尺寸和目标点均来自场景配置；未传入场景配置时保留旧华山默认值。
+裁剪中心、裁剪尺寸和目标点均来自场景配置；未传入场景配置时读取默认场景配置。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import tifffile
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from pyproj import Transformer
 
-from scenario_config import (
+from article_planner.scenario_config import (
     display_names,
     load_scenario_config,
     resolve_path,
@@ -27,7 +27,6 @@ from scenario_config import (
 )
 
 
-TIF_FILE = "data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif"
 CACHE_FILE = "Z_crop.npy"
 CACHE_GEO = "Z_crop_geo.npz"
 CACHE_META = "Z_crop_meta.json"
@@ -35,28 +34,8 @@ CACHE_META = "Z_crop_meta.json"
 EPSG_SRC = "EPSG:32649"  # from GeoKeyDirectoryTag (WGS84 / UTM zone 49N)
 EPSG_WGS84 = "EPSG:4326"
 
-DEFAULT_CENTER_LON = 110.0798
-DEFAULT_CENTER_LAT = 34.4829
 DEFAULT_CROP_SIZE_M = 10_000.0
 RESOLUTION_M = 12.5
-
-# Legacy pixel peaks used only for debugging current-center offset.
-LEGACY_PEAK_PIXELS = {
-    "South": {"row": 4609, "col": 1938},
-    "East": {"row": 4642, "col": 1985},
-    "West": {"row": 4600, "col": 1949},
-    "North": {"row": 4468, "col": 2004},
-    "Central": {"row": 4594, "col": 1951},
-}
-
-# Peak labels for plotting (WGS84).
-PEAKS_WGS84 = {
-    "South Peak": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0},
-    "East Peak": {"lon": 110.0820, "lat": 34.4811, "elev": 2100.0},
-    "West Peak": {"lon": 110.0768, "lat": 34.4816, "elev": 2038.0},
-    "North Peak": {"lon": 110.0813, "lat": 34.4934, "elev": 1615.0},
-    "Central Peak": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0},
-}
 
 
 def read_tiff_with_georef(tif_path: Path) -> Tuple[np.ndarray, float, float, float, float]:
@@ -170,29 +149,28 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="裁剪 DEM 并导出与地理坐标对齐的场景缓存。")
     parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
-    parser.add_argument("--center-lon", type=float, default=DEFAULT_CENTER_LON)
-    parser.add_argument("--center-lat", type=float, default=DEFAULT_CENTER_LAT)
-    parser.add_argument("--crop-size-m", type=float, default=DEFAULT_CROP_SIZE_M)
+    parser.add_argument("--center-lon", type=float, default=None, help="可选：覆盖场景配置中的裁剪中心经度。")
+    parser.add_argument("--center-lat", type=float, default=None, help="可选：覆盖场景配置中的裁剪中心纬度。")
+    parser.add_argument("--crop-size-m", type=float, default=None, help="可选：覆盖场景配置中的裁剪边长。")
     parser.add_argument("--force-recrop", action="store_true")
     args = parser.parse_args()
 
     root = Path(args.workdir).resolve()
-    use_scene = bool(str(args.scenario_config).strip())
-    cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
-    scene_name = str(cfg.get("scene_name", "huashan")) if use_scene else "huashan"
-    out_dir = scenario_output_dir(cfg, root) if use_scene else root
+    cfg = load_scenario_config(args.scenario_config or None, root)
+    scene_name = str(cfg.get("scene_name", "default"))
+    out_dir = scenario_output_dir(cfg, root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    crop_cfg = cfg.get("crop", {}) if use_scene else {}
-    center_lon = float(crop_cfg.get("center_lon", args.center_lon))
-    center_lat = float(crop_cfg.get("center_lat", args.center_lat))
-    crop_size_m = float(crop_cfg.get("crop_size_m", args.crop_size_m))
+    crop_cfg = cfg.get("crop", {})
+    center_lon = float(args.center_lon if args.center_lon is not None else crop_cfg["center_lon"])
+    center_lat = float(args.center_lat if args.center_lat is not None else crop_cfg["center_lat"])
+    crop_size_m = float(args.crop_size_m if args.crop_size_m is not None else crop_cfg.get("crop_size_m", DEFAULT_CROP_SIZE_M))
 
     cache_file = out_dir / CACHE_FILE
     cache_geo = out_dir / CACHE_GEO
     cache_meta = out_dir / CACHE_META
 
-    tif_path = resolve_path(str(cfg.get("dem_path", TIF_FILE)), root) if use_scene else root / TIF_FILE
+    tif_path = resolve_path(str(cfg["dem_path"]), root)
     if not tif_path.exists():
         raise FileNotFoundError(f"Missing DEM file: {tif_path.resolve()}")
 
@@ -221,27 +199,17 @@ def main() -> None:
         n_rows, n_cols = dem.shape
         half = int(round((crop_size_m / 2.0) / RESOLUTION_M))
 
-        # Print legacy center and corresponding WGS84 (for diagnosis).
-        legacy_row = int(np.mean([v["row"] for v in LEGACY_PEAK_PIXELS.values()]))
-        legacy_col = int(np.mean([v["col"] for v in LEGACY_PEAK_PIXELS.values()]))
         tf_to_wgs = Transformer.from_crs(EPSG_SRC, EPSG_WGS84, always_xy=True)
         tf_to_utm = Transformer.from_crs(EPSG_WGS84, EPSG_SRC, always_xy=True)
-        x_old, y_old = pixel_to_xy(legacy_row, legacy_col, x0, y0, sx, sy)
-        lon_old, lat_old = tf_to_wgs.transform(x_old, y_old)
 
         x_new, y_new = tf_to_utm.transform(center_lon, center_lat)
         center_row, center_col = xy_to_pixel(x_new, y_new, x0, y0, sx, sy)
         x_new_chk, y_new_chk = pixel_to_xy(center_row, center_col, x0, y0, sx, sy)
         lon_new_chk, lat_new_chk = tf_to_wgs.transform(x_new_chk, y_new_chk)
 
-        d_lon = lon_new_chk - lon_old
-        d_lat = lat_new_chk - lat_old
-        print(f"[调试] 旧中心像元: row={legacy_row}, col={legacy_col}")
-        print(f"[调试] 旧中心经纬度: lon={lon_old:.6f}, lat={lat_old:.6f}")
         print(f"[调试] 目标中心经纬度: lon={center_lon:.6f}, lat={center_lat:.6f}")
         print(f"[调试] 目标中心像元: row={center_row}, col={center_col}")
         print(f"[调试] 吸附后目标经纬度: lon={lon_new_chk:.6f}, lat={lat_new_chk:.6f}")
-        print(f"[调试] 相对旧中心偏移: dlon={d_lon:+.6f}, dlat={d_lat:+.6f}")
 
         row_min, row_max, col_min, col_max = bounded_crop_window(center_row, center_col, half, n_rows, n_cols)
         z_crop = dem[row_min:row_max, col_min:col_max]
@@ -272,10 +240,10 @@ def main() -> None:
     print(f"[信息] 纬度范围: {lat_grid.min():.6f} .. {lat_grid.max():.6f}")
     print(f"[信息] 网格中心: lon={np.mean(lon_grid):.6f}, lat={np.mean(lat_grid):.6f}")
 
-    # Peak marker coordinates in current crop.
+    # 当前场景目标点标注。
     peak_plot: Dict[str, Dict[str, float]] = {}
-    configured_targets = target_specs(cfg) if use_scene else PEAKS_WGS84
-    configured_display = display_names(cfg) if use_scene else {}
+    configured_targets = target_specs(cfg)
+    configured_display = display_names(cfg)
     for name, p in configured_targets.items():
         r, c = nearest_rc_from_lonlat(lon_grid, lat_grid, p["lon"], p["lat"])
         x_km = c * RESOLUTION_M / 1000.0

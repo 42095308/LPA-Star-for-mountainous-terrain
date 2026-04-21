@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
 
-from scenario_config import load_scenario_config, scenario_output_dir
+from article_planner.scenario_config import load_scenario_config, scenario_output_dir
 
 
 @dataclass
@@ -232,7 +232,11 @@ def write_summary(path: Path, rows: Sequence[Dict[str, object]]) -> None:
 def should_run_osm(cfg: Dict[str, object], workdir: Path, skip_osm: bool, require_osm: bool) -> tuple[bool, str]:
     if skip_osm:
         return False, "用户跳过 OSM 风险生成"
-    osm_file = str(cfg.get("osm_file") or "data/raw/huashan/map.osm")
+    osm_file = str(cfg.get("osm_file") or "")
+    if not osm_file:
+        if require_osm:
+            raise FileNotFoundError("场景配置缺少 osm_file")
+        return False, "场景配置缺少 osm_file，跳过 human_risk_osm.py"
     osm_path = resolve_optional_path(osm_file, workdir)
     if osm_path.exists():
         return True, ""

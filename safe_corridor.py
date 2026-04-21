@@ -14,7 +14,7 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from scipy.ndimage import gaussian_filter, maximum_filter, minimum_filter
 
-from scenario_config import (
+from article_planner.scenario_config import (
     adaptive_corridor_params,
     depot_params,
     display_names,
@@ -36,15 +36,6 @@ LAYERS = [
     {"name": "Regional Branch Layer", "low": 60.0, "high": 90.0, "color": "#4CAF50", "cmap": "Greens"},
     {"name": "Backbone Layer", "low": 90.0, "high": 120.0, "color": "#FF5722", "cmap": "Oranges"},
 ]
-
-PEAKS = {
-    "South Peak": {"lon": 110.0781, "lat": 34.4778},
-    "East Peak": {"lon": 110.0820, "lat": 34.4811},
-    "West Peak": {"lon": 110.0768, "lat": 34.4816},
-    "North Peak": {"lon": 110.0813, "lat": 34.4934},
-    "Central Peak": {"lon": 110.0808, "lat": 34.4806},
-}
-
 
 def load_peak_positions(rows: int, cols: int, z: np.ndarray, geo_path: Path, targets: dict, names: dict) -> dict:
     if not geo_path.exists():
@@ -175,10 +166,9 @@ def main() -> None:
     args = parser.parse_args()
 
     root = Path(args.workdir).resolve()
-    use_scene = bool(str(args.scenario_config).strip())
-    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
-    scene_name = str(scene_cfg.get("scene_name", "default")) if use_scene else "huashan"
-    out_dir = scenario_output_dir(scene_cfg, root) if use_scene else root
+    scene_cfg = load_scenario_config(args.scenario_config or None, root)
+    scene_name = str(scene_cfg.get("scene_name", "default"))
+    out_dir = scenario_output_dir(scene_cfg, root)
     dem_path = out_dir / CACHE_DEM
     geo_path = out_dir / "Z_crop_geo.npz"
 
@@ -201,11 +191,11 @@ def main() -> None:
         geo = np.load(geo_path)
         lon_grid = np.asarray(geo["lon_grid"], dtype=float)
         lat_grid = np.asarray(geo["lat_grid"], dtype=float)
-        for p in target_specs(scene_cfg).values() if use_scene else PEAKS.values():
+        for p in target_specs(scene_cfg).values():
             terminal_rcs.append(nearest_rc_from_lonlat(lon_grid, lat_grid, float(p["lon"]), float(p["lat"])))
         depot_path = out_dir / "generated_depots.json"
         depots = []
-        if use_scene and not depot_path.exists():
+        if not depot_path.exists():
             depots = generate_virtual_depots(
                 z,
                 lon_grid,
@@ -231,7 +221,7 @@ def main() -> None:
             if "row" in d and "col" in d:
                 terminal_rcs.append((int(d["row"]), int(d["col"])))
 
-    corridor_params = adaptive_corridor_params(scene_cfg) if use_scene else adaptive_corridor_params({})
+    corridor_params = adaptive_corridor_params(scene_cfg)
     floor, ceiling, layer_mid_arr, layer_allowed, corridor_meta = build_adaptive_corridor(
         z,
         risk_human,
@@ -260,8 +250,8 @@ def main() -> None:
     x_km = np.arange(cols) * RESOLUTION / 1000.0
     y_km = np.arange(rows) * RESOLUTION / 1000.0
     extent = [0.0, cols * RESOLUTION / 1000.0, 0.0, rows * RESOLUTION / 1000.0]
-    targets = target_specs(scene_cfg) if use_scene else PEAKS
-    names = display_names(scene_cfg) if use_scene else {}
+    targets = target_specs(scene_cfg)
+    names = display_names(scene_cfg)
     peak_pos = load_peak_positions(rows, cols, z, geo_path, targets, names)
 
     fig = plt.figure(figsize=(22, 12), dpi=300)

@@ -28,7 +28,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
-from scenario_config import DEFAULT_SCENE_CONFIG, communication_params, load_scenario_config, scenario_output_dir
+from article_planner.scenario_config import (
+    DEFAULT_SCENE_CONFIG,
+    communication_params,
+    load_scenario_config,
+    scenario_output_dir,
+)
 
 try:
     from scipy.stats import ttest_rel

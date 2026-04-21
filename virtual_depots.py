@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from scenario_config import depot_params, load_scenario_config, scenario_output_dir, target_specs
+from article_planner.scenario_config import depot_params, load_scenario_config, scenario_output_dir, target_specs
 
 
 RESOLUTION_M = 12.5
@@ -177,7 +177,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_scenario_config(args.scenario_config or None, args.workdir)
-    out_dir = scenario_output_dir(cfg, args.workdir) if args.scenario_config else Path(args.workdir).resolve()
+    out_dir = scenario_output_dir(cfg, args.workdir)
     z_path = out_dir / args.z_file
     geo_path = out_dir / args.geo_file
     risk_path = out_dir / args.risk_file
@@ -204,4 +204,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

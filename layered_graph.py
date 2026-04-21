@@ -51,7 +51,7 @@ from mpl_toolkits.axes_grid1.inset_locator import mark_inset
 from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
 from scipy.spatial import cKDTree
 
-from scenario_config import (
+from article_planner.scenario_config import (
     depot_params,
     display_names as load_display_names,
     load_scenario_config,
@@ -92,20 +92,6 @@ MAX_CLIMB_ANGLE   = 30     # 最大爬升/下降角（度）
 SAFETY_HEIGHT     = 30     # 碰撞检测安全高度（米）
 COLLISION_SAMPLES = 20     # 碰撞检测采样点数
 
-PEAKS = {
-    "南峰": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0},
-    "东峰": {"lon": 110.0820, "lat": 34.4811, "elev": 2100.0},
-    "西峰": {"lon": 110.0768, "lat": 34.4816, "elev": 2038.0},
-    "北峰": {"lon": 110.0813, "lat": 34.4934, "elev": 1615.0},
-    "中峰": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0},
-}
-DEPOTS = {
-    # Assumed logistics depot anchors in WGS84 (replace proxy row/col fractions).
-    # NOTE: these are project assumptions anchored to current study-area georegistration.
-    "北部基地": {"lon": 110.079590, "lat": 34.505499},
-    "西部基地": {"lon": 110.039004, "lat": 34.482642},
-}
-
 parser = argparse.ArgumentParser(description="构建分层拓扑航路网络。")
 parser.add_argument("--scenario-config", type=str, default="")
 parser.add_argument("--workdir", type=str, default=".")
@@ -113,10 +99,9 @@ parser.add_argument("--skip-plot", action="store_true", help="只生成图数据
 args = parser.parse_args()
 
 root = Path(args.workdir).resolve()
-use_scene = bool(str(args.scenario_config).strip())
-scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
-scene_name = str(scene_cfg.get("scene_name", "huashan")) if use_scene else "huashan"
-data_dir = scenario_output_dir(scene_cfg, root) if use_scene else root
+scene_cfg = load_scenario_config(args.scenario_config or None, root)
+scene_name = str(scene_cfg.get("scene_name", "default"))
+data_dir = scenario_output_dir(scene_cfg, root)
 data_dir.mkdir(parents=True, exist_ok=True)
 os.chdir(data_dir)
 
@@ -201,48 +186,35 @@ def collision_free(n1, n2, n_samples=COLLISION_SAMPLES):
     return True
 
 
-if use_scene:
-    PEAKS_ACTIVE = target_specs(scene_cfg)
-    risk_human = None
-    if os.path.exists("risk_human.npy"):
-        risk_arr = np.load("risk_human.npy").astype(float)
-        if risk_arr.shape == Z.shape:
-            risk_human = np.clip(risk_arr, 0.0, 1.0)
-    depot_list = generate_virtual_depots(
-        Z,
-        lon_grid,
-        lat_grid,
-        PEAKS_ACTIVE,
-        depot_params(scene_cfg),
-        risk_human=risk_human,
-        resolution_m=RESOLUTION,
-    )
-    DEPOTS_ACTIVE = {d["name"]: d for d in depot_list}
-    depot_payload = {
-        "scene_name": scene_name,
-        "rule": "低坡度、低海拔、低风险、远离目标点且位于边缘或山脚过渡区",
-        "depots": depot_list,
-    }
-    Path("generated_depots.json").write_text(
-        json.dumps(depot_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    DISPLAY_NAME = load_display_names(scene_cfg)
-    for d in depot_list:
-        DISPLAY_NAME.setdefault(d["name"], d["name"])
-    print(f"[配送站] 已自动生成 {len(depot_list)} 个虚拟配送站，写入 generated_depots.json")
-else:
-    PEAKS_ACTIVE = PEAKS
-    DEPOTS_ACTIVE = DEPOTS
-    DISPLAY_NAME = {
-        "南峰": "South Peak",
-        "东峰": "East Peak",
-        "西峰": "West Peak",
-        "北峰": "North Peak",
-        "中峰": "Central Peak",
-        "北部基地": "North Depot",
-        "西部基地": "West Depot",
-    }
+PEAKS_ACTIVE = target_specs(scene_cfg)
+risk_human = None
+if os.path.exists("risk_human.npy"):
+    risk_arr = np.load("risk_human.npy").astype(float)
+    if risk_arr.shape == Z.shape:
+        risk_human = np.clip(risk_arr, 0.0, 1.0)
+depot_list = generate_virtual_depots(
+    Z,
+    lon_grid,
+    lat_grid,
+    PEAKS_ACTIVE,
+    depot_params(scene_cfg),
+    risk_human=risk_human,
+    resolution_m=RESOLUTION,
+)
+DEPOTS_ACTIVE = {d["name"]: d for d in depot_list}
+depot_payload = {
+    "scene_name": scene_name,
+    "rule": "低坡度、低海拔、低风险、远离目标点且位于边缘或山脚过渡区",
+    "depots": depot_list,
+}
+Path("generated_depots.json").write_text(
+    json.dumps(depot_payload, ensure_ascii=False, indent=2),
+    encoding="utf-8",
+)
+DISPLAY_NAME = load_display_names(scene_cfg)
+for d in depot_list:
+    DISPLAY_NAME.setdefault(d["name"], d["name"])
+print(f"[配送站] 已自动生成 {len(depot_list)} 个虚拟配送站，写入 generated_depots.json")
 
 def build_terminal_specs():
     specs = {}
@@ -257,7 +229,7 @@ def build_terminal_specs():
         else:
             r, c = nearest_rc_by_lonlat(float(p["lon"]), float(p["lat"]))
         specs[name] = {"row": r, "col": c}
-        sources[name] = "virtual_depot" if use_scene else "depot"
+        sources[name] = "virtual_depot"
     return specs, sources
 
 
@@ -285,7 +257,7 @@ branch_pts, branch_roles, backbone_pts, backbone_roles, sampling_meta = build_te
     Z,
     risk_for_sampling,
     terminal_rcs_for_sampling,
-    terrain_sampling_params(scene_cfg) if use_scene else terrain_sampling_params({}),
+    terrain_sampling_params(scene_cfg),
     resolution_m=RESOLUTION,
     layer_allowed=layer_allowed,
 )

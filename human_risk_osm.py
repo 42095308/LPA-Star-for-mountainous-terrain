@@ -23,7 +23,7 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
-from scenario_config import load_scenario_config, scenario_output_dir
+from article_planner.scenario_config import load_scenario_config, scenario_output_dir
 
 
 RESOLUTION_M = 12.5
@@ -460,7 +460,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="构建与 DEM 对齐的 OSM 人群暴露风险栅格。")
     parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
-    parser.add_argument("--osm-file", type=str, default="data/raw/huashan/map.osm")
+    parser.add_argument("--osm-file", type=str, default="", help="可选：覆盖场景配置中的 OSM 文件。")
     parser.add_argument("--z-file", type=str, default="Z_crop.npy")
     parser.add_argument("--geo-file", type=str, default="Z_crop_geo.npz")
     parser.add_argument("--out-l1", type=str, default="risk_l1.npy")
@@ -478,16 +478,16 @@ def main() -> None:
     args = parser.parse_args()
 
     root = Path(args.workdir).resolve()
-    use_scene = bool(str(args.scenario_config).strip())
-    scene_cfg = load_scenario_config(args.scenario_config or None, root) if use_scene else {}
+    scene_cfg = load_scenario_config(args.scenario_config or None, root)
     apply_scene_risk_keywords(scene_cfg)
-    out_dir = scenario_output_dir(scene_cfg, root) if use_scene else root
+    out_dir = scenario_output_dir(scene_cfg, root)
     out_dir.mkdir(parents=True, exist_ok=True)
-    scene_name = str(scene_cfg.get("scene_name", "current")) if use_scene else "current"
+    scene_name = str(scene_cfg.get("scene_name", "current"))
 
-    osm_path = Path(args.osm_file)
-    if use_scene and args.osm_file in {"map.osm", "data/raw/huashan/map.osm"}:
-        osm_path = Path(str(scene_cfg.get("osm_file", args.osm_file)))
+    osm_value = str(args.osm_file).strip() or str(scene_cfg.get("osm_file", ""))
+    if not osm_value:
+        raise FileNotFoundError("未提供 OSM 文件，且场景配置中没有 osm_file。")
+    osm_path = Path(osm_value)
     if not osm_path.is_absolute():
         osm_path = root / osm_path
     if not osm_path.exists():

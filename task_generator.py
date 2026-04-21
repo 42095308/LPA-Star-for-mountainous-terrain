@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 import numpy as np
 from scipy.ndimage import gaussian_filter, maximum_filter
 
-from scenario_config import (
+from article_planner.scenario_config import (
     depot_params,
     load_scenario_config,
     scenario_output_dir,
