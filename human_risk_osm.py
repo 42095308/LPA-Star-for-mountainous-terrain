@@ -1,22 +1,7 @@
 """
-Build Huashan human-exposure risk rasters from a local OSM file.
+从本地 OSM 文件构建与 DEM 对齐的人群暴露风险栅格。
 
-Risk design (user-specified):
-    L1 (1.0): dangerous crowded routes, full risk within 50 m
-    L2 (0.8): peak area + regular hiking paths, full risk within 30 m
-    L3 (0.5): cableway lines/stations + popular facilities, Gaussian (sigma=120 m)
-    L4 (0.2): scenic roads + foothill amenities, full risk within 30 m
-
-Outputs:
-    risk_l1.npy
-    risk_l2.npy
-    risk_l3.npy
-    risk_l4.npy
-    risk_trail.npy
-    risk_hotspot.npy
-    risk_human.npy
-    osm_feature_summary.json
-    osm_human_risk_preview.png
+通用 OSM 标签规则用于所有场景；山体、景区道路或设施名称等专属规则由场景配置注入。
 """
 
 from __future__ import annotations
@@ -32,6 +17,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colors as mcolors
+from matplotlib import font_manager
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.ndimage import distance_transform_edt
@@ -42,6 +28,21 @@ from scenario_config import load_scenario_config, scenario_output_dir
 
 RESOLUTION_M = 12.5
 LEVELS = (1, 2, 3, 4)
+
+
+def configure_chinese_font() -> None:
+    """为预览图选择可显示中文的字体；找不到时保留 Matplotlib 默认字体。"""
+    for family in ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Source Han Sans SC", "Arial Unicode MS"):
+        try:
+            font_manager.findfont(family, fallback_to_default=False)
+        except Exception:
+            continue
+        plt.rcParams["font.sans-serif"] = [family, "DejaVu Sans"]
+        plt.rcParams["axes.unicode_minus"] = False
+        return
+
+
+configure_chinese_font()
 
 # 通用标签规则是跨 DEM 的底座；场景专有名称只从配置文件注入。
 GENERIC_RISK_RULES = {
@@ -459,7 +460,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="构建与 DEM 对齐的 OSM 人群暴露风险栅格。")
     parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
-    parser.add_argument("--osm-file", type=str, default="map.osm")
+    parser.add_argument("--osm-file", type=str, default="data/raw/huashan/map.osm")
     parser.add_argument("--z-file", type=str, default="Z_crop.npy")
     parser.add_argument("--geo-file", type=str, default="Z_crop_geo.npz")
     parser.add_argument("--out-l1", type=str, default="risk_l1.npy")
@@ -485,7 +486,7 @@ def main() -> None:
     scene_name = str(scene_cfg.get("scene_name", "current")) if use_scene else "current"
 
     osm_path = Path(args.osm_file)
-    if use_scene and args.osm_file == "map.osm":
+    if use_scene and args.osm_file in {"map.osm", "data/raw/huashan/map.osm"}:
         osm_path = Path(str(scene_cfg.get("osm_file", args.osm_file)))
     if not osm_path.is_absolute():
         osm_path = root / osm_path
@@ -677,35 +678,42 @@ def main() -> None:
     cbar.set_ticks([0.0, 0.05, 0.10, 0.20, 0.35, 0.50])
     cbar.set_label("Risk score (nonlinear display)")
 
-    # Panel C: legend/label mapping table.
+    # 预览图右侧说明：通用规则固定，场景专有名称来自 JSON 配置。
     ax2.axis("off")
     ax2.set_title("Panel C: Color-to-Label Mapping", fontsize=11, loc="left", pad=10)
+
+    def keyword_text(values: Sequence[str]) -> str:
+        if not values:
+            return "场景配置未声明专有关键词"
+        shown = "、".join(str(v) for v in values[:12])
+        if len(values) > 12:
+            shown += f" 等 {len(values)} 项"
+        return shown
 
     legend_rows = [
         (
             1,
             "L1 (risk=1.0, 50m buffer)",
-            "Dangerous routes: Tian Ti, Changkong Plank, Zhiqu Huashan Rd,\n"
-            "Canglong Ridge, Baichi Gorge, Laojun Ligou, Qianchi Chuang,\n"
-            "Yaozi Fanshen, Huixin Stone",
+            "通用标签: 高难度登山、铁索/栈道、落石/悬崖/陡坡。\n"
+            f"场景关键词: {keyword_text(L1_DANGEROUS_NAMES)}",
         ),
         (
             2,
             "L2 (risk=0.8, 30m buffer)",
-            "Peak/major hiking area: natural=peak, named attractions\n"
-            "(Jinsuo Pass, Nantianmen, Xiaqi Pavilion), highway=steps/path/footway",
+            "通用标签: path/steps/footway、viewpoint/attraction、peak/ridge/cliff。\n"
+            f"场景关键词: {keyword_text(L2_PEAK_NAMES + L2_HIGH_NAMES)}",
         ),
         (
             3,
             "L3 (risk=0.5, sigma=120m)",
-            "Cableway + hotspots: aerialway=cable_car/gondola/station,\n"
-            "tourism=guest_house, amenity=place_of_worship, specific hotspots",
+            "通用标签: aerialway、guest_house/alpine_hut、restaurant/cafe/shelter。\n"
+            f"场景关键词: {keyword_text(L3_MEDIUM_NAMES)}",
         ),
         (
             4,
             "L4 (risk=0.2, 30m buffer)",
-            "Scenic roads + foothill facilities: highway=tertiary/service/unclassified,\n"
-            "amenity=toilets/parking/bus_station",
+            "通用标签: tertiary/service/unclassified/track、toilets/parking/bus_station。\n"
+            f"场景关键词: {keyword_text(L4_LOW_ROAD_NAMES)}",
         ),
     ]
 

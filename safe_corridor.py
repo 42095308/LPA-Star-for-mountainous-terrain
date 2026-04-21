@@ -1,14 +1,5 @@
 """
-Build flyable corridor bounds and three layered flight decks from DEM.
-
-Inputs:
-    Z_crop.npy
-
-Outputs:
-    floor.npy
-    ceiling.npy
-    layer_mid.npy
-    corridor_vis.png
+根据场景 DEM、人群风险和终端目标构建安全走廊与三层飞行高度。
 """
 
 from __future__ import annotations

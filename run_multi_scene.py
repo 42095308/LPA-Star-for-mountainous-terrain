@@ -232,7 +232,7 @@ def write_summary(path: Path, rows: Sequence[Dict[str, object]]) -> None:
 def should_run_osm(cfg: Dict[str, object], workdir: Path, skip_osm: bool, require_osm: bool) -> tuple[bool, str]:
     if skip_osm:
         return False, "用户跳过 OSM 风险生成"
-    osm_file = str(cfg.get("osm_file") or "map.osm")
+    osm_file = str(cfg.get("osm_file") or "data/raw/huashan/map.osm")
     osm_path = resolve_optional_path(osm_file, workdir)
     if osm_path.exists():
         return True, ""
@@ -386,8 +386,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workdir", type=str, default=".", help="项目根目录。")
     parser.add_argument("--python", type=str, default=sys.executable, help="用于执行各脚本的 Python 解释器。")
     parser.add_argument("--benchmark-mode", choices=["single", "matrix"], default="single")
-    parser.add_argument("--benchmark-out-name", type=str, default="benchmark_multi_scene")
-    parser.add_argument("--summary-csv", type=str, default="outputs/multi_scene_summary.csv")
+    parser.add_argument("--benchmark-out-name", type=str, default="tests/benchmark_multi_scene")
+    parser.add_argument("--summary-csv", type=str, default="outputs/_summaries/multi_scene_summary.csv")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--seed", type=int, default=20260309)
     parser.add_argument("--event-type", choices=["no_fly", "wind", "comm_risk"], default="no_fly")

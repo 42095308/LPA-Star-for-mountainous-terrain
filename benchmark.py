@@ -1,5 +1,5 @@
 """
-Monte Carlo benchmark for four baselines on the Huashan planning project.
+面向场景配置的 Monte Carlo benchmark，比较四类规划基线。
 
 Baselines
 --------

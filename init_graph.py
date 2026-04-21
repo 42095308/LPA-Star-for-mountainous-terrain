@@ -1,8 +1,7 @@
 """
-Crop Huashan DEM to the study area and export aligned geo grids.
+裁剪场景 DEM 并导出对齐的高程矩阵和经纬度网格。
 
-This version supports center correction using a WGS84 coordinate:
-default center (from user): lon=110.0798, lat=34.4829.
+裁剪中心、裁剪尺寸和目标点均来自场景配置；未传入场景配置时保留旧华山默认值。
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from scenario_config import (
 )
 
 
-TIF_FILE = "AP_19438_FBD_F0680_RT1.dem.tif"
+TIF_FILE = "data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif"
 CACHE_FILE = "Z_crop.npy"
 CACHE_GEO = "Z_crop_geo.npz"
 CACHE_META = "Z_crop_meta.json"

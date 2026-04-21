@@ -1,22 +1,29 @@
 {
-  "scene_name": "huashan",
-  "dem_path": "data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif",
+  "scene_name": "example_mountain",
+  "dem_path": "data/example_dem.tif",
   "output_dir": "outputs/{scene_name}",
   "crop": {
-    "center_lon": 110.0798,
-    "center_lat": 34.4829,
+    "center_lon": 110.0000,
+    "center_lat": 34.0000,
     "crop_size_m": 10000.0,
     "resolution_m": 12.5
   },
   "targets": {
-    "南峰": {"lon": 110.0781, "lat": 34.4778, "elev": 2150.0, "display_name": "South Peak"},
-    "东峰": {"lon": 110.0820, "lat": 34.4811, "elev": 2100.0, "display_name": "East Peak"},
-    "西峰": {"lon": 110.0768, "lat": 34.4816, "elev": 2038.0, "display_name": "West Peak"},
-    "北峰": {"lon": 110.0813, "lat": 34.4934, "elev": 1615.0, "display_name": "North Peak"},
-    "中峰": {"lon": 110.0808, "lat": 34.4806, "elev": 2043.0, "display_name": "Central Peak"}
+    "目标点A": {
+      "lon": 110.0100,
+      "lat": 34.0100,
+      "elev": 1800.0,
+      "display_name": "Target A"
+    },
+    "目标点B": {
+      "lon": 109.9900,
+      "lat": 33.9900,
+      "elev": 1600.0,
+      "display_name": "Target B"
+    }
   },
   "default_start": "虚拟配送站1",
-  "default_goal": "南峰",
+  "default_goal": "目标点A",
   "display_names": {
     "虚拟配送站1": "Virtual Depot 1",
     "虚拟配送站2": "Virtual Depot 2"
@@ -85,12 +92,12 @@
     "ridge_prominence_m": 120.0,
     "random_seed": 20260420
   },
-  "osm_file": "data/raw/huashan/map.osm",
+  "osm_file": "data/example.osm",
   "osm_risk_keywords": {
-    "L1_DANGEROUS_NAMES": ["天梯", "长空栈道", "智取华山路", "苍龙岭", "百尺峡", "老君犁沟", "千尺幢", "鹞子翻身", "回心石"],
-    "L2_PEAK_NAMES": ["华山南峰", "华山东峰", "华山西峰", "华山北峰", "华山中峰"],
-    "L2_HIGH_NAMES": ["金锁关", "南天门", "下棋亭", "自古华山一条路"],
-    "L3_MEDIUM_NAMES": ["东峰酒店", "思过崖", "毛仙庙", "山神庙", "群仙观"],
-    "L4_LOW_ROAD_NAMES": ["瓮峪旅游公路", "黄甫峪公路"]
+    "L1_DANGEROUS_NAMES": [],
+    "L2_PEAK_NAMES": [],
+    "L2_HIGH_NAMES": [],
+    "L3_MEDIUM_NAMES": [],
+    "L4_LOW_ROAD_NAMES": []
   }
 }

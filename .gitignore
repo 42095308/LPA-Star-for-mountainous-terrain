@@ -44,3 +44,33 @@ Thumbs.db
 
 ### 场景运行输出 ###
 outputs/
+benchmark_out*/
+
+### 根目录可再生运行产物 ###
+Z_crop.npy
+Z_crop_geo.npz
+Z_crop_meta.json
+floor.npy
+ceiling.npy
+layer_mid.npy
+layer_allowed.npy
+graph_nodes.npy
+graph_edges.npy
+graph_node_roles.json
+graph_terminal_status.json
+risk_*.npy
+corridor_meta.json
+osm_feature_summary.json
+communication_summary.json
+generated_depots.json
+generated_tasks.json
+lpa_path_summary.json
+target_locations.json
+*_vis.png
+huashan_final.png
+lpa_result.png
+path_vis.png
+path_cost_profile.png
+osm_human_risk_preview.png
+lpa_seed_sweep.csv
+lpa_seed_sweep_summary.json
