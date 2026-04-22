@@ -1,0 +1,138 @@
+{
+  "scene_name": "huangshan",
+  "dem_path": "data/raw/huangshan/AP_07491_FBD_F0590_RT1.dem.tif",
+  "output_dir": "outputs/{scene_name}",
+  "crop": {
+    "center_lon": 118.172,
+    "center_lat": 30.131,
+    "crop_size_m": 12000.0
+  },
+  "targets": {
+    "莲花峰": {
+      "lat": 30.125,
+      "lon": 118.1667,
+      "elev": 1623.0,
+      "display_name": "Lotus Peak"
+    },
+    "光明顶": {
+      "lat": 30.1323,
+      "lon": 118.1692,
+      "elev": 1629.0,
+      "display_name": "Bright Summit"
+    },
+    "天都峰": {
+      "lat": 30.1183,
+      "lon": 118.1796,
+      "elev": 1480.0,
+      "display_name": "Tiandu Peak"
+    },
+    "始信峰": {
+      "lat": 30.1417,
+      "lon": 118.1747,
+      "elev": 1524.0,
+      "display_name": "Shixin Peak"
+    },
+    "鳌鱼峰": {
+      "lat": 30.1271,
+      "lon": 118.1675,
+      "elev": 1693.0,
+      "display_name": "Aoyu Peak"
+    },
+    "狮子峰": {
+      "lat": 30.1446,
+      "lon": 118.1703,
+      "elev": 1547.0,
+      "display_name": "Lion Peak"
+    },
+    "贡阳山": {
+      "lat": 30.135,
+      "lon": 118.172,
+      "elev": 1444.0,
+      "display_name": "Gongyang Mountain"
+    },
+    "玉屏峰": {
+      "lat": 30.123,
+      "lon": 118.175,
+      "elev": 1508.0,
+      "display_name": "Yuping Peak"
+    }
+  },
+  "default_start": "虚拟配送站1",
+  "default_goal": "光明顶",
+  "display_names": {
+    "虚拟配送站1": "Virtual Depot 1",
+    "虚拟配送站2": "Virtual Depot 2"
+  },
+  "virtual_depots": {
+    "count": 2,
+    "slope_max_deg": 12.0,
+    "elevation_percentile_max": 35.0,
+    "foot_elevation_percentile": 20.0,
+    "edge_buffer_km": 1.0,
+    "min_target_distance_km": 1.2,
+    "min_depot_spacing_km": 1.5,
+    "risk_max": 0.2,
+    "name_prefix": "虚拟配送站"
+  },
+  "terrain_sampling": {
+    "branch_node_budget": 3364,
+    "backbone_node_budget": 3364,
+    "terrain_ratio": 0.7,
+    "supplement_grid_ratio": 0.3,
+    "min_spacing_m": 130.0,
+    "branch_terminal_radius_km": 1.4,
+    "branch_corridor_width_km": 0.55,
+    "low_risk_threshold": 0.3
+  },
+  "adaptive_corridor": {
+    "base_floor_offset_m": 30.0,
+    "base_ceiling_offset_m": 120.0,
+    "slope_threshold_deg": 18.0,
+    "slope_high_deg": 42.0,
+    "slope_floor_extra_m": 35.0,
+    "ridge_floor_extra_m": 20.0,
+    "open_ceiling_extra_m": 35.0,
+    "terminal_radius_km": 0.75,
+    "terminal_thickness_m": 72.0,
+    "min_thickness_m": 60.0,
+    "high_risk_threshold": 0.65,
+    "layer_positions": [0.22, 0.52, 0.82]
+  },
+  "communication": {
+    "enabled": true,
+    "source_height_agl_m": 35.0,
+    "edge_source_count": 2,
+    "max_range_km": 5.0,
+    "los_samples": 18,
+    "coarse_stride": 4,
+    "risk_threshold": 0.55,
+    "weights": {
+      "terrain": 0.45,
+      "human": 0.35,
+      "communication": 0.2
+    },
+    "base_stations": []
+  },
+  "task_generation": {
+    "depot_count": 2,
+    "target_count": 8,
+    "pair_count": 12,
+    "min_pair_distance_km": 1.5,
+    "target_min_spacing_km": 0.8,
+    "target_elevation_percentile_min": 65.0,
+    "max_target_slope_deg": 38.0,
+    "risk_max": 0.65,
+    "distance_bins_km": [2.5, 5.0],
+    "elevation_bins_m": [300.0, 900.0],
+    "ridge_prominence_m": 120.0,
+    "random_seed": 20260420
+  },
+  "osm_file": "data/raw/huangshan/map.osm",
+  "osm_risk_keywords": {
+    "L1_DANGEROUS_NAMES": [],
+    "L2_PEAK_NAMES": [],
+    "L2_HIGH_NAMES": [],
+    "L3_MEDIUM_NAMES": [],
+    "L4_LOW_ROAD_NAMES": []
+  }
+}
