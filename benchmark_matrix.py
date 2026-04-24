@@ -1,9 +1,9 @@
 """
-Benchmark matrix runner for experiments A/B/C/D:
-- Event intensity sweep (n_block grid)
-- Continuous multi-event replanning (K grid)
-- Graph scale sweep (small/medium/large)
-- Workload metrics (queue/update/reopen)
+论文矩阵实验运行器，对应 A/B/C/D 四类实验：
+- 事件强度扫描（n_block 网格）
+- 连续多事件重规划（K 网格）
+- 图规模扫描（small/medium/large）
+- 工作负载指标（queue/update/reopen）
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -34,6 +34,7 @@ from benchmark import (
     load_risk_fields,
     load_logistics_task_bundle,
     normalize_pair,
+    paired_significance,
     resolve_benchmark_data_context,
     build_task_node_locator,
     sample_logistics_start_goal,
@@ -103,6 +104,39 @@ def nearest_scale(target: str, values: Sequence[str]) -> str:
     if target in values:
         return target
     return values[-1] if values else target
+
+
+def build_key_combo_set(
+    scales: Sequence[str],
+    n_blocks: Sequence[int],
+    k_values: Sequence[int],
+    args: argparse.Namespace,
+) -> Tuple[Set[Tuple[str, int, int]], Dict[str, int | str]]:
+    """按论文 A/B/C/D 的焦点设置收集关键组合，用于追加采样次数。"""
+    scale_focus = nearest_scale(args.focus_scale, scales)
+    k_intensity = nearest_int(args.focus_k_intensity, k_values)
+    n_block_cont = nearest_int(args.focus_n_block_cont, n_blocks)
+    k_scale = nearest_int(args.focus_k_scale, k_values)
+    n_block_scale = nearest_int(args.focus_n_block_scale, n_blocks)
+
+    key_combos: Set[Tuple[str, int, int]] = set()
+    for n_block in n_blocks:
+        key_combos.add((scale_focus, int(n_block), int(k_intensity)))
+    for k_events in k_values:
+        key_combos.add((scale_focus, int(n_block_cont), int(k_events)))
+    for scale in scales:
+        key_combos.add((str(scale), int(n_block_scale), int(k_scale)))
+    for n_block in n_blocks:
+        key_combos.add((scale_focus, int(n_block), int(k_scale)))
+
+    resolved = {
+        "focus_scale": scale_focus,
+        "focus_k_intensity": int(k_intensity),
+        "focus_n_block_cont": int(n_block_cont),
+        "focus_k_scale": int(k_scale),
+        "focus_n_block_scale": int(n_block_scale),
+    }
+    return key_combos, resolved
 
 
 def largest_component_indices(n_nodes: int, edge_pairs: np.ndarray) -> np.ndarray:
@@ -503,7 +537,9 @@ def run_event_stream_trial(
                 "n_events_succeeded": int(success_count[baseline]),
                 "success_all_events": ok_all,
                 "cumulative_replan_ms": float(cum[baseline]["cumulative_replan_ms"]),
+                "mean_event_replan_ms": float(cum[baseline]["cumulative_replan_ms"]) / max(1, int(k_events)),
                 "cumulative_expanded": float(cum[baseline]["cumulative_expanded"]),
+                "mean_event_expanded": float(cum[baseline]["cumulative_expanded"]) / max(1, int(k_events)),
                 "cumulative_queue_pushes": float(cum[baseline]["cumulative_queue_pushes"]),
                 "cumulative_queue_pops": float(cum[baseline]["cumulative_queue_pops"]),
                 "cumulative_queue_stale_pops": float(cum[baseline]["cumulative_queue_stale_pops"]),
@@ -558,6 +594,8 @@ def summarise_combo_baseline_matrix(
         "p95_cumulative_replan_ms": float("nan"),
         "ci95_cumulative_replan_ms": float("nan"),
         "mean_event_replan_ms": float("nan"),
+        "p50_event_replan_ms": float("nan"),
+        "p95_event_replan_ms": float("nan"),
         "ci95_event_replan_ms": float("nan"),
         "std_event_replan_ms": float("nan"),
         "mean_cumulative_expanded": float("nan"),
@@ -615,6 +653,8 @@ def summarise_combo_baseline_matrix(
             "p95_cumulative_replan_ms": float(np.percentile(ms, 95)),
             "ci95_cumulative_replan_ms": ci95(ms),
             "mean_event_replan_ms": float(np.mean(ms / max(1, int(k_events)))),
+            "p50_event_replan_ms": float(np.percentile(ms / max(1, int(k_events)), 50)),
+            "p95_event_replan_ms": float(np.percentile(ms / max(1, int(k_events)), 95)),
             "ci95_event_replan_ms": ci95(ms / max(1, int(k_events))),
             "std_event_replan_ms": float(np.std(ms / max(1, int(k_events)), ddof=1) if ms.size > 1 else 0.0),
             "mean_cumulative_expanded": float(np.mean(ex)),
@@ -678,9 +718,8 @@ def build_pairwise_rows_matrix(
     n_blocks: Sequence[int],
     k_values: Sequence[int],
 ) -> List[dict]:
-    from benchmark import paired_pvalue
-
     metrics = [
+        "mean_event_replan_ms",
         "cumulative_replan_ms",
         "cumulative_expanded",
         "cumulative_queue_pushes",
@@ -703,12 +742,18 @@ def build_pairwise_rows_matrix(
                                 "n_paired": 0,
                                 "mean_b4": float("nan"),
                                 "mean_b2": float("nan"),
+                                "median_b4": float("nan"),
+                                "median_b2": float("nan"),
+                                "p95_b4": float("nan"),
+                                "p95_b2": float("nan"),
                                 "median_ratio_b2_over_b4": float("nan"),
+                                "test_name": "na",
                                 "p_value": float("nan"),
                             }
                         )
                         continue
                     ratio = np.median(xb2 / np.maximum(xb4, EPS))
+                    sig = paired_significance(xb4, xb2)
                     out.append(
                         {
                             "scale": scale,
@@ -718,8 +763,13 @@ def build_pairwise_rows_matrix(
                             "n_paired": int(xb4.size),
                             "mean_b4": float(np.mean(xb4)),
                             "mean_b2": float(np.mean(xb2)),
+                            "median_b4": float(np.median(xb4)),
+                            "median_b2": float(np.median(xb2)),
+                            "p95_b4": float(np.percentile(xb4, 95)),
+                            "p95_b2": float(np.percentile(xb2, 95)),
                             "median_ratio_b2_over_b4": float(ratio),
-                            "p_value": paired_pvalue(xb4, xb2),
+                            "test_name": str(sig.get("test_name", "na")),
+                            "p_value": float(sig.get("p_value", float("nan"))),
                         }
                     )
     return out
@@ -744,6 +794,10 @@ def build_focus_tables_matrix(
         (r["scale"], int(r["n_block"]), int(r["k_events"]), r["baseline"]): r
         for r in summary_rows
     }
+    pair_idx = {
+        (r["scale"], int(r["n_block"]), int(r["k_events"]), str(r["metric"])): r
+        for r in pair_rows
+    }
 
     table_a: List[dict] = []
     for n_block in n_blocks:
@@ -761,11 +815,17 @@ def build_focus_tables_matrix(
                 "n_block": int(n_block),
                 "b4_mean_event_ms": b4_ms,
                 "b2_mean_event_ms": b2_ms,
+                "b4_p50_event_ms": float(b4.get("p50_event_replan_ms", float("nan"))),
+                "b4_p95_event_ms": float(b4.get("p95_event_replan_ms", float("nan"))),
+                "b2_p50_event_ms": float(b2.get("p50_event_replan_ms", float("nan"))),
+                "b2_p95_event_ms": float(b2.get("p95_event_replan_ms", float("nan"))),
                 "b2_over_b4_time_ratio": ratio,
                 "b4_mean_event_expanded": float(b4.get("mean_event_expanded", float("nan"))),
                 "b2_mean_event_expanded": float(b2.get("mean_event_expanded", float("nan"))),
                 "b4_success_rate": float(b4.get("success_rate", float("nan"))),
                 "b2_success_rate": float(b2.get("success_rate", float("nan"))),
+                "time_test_name": str(pair_idx.get((scale_focus, int(n_block), int(k_intensity), "mean_event_replan_ms"), {}).get("test_name", "na")),
+                "time_p_value": float(pair_idx.get((scale_focus, int(n_block), int(k_intensity), "mean_event_replan_ms"), {}).get("p_value", float("nan"))),
             }
         )
 
@@ -785,11 +845,17 @@ def build_focus_tables_matrix(
                 "k_events": int(k_events),
                 "b4_mean_cumulative_ms": b4_ms,
                 "b2_mean_cumulative_ms": b2_ms,
+                "b4_p50_cumulative_ms": float(b4.get("p50_cumulative_replan_ms", float("nan"))),
+                "b4_p95_cumulative_ms": float(b4.get("p95_cumulative_replan_ms", float("nan"))),
+                "b2_p50_cumulative_ms": float(b2.get("p50_cumulative_replan_ms", float("nan"))),
+                "b2_p95_cumulative_ms": float(b2.get("p95_cumulative_replan_ms", float("nan"))),
                 "b2_over_b4_time_ratio": ratio,
                 "b4_mean_cumulative_expanded": float(b4.get("mean_cumulative_expanded", float("nan"))),
                 "b2_mean_cumulative_expanded": float(b2.get("mean_cumulative_expanded", float("nan"))),
                 "b4_success_rate": float(b4.get("success_rate", float("nan"))),
                 "b2_success_rate": float(b2.get("success_rate", float("nan"))),
+                "time_test_name": str(pair_idx.get((scale_focus, int(n_block_cont), int(k_events), "cumulative_replan_ms"), {}).get("test_name", "na")),
+                "time_p_value": float(pair_idx.get((scale_focus, int(n_block_cont), int(k_events), "cumulative_replan_ms"), {}).get("p_value", float("nan"))),
             }
         )
 
@@ -862,51 +928,67 @@ def render_markdown_matrix(
             return "nan"
         return f"{float(v):.{d}f}"
 
+    def pf(v: float) -> str:
+        if not np.isfinite(float(v)):
+            return "nan"
+        return f"{float(v):.3e}"
+
+    key_trials = max(int(args.trials), int(getattr(args, "key_trials", 0)))
+
     lines: List[str] = []
-    lines.append("# Benchmark Matrix Table")
+    lines.append("# 矩阵实验汇总表")
     lines.append("")
-    lines.append(f"- Trials per combo: `{args.trials}`")
-    lines.append(f"- area-event intensity grid (legacy n_block column): `{args.n_block_grid}`")
-    lines.append(f"- K grid: `{args.k_events_grid}`")
-    lines.append(f"- Scales: `{args.scales}`")
-    lines.append(f"- Seed: `{args.seed}`")
+    lines.append(f"- 常规组合试验次数：`{args.trials}`")
+    if key_trials > int(args.trials):
+        lines.append(
+            f"- 关键组合试验次数：`{key_trials}`，关键组合数量：`{resolved.get('key_combo_count', 0)}`"
+        )
+    lines.append("- 论文建议：关键组合至少收集 `30` 个有效 trial。")
+    lines.append(f"- 区域事件强度网格（沿用旧列名 n_block）：`{args.n_block_grid}`")
+    lines.append(f"- 连续事件数 K 网格：`{args.k_events_grid}`")
+    lines.append(f"- 图规模：`{args.scales}`")
+    lines.append(f"- 随机种子：`{args.seed}`")
     lines.append(
-        f"- Focus: scale `{resolved['focus_scale']}`, K-intensity `{resolved['focus_k_intensity']}`, "
-        f"K-scale `{resolved['focus_k_scale']}`, n_block-cont `{resolved['focus_n_block_cont']}`"
+        f"- 焦点设置：scale=`{resolved['focus_scale']}`，K-强度=`{resolved['focus_k_intensity']}`，"
+        f"K-规模=`{resolved['focus_k_scale']}`，n_block-连续=`{resolved['focus_n_block_cont']}`"
     )
     if anomaly_note:
-        lines.append(f"- Experiment A diagnosis: {anomaly_note}")
+        lines.append(f"- 实验 A 诊断：{anomaly_note}")
     if k_note:
-        lines.append(f"- Experiment B diagnosis: {k_note}")
+        lines.append(f"- 实验 B 诊断：{k_note}")
     if quality_note:
-        lines.append(f"- Path-quality diagnosis: {quality_note}")
+        lines.append(f"- 路径质量诊断：{quality_note}")
     lines.append("")
 
-    lines.append("## Experiment A (Event Intensity)")
+    lines.append("## 实验 A：事件强度")
     lines.append("")
-    lines.append("| Intensity index | B4 event ms | B2 event ms | B2/B4 | B4 event expanded | B2 event expanded | B4 success | B2 success |")
-    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| 强度索引 | B4 事件均时 (ms) | B2 事件均时 (ms) | B4 P50/P95 | B2 P50/P95 | B2/B4 | 检验 | p 值 | B4 事件扩展 | B2 事件扩展 | B4 成功率 | B2 成功率 |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|")
     for r in tables["A"]:
         lines.append(
-            f"| {r['n_block']} | {f(r['b4_mean_event_ms'])} | {f(r['b2_mean_event_ms'])} | {f(r['b2_over_b4_time_ratio'], 3)} | "
+            f"| {r['n_block']} | {f(r['b4_mean_event_ms'])} | {f(r['b2_mean_event_ms'])} | "
+            f"{f(r['b4_p50_event_ms'])}/{f(r['b4_p95_event_ms'])} | {f(r['b2_p50_event_ms'])}/{f(r['b2_p95_event_ms'])} | "
+            f"{f(r['b2_over_b4_time_ratio'], 3)} | {r['time_test_name']} | {pf(r['time_p_value'])} | "
             f"{f(r['b4_mean_event_expanded'])} | {f(r['b2_mean_event_expanded'])} | {f(100.0*r['b4_success_rate'],1)}% | {f(100.0*r['b2_success_rate'],1)}% |"
         )
     lines.append("")
 
-    lines.append("## Experiment B (Continuous Replanning)")
+    lines.append("## 实验 B：连续重规划")
     lines.append("")
-    lines.append("| K events | B4 cumulative ms | B2 cumulative ms | B2/B4 | B4 cumulative expanded | B2 cumulative expanded | B4 success | B2 success |")
-    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| K 次事件 | B4 累积时间 (ms) | B2 累积时间 (ms) | B4 P50/P95 | B2 P50/P95 | B2/B4 | 检验 | p 值 | B4 累积扩展 | B2 累积扩展 | B4 成功率 | B2 成功率 |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|")
     for r in tables["B"]:
         lines.append(
-            f"| {r['k_events']} | {f(r['b4_mean_cumulative_ms'])} | {f(r['b2_mean_cumulative_ms'])} | {f(r['b2_over_b4_time_ratio'], 3)} | "
+            f"| {r['k_events']} | {f(r['b4_mean_cumulative_ms'])} | {f(r['b2_mean_cumulative_ms'])} | "
+            f"{f(r['b4_p50_cumulative_ms'])}/{f(r['b4_p95_cumulative_ms'])} | {f(r['b2_p50_cumulative_ms'])}/{f(r['b2_p95_cumulative_ms'])} | "
+            f"{f(r['b2_over_b4_time_ratio'], 3)} | {r['time_test_name']} | {pf(r['time_p_value'])} | "
             f"{f(r['b4_mean_cumulative_expanded'])} | {f(r['b2_mean_cumulative_expanded'])} | {f(100.0*r['b4_success_rate'],1)}% | {f(100.0*r['b2_success_rate'],1)}% |"
         )
     lines.append("")
 
-    lines.append("## Experiment C (Scale Sweep)")
+    lines.append("## 实验 C：规模扫描")
     lines.append("")
-    lines.append("| Scale | |V| | |E| | B4 cumulative ms | B2 cumulative ms | B2/B4 | B4 success | B2 success |")
+    lines.append("| 规模 | |V| | |E| | B4 累积时间 (ms) | B2 累积时间 (ms) | B2/B4 | B4 成功率 | B2 成功率 |")
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
     for r in tables["C"]:
         lines.append(
@@ -915,9 +997,9 @@ def render_markdown_matrix(
         )
     lines.append("")
 
-    lines.append("## Experiment D (Workload Metrics)")
+    lines.append("## 实验 D：工作负载指标")
     lines.append("")
-    lines.append("| n_block | B4 queue push | B2 queue push | B4 updated | B2 updated | B4 reopened | B2 reopened | B4 expanded | B2 expanded |")
+    lines.append("| n_block | B4 入队 | B2 入队 | B4 更新 | B2 更新 | B4 重新打开 | B2 重新打开 | B4 扩展 | B2 扩展 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in tables["D"]:
         lines.append(
@@ -939,7 +1021,7 @@ def diagnose_event_intensity_anomaly(
     if not table_a:
         return diag_rows, ""
 
-    # Sort by n_block for trend checks.
+    # 按 n_block 排序，便于检查趋势是否单调。
     arr = sorted(table_a, key=lambda r: int(r["n_block"]))
     b4_t = np.asarray([float(r["b4_mean_event_ms"]) for r in arr], dtype=float)
     b2_t = np.asarray([float(r["b2_mean_event_ms"]) for r in arr], dtype=float)
@@ -970,23 +1052,22 @@ def diagnose_event_intensity_anomaly(
         )
 
     if not (b4_non_monotonic or b2_non_monotonic):
-        return diag_rows, "event intensity trend is monotonic in current summary."
+        return diag_rows, "当前汇总中，事件强度与时间趋势保持单调。"
 
-    # Explain non-monotonic wall-clock with workload + geometry effects.
+    # 用“工作负载 + 事件几何”共同解释非单调时间现象。
     b4_head = float(b4_t[0]) if b4_t.size > 0 else float("nan")
     b4_tail = float(b4_t[-1]) if b4_t.size > 0 else float("nan")
     b4_head_e = float(b4_e[0]) if b4_e.size > 0 else float("nan")
     b4_tail_e = float(b4_e[-1]) if b4_e.size > 0 else float("nan")
 
     note = (
-        f"non-monotonic timing detected at scale={resolved['focus_scale']}, "
-        f"K={resolved['focus_k_intensity']}. "
-        f"B4 mean event time changes from {b4_head:.2f}ms (n_block={int(nbs[0])}) "
-        f"to {b4_tail:.2f}ms (n_block={int(nbs[-1])}), while expanded nodes move from "
-        f"{b4_head_e:.1f} to {b4_tail_e:.1f}. "
-        "This indicates wall-clock is jointly affected by event geometry/locality and Python runtime overhead, "
-        "not only by n_block magnitude. A typical case is that a larger disturbed region can force an earlier detour "
-        "into a cleaner subgraph, which shortens the actually affected middle segment and reduces updated states."
+        f"检测到非单调时间现象：scale={resolved['focus_scale']}，"
+        f"K={resolved['focus_k_intensity']}。"
+        f"B4 的单事件平均时间从 {b4_head:.2f}ms（n_block={int(nbs[0])}）"
+        f"变化到 {b4_tail:.2f}ms（n_block={int(nbs[-1])}），同时扩展节点从 "
+        f"{b4_head_e:.1f} 变化到 {b4_tail_e:.1f}。"
+        "这说明墙钟时间不仅受 n_block 大小影响，还同时受事件几何位置、局部绕行形态以及 Python 运行时开销影响。"
+        "一个典型情形是：更大的受扰区域反而迫使路径更早绕入更干净的子图，缩短真正受影响的中段，从而减少更新状态。"
     )
     return diag_rows, note
 
@@ -1021,23 +1102,23 @@ def diagnose_continuous_replan_k_effect(
 
     k1 = next((r for r in arr if int(r["k_events"]) == 1), None)
     if k1 is None:
-        return diag_rows, "K=1 is not included in the current K grid."
+        return diag_rows, "当前 K 网格中不包含 K=1。"
 
     ratio_k1 = float(k1["b2_over_b4_time_ratio"])
     if not np.isfinite(ratio_k1):
-        return diag_rows, "K=1 ratio is unavailable due to insufficient successful trials."
+        return diag_rows, "由于成功样本不足，K=1 的时间比值无法计算。"
 
     if ratio_k1 < 1.0:
         note = (
-            f"for K=1 (scale={resolved['focus_scale']}, n_block={resolved['focus_n_block_cont']}), "
-            f"B4 is slower than B2 (B2/B4={ratio_k1:.3f}<1). This is expected under a single light perturbation: "
-            "incremental LPA* still pays queue/state-maintenance overhead, while global A* can finish quickly when "
-            "the affected region is tiny. As K increases, LPA* reuses prior search state and cumulative advantage emerges."
+            f"在 K=1（scale={resolved['focus_scale']}，n_block={resolved['focus_n_block_cont']}）时，"
+            f"B4 慢于 B2（B2/B4={ratio_k1:.3f}<1）。这在单次轻扰动下是合理的："
+            "增量式 LPA* 仍需承担队列维护和状态维护开销，而全局 A* 在受影响区域很小时可以很快完成。"
+            "随着 K 增大，LPA* 对既有搜索状态的复用开始累积，整体优势会逐步显现。"
         )
     else:
         note = (
-            f"for K=1 (scale={resolved['focus_scale']}, n_block={resolved['focus_n_block_cont']}), "
-            f"B4 is not slower than B2 (B2/B4={ratio_k1:.3f}). The cumulative trend over K should still be reported."
+            f"在 K=1（scale={resolved['focus_scale']}，n_block={resolved['focus_n_block_cont']}）时，"
+            f"B4 并不慢于 B2（B2/B4={ratio_k1:.3f}）。论文中仍应报告随 K 增长的累积趋势。"
         )
     return diag_rows, note
 
@@ -1137,19 +1218,19 @@ def diagnose_path_quality_consistency(
                 )
 
     if not equal_rates:
-        return rows, "path-quality consistency could not be evaluated (no paired successful trials)."
+        return rows, "没有足够的配对成功 trial，暂时无法评估路径质量一致性。"
 
     avg_eq = float(np.mean(np.asarray(equal_rates, dtype=float)))
     if avg_eq >= 0.7:
         note = (
-            f"B4/B2 path costs are frequently equal (mean equal-cost rate={100.0*avg_eq:.1f}%). "
-            "This is expected because both optimize the same weighted objective on the same graph; "
-            "incremental LPA* mainly improves replanning workload/time rather than final optimality."
+            f"B4/B2 的路径代价经常相同（平均等代价比例={100.0 * avg_eq:.1f}%）。"
+            "这是合理现象，因为两者都在同一张图上优化同一套加权目标；"
+            "增量式 LPA* 主要改善的是重规划工作量和时间，而不是最终最优值。"
         )
     else:
         note = (
-            f"B4/B2 equal-cost rate is moderate (mean={100.0*avg_eq:.1f}%), "
-            "indicating event-stream state reuse can also lead to different feasible local choices in some trials."
+            f"B4/B2 的等代价比例处于中等水平（平均={100.0 * avg_eq:.1f}%），"
+            "说明在部分 trial 中，事件流状态复用也可能导致不同的局部可行路径选择。"
         )
     return rows, note
 
@@ -1354,13 +1435,15 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
     benchmark_core.RESOLUTION = benchmark_core.resolve_resolution_m(scene_cfg, data_root)
-    out_dir = Path(args.out_dir).resolve()
+    out_dir = benchmark_core.resolve_output_dir(root, args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     n_blocks = parse_int_grid_arg(args.n_block_grid, "--n-block-grid")
     k_values = parse_int_grid_arg(args.k_events_grid, "--k-events-grid")
     scale_fractions = parse_scale_fraction_arg(args.scale_fractions)
     scales = parse_scale_names(args.scales, scale_fractions)
+    key_combos, key_combo_resolved = build_key_combo_set(scales, n_blocks, k_values, args)
+    key_trials = max(int(args.trials), int(getattr(args, "key_trials", 0)))
 
     z_grid = np.asarray(np.load("Z_crop.npy"), dtype=float)
     risk_fields = load_risk_fields(data_root, z_grid.shape, scene_cfg if use_scene else {})
@@ -1403,13 +1486,19 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         for n_block in n_blocks:
             for k_events in k_values:
                 combo_id += 1
-                max_attempts = max(args.trials * args.max_attempt_factor, args.trials + 10)
+                combo_key = (str(scale), int(n_block), int(k_events))
+                requested_trials = key_trials if combo_key in key_combos else int(args.trials)
+                max_attempts = max(requested_trials * args.max_attempt_factor, requested_trials + 10)
                 accepted = 0
                 attempts = 0
                 rng = np.random.default_rng(args.seed + combo_id * 10007)
 
-                print(f"[combo {combo_id}/{total_combo}] scale={scale}, n_block={n_block}, K={k_events}")
-                while accepted < args.trials and attempts < max_attempts:
+                combo_tag = " [关键组合]" if combo_key in key_combos and requested_trials > int(args.trials) else ""
+                print(
+                    f"[combo {combo_id}/{total_combo}] scale={scale}, n_block={n_block}, K={k_events}, "
+                    f"trials={requested_trials}{combo_tag}"
+                )
+                while accepted < requested_trials and attempts < max_attempts:
                     attempts += 1
                     trial_id = accepted + 1
                     try:
@@ -1444,24 +1533,28 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                     event_records.extend(ev_rows)
                     trial_records.extend(tr_rows)
                     accepted += 1
-                    if accepted % max(1, int(args.progress_every)) == 0 or accepted == args.trials:
-                        print(f"  [progress] {accepted}/{args.trials} accepted (attempts={attempts})")
+                    if accepted % max(1, int(args.progress_every)) == 0 or accepted == requested_trials:
+                        print(f"  [progress] {accepted}/{requested_trials} accepted (attempts={attempts})")
 
                 combo_status.append(
                     {
                         "scale": scale,
                         "n_block": int(n_block),
                         "k_events": int(k_events),
-                        "trials_requested": int(args.trials),
+                        "trials_requested": int(requested_trials),
                         "trials_collected": int(accepted),
                         "attempts": int(attempts),
                         "max_attempts": int(max_attempts),
                         "graph_nodes": int(graph.n_nodes),
                         "graph_edges": int(graph.n_edges),
+                        "is_key_combo": int(combo_key in key_combos),
                     }
                 )
-                if accepted < args.trials:
-                    print(f"[warn] combo scale={scale}, n_block={n_block}, K={k_events} only collected {accepted}/{args.trials}")
+                if accepted < requested_trials:
+                    print(
+                        f"[warn] combo scale={scale}, n_block={n_block}, K={k_events} "
+                        f"only collected {accepted}/{requested_trials}"
+                    )
 
     summary_rows: List[dict] = []
     for scale in scales:
@@ -1481,6 +1574,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
 
     pair_rows = build_pairwise_rows_matrix(trial_records, scales, n_blocks, k_values)
     tables, resolved = build_focus_tables_matrix(summary_rows, pair_rows, scales, n_blocks, k_values, args)
+    resolved["key_combo_count"] = len(key_combos)
     anomaly_rows, anomaly_note = diagnose_event_intensity_anomaly(tables, resolved)
     k_diag_rows, k_diag_note = diagnose_continuous_replan_k_effect(tables, resolved)
     quality_rows, quality_note = diagnose_path_quality_consistency(trial_records, scales, n_blocks, k_values)
@@ -1510,38 +1604,38 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     if anomaly_rows:
         write_csv(out_dir / "experiment_A_diagnostics.csv", anomaly_rows, list(anomaly_rows[0].keys()))
         (out_dir / "experiment_A_diagnostics.md").write_text(
-            "# Experiment A Diagnosis\n\n"
+            "# 实验 A 诊断\n\n"
             + f"- {anomaly_note}\n",
             encoding="utf-8",
         )
     if k_diag_rows:
         write_csv(out_dir / "experiment_B_diagnostics.csv", k_diag_rows, list(k_diag_rows[0].keys()))
         (out_dir / "experiment_B_diagnostics.md").write_text(
-            "# Experiment B Diagnosis\n\n"
+            "# 实验 B 诊断\n\n"
             + f"- {k_diag_note}\n",
             encoding="utf-8",
         )
     if quality_rows:
         write_csv(out_dir / "experiment_path_quality.csv", quality_rows, list(quality_rows[0].keys()))
         (out_dir / "experiment_path_quality.md").write_text(
-            "# Path Quality Diagnosis (B4 vs B2)\n\n"
+            "# 路径质量诊断（B4 vs B2）\n\n"
             + f"- {quality_note}\n",
             encoding="utf-8",
         )
 
-    # One-stop discussion notes for paper Discussion section.
+    # 生成一个可直接用于论文 Discussion 小节的讨论提纲。
     discussion_lines = [
-        "# Benchmark Discussion Notes",
+        "# 基准实验讨论要点",
         "",
-        f"- Experiment A: {anomaly_note}" if anomaly_note else "- Experiment A: no anomaly note generated.",
-        f"- Experiment B: {k_diag_note}" if k_diag_note else "- Experiment B: no K-effect note generated.",
-        f"- Path quality: {quality_note}" if quality_note else "- Path quality: no note generated.",
+        f"- 实验 A：{anomaly_note}" if anomaly_note else "- 实验 A：未生成异常说明。",
+        f"- 实验 B：{k_diag_note}" if k_diag_note else "- 实验 B：未生成 K 效应说明。",
+        f"- 路径质量：{quality_note}" if quality_note else "- 路径质量：未生成说明。",
         "",
-        "Suggested paper wording:",
-        "1. Under K=1 and light perturbation, incremental LPA* may be slower due to queue/state-maintenance overhead.",
-        "2. With larger K, state reuse accumulates and cumulative advantage becomes clear.",
-        "3. Non-monotonic time vs n_block can happen when event geometry pushes detours into cleaner subgraphs, reducing updated states.",
-        "4. Equal B4/B2 path costs are expected for many trials because both solve the same weighted objective; speed/workload is the key differentiator.",
+        "建议论文表述：",
+        "1. 在 K=1 且扰动较轻时，增量式 LPA* 可能因为队列维护和状态维护开销而慢于全局 A*。",
+        "2. 随着 K 增大，状态复用效果会逐步累积，B4 的累计优势会更清晰。",
+        "3. 时间随 n_block 非单调并不反常，因为事件几何位置可能把绕行更早推入干净子图，反而减少被更新状态。",
+        "4. B4 与 B2 在很多 trial 中路径代价相同是预期现象，因为两者优化的是同一套加权目标；真正拉开差距的是重规划时间和工作负载。",
     ]
     (out_dir / "benchmark_discussion.md").write_text("\n".join(discussion_lines) + "\n", encoding="utf-8")
 
@@ -1551,6 +1645,12 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     cfg["resolved_n_blocks"] = n_blocks
     cfg["resolved_k_values"] = k_values
     cfg["resolved_scales"] = scales
+    cfg["key_combo_resolved"] = key_combo_resolved
+    cfg["key_combo_count"] = len(key_combos)
+    cfg["key_combos"] = [
+        {"scale": scale, "n_block": int(n_block), "k_events": int(k_events)}
+        for scale, n_block, k_events in sorted(key_combos)
+    ]
     cfg["plot_paths"] = plot_paths
     (out_dir / "benchmark_config.json").write_text(
         json.dumps(cfg, ensure_ascii=False, indent=2),
@@ -1588,6 +1688,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
     parser.add_argument("--trials", type=int, default=50)
+    parser.add_argument("--key-trials", type=int, default=0)
     parser.add_argument("--seed", type=int, default=20260310)
     parser.add_argument("--out-dir", type=str, default="benchmark_out_matrix")
     parser.add_argument("--min-start-goal-dist-km", type=float, default=1.5)

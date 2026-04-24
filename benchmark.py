@@ -37,9 +37,10 @@ from article_planner.scenario_config import (
 )
 
 try:
-    from scipy.stats import ttest_rel
+    from scipy.stats import ttest_rel, wilcoxon
 except Exception:  # pragma: no cover - optional
     ttest_rel = None
+    wilcoxon = None
 
 try:
     import matplotlib.pyplot as plt
@@ -72,6 +73,13 @@ RISK_W_HUMAN_COMBINED = 0.50
 
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
 BASELINE_B2 = "B2_GlobalAstar_Layered"
+BASELINE_B6 = "B6_RegularLayered_LPA"
+
+REGULAR_INTRA_EDGE_DIST_M = 250.0
+REGULAR_INTER_EDGE_DIST_M = 250.0
+REGULAR_MAX_INTER_NEIGHBORS = 4
+REGULAR_MAX_CLIMB_ANGLE_DEG = 30.0
+REGULAR_PILLAR_CONNECT_RADII_M = [250.0, 500.0, 1000.0, 1500.0, 2000.0]
 
 
 def normalize_pair(u: int, v: int) -> Tuple[int, int]:
@@ -218,6 +226,108 @@ def collision_free_segment(
         if z - float(z_grid[r, c]) < SAFETY_HEIGHT:
             return False
     return True
+
+
+def corridor_collision_free_segment(
+    p1: np.ndarray,
+    p2: np.ndarray,
+    z_grid: np.ndarray,
+    floor_grid: Optional[np.ndarray] = None,
+    ceiling_grid: Optional[np.ndarray] = None,
+    layer_allowed: Optional[np.ndarray] = None,
+    n_samples: int = COLLISION_SAMPLES,
+) -> bool:
+    """检查线段是否同时满足地形净空、走廊边界与分层可用性约束。"""
+    rows, cols = z_grid.shape
+    for t in np.linspace(0.0, 1.0, n_samples):
+        x = float(p1[0] + t * (p2[0] - p1[0]))
+        y = float(p1[1] + t * (p2[1] - p1[1]))
+        z = float(p1[2] + t * (p2[2] - p1[2]))
+        r, c = km_to_rc(x, y, rows, cols)
+        if z - float(z_grid[r, c]) < SAFETY_HEIGHT:
+            return False
+        if floor_grid is not None and z < float(floor_grid[r, c]) - 1e-6:
+            return False
+        if ceiling_grid is not None and z > float(ceiling_grid[r, c]) + 1e-6:
+            return False
+        if layer_allowed is not None:
+            lid = int(np.clip(round(float(p1[3] + t * (p2[3] - p1[3]))), 0, layer_allowed.shape[0] - 1))
+            if not bool(layer_allowed[lid, r, c]):
+                return False
+    return True
+
+
+def select_regular_grid_points(
+    allowed: np.ndarray,
+    count: int,
+    exclude: Optional[Sequence[Tuple[int, int]]] = None,
+) -> np.ndarray:
+    """在允许区域内均匀选取规则网格点，用于 B6 规则三层图。"""
+    if count <= 0:
+        return np.zeros((0, 2), dtype=int)
+
+    rows, cols = allowed.shape
+    exclude_set = {
+        (int(np.clip(r, 0, rows - 1)), int(np.clip(c, 0, cols - 1)))
+        for r, c in (exclude or [])
+    }
+
+    chosen: List[Tuple[int, int]] = []
+    chosen_set = set()
+    per_axis = max(2, int(math.ceil(math.sqrt(max(count, 1) * 1.8))))
+    hard_limit = max(rows, cols) * 2 + 8
+
+    while len(chosen) < count and per_axis <= hard_limit:
+        rr = np.linspace(0, rows - 1, per_axis, dtype=int)
+        cc = np.linspace(0, cols - 1, per_axis, dtype=int)
+        grid: List[Tuple[int, int]] = []
+        seen_local = set()
+        for r in rr:
+            for c in cc:
+                key = (int(r), int(c))
+                if key in seen_local or key in exclude_set or key in chosen_set:
+                    continue
+                seen_local.add(key)
+                if bool(allowed[key[0], key[1]]):
+                    grid.append(key)
+        if grid:
+            if len(chosen) + len(grid) >= count:
+                need = count - len(chosen)
+                take_idx = np.linspace(0, len(grid) - 1, need, dtype=int)
+                for idx in take_idx:
+                    key = grid[int(idx)]
+                    if key in chosen_set:
+                        continue
+                    chosen.append(key)
+                    chosen_set.add(key)
+                break
+            for key in grid:
+                if key in chosen_set:
+                    continue
+                chosen.append(key)
+                chosen_set.add(key)
+        per_axis = int(math.ceil(per_axis * 1.35)) + 1
+
+    if len(chosen) < count:
+        allowed_pts = np.argwhere(allowed)
+        if allowed_pts.size > 0:
+            fill_candidates: List[Tuple[int, int]] = []
+            for r, c in allowed_pts:
+                key = (int(r), int(c))
+                if key in exclude_set or key in chosen_set:
+                    continue
+                fill_candidates.append(key)
+            if fill_candidates:
+                need = min(count - len(chosen), len(fill_candidates))
+                take_idx = np.linspace(0, len(fill_candidates) - 1, need, dtype=int)
+                for idx in take_idx:
+                    key = fill_candidates[int(idx)]
+                    if key in chosen_set:
+                        continue
+                    chosen.append(key)
+                    chosen_set.add(key)
+
+    return np.asarray(chosen[:count], dtype=int)
 
 
 def fused_risk_at_point(
@@ -649,6 +759,190 @@ def build_single_layer_graph(
 
     edge_arr = np.asarray(edges, dtype=int)
     return build_weighted_graph("B3_single_layer", nodes, edge_arr, z_grid, risk_fields=risk_fields)
+
+
+def build_regular_layered_graph(
+    z_grid: np.ndarray,
+    layer_mid: np.ndarray,
+    layer_allowed: np.ndarray,
+    terminal_status: dict,
+    resolution_m: float,
+    branch_budget: int,
+    backbone_budget: int,
+    risk_fields: Optional[Dict[str, object]] = None,
+    floor_grid: Optional[np.ndarray] = None,
+    ceiling_grid: Optional[np.ndarray] = None,
+) -> WeightedGraph:
+    """构建 B6：规则三层图 + LPA*，仅把地形驱动采样替换为规则网格采样。"""
+    rows, cols = z_grid.shape
+
+    def pixel_to_km(r: int, c: int) -> Tuple[float, float]:
+        return (float(c) * resolution_m / 1000.0, float(rows - 1 - r) * resolution_m / 1000.0)
+
+    def layer_height(lid: int, r: int, c: int) -> float:
+        rr = int(np.clip(r, 0, rows - 1))
+        cc = int(np.clip(c, 0, cols - 1))
+        return float(layer_mid[int(lid), rr, cc])
+
+    terminals = terminal_status.get("terminals", {})
+    if not terminals:
+        raise RuntimeError("缺少 terminal_status.terminals，无法构建 B6 规则三层图。")
+
+    terminal_rcs: List[Tuple[int, int]] = []
+    terminal_items: List[Tuple[str, dict]] = []
+    for name, meta in terminals.items():
+        if "row" not in meta or "col" not in meta:
+            continue
+        rr = int(meta["row"])
+        cc = int(meta["col"])
+        terminal_rcs.append((rr, cc))
+        terminal_items.append((str(name), dict(meta)))
+    if not terminal_items:
+        raise RuntimeError("terminal_status 中缺少有效的 row/col 终端锚点信息。")
+
+    exclude_rc = terminal_rcs
+    branch_pts = select_regular_grid_points(layer_allowed[1].astype(bool), int(branch_budget), exclude=exclude_rc)
+    backbone_pts = select_regular_grid_points(layer_allowed[2].astype(bool), int(backbone_budget), exclude=exclude_rc)
+    if len(branch_pts) == 0 or len(backbone_pts) == 0:
+        raise RuntimeError("B6 规则三层图构建失败：规则网格采样为空。")
+
+    nodes: List[List[float]] = []
+    terminal_pillars: Dict[str, List[int]] = {}
+    for name, meta in terminal_items:
+        rr = int(meta["row"])
+        cc = int(meta["col"])
+        x_km, y_km = pixel_to_km(rr, cc)
+        pillar_idxs: List[int] = []
+        for lid in range(3):
+            pillar_idxs.append(len(nodes))
+            nodes.append([x_km, y_km, layer_height(lid, rr, cc), float(lid)])
+        terminal_pillars[name] = pillar_idxs
+
+    branch_start = len(nodes)
+    for rr, cc in branch_pts:
+        x_km, y_km = pixel_to_km(int(rr), int(cc))
+        nodes.append([x_km, y_km, layer_height(1, int(rr), int(cc)), 1.0])
+
+    backbone_start = len(nodes)
+    for rr, cc in backbone_pts:
+        x_km, y_km = pixel_to_km(int(rr), int(cc))
+        nodes.append([x_km, y_km, layer_height(2, int(rr), int(cc)), 2.0])
+
+    node_arr = np.asarray(nodes, dtype=float)
+    branch_idx_arr = np.arange(branch_start, backbone_start, dtype=int)
+    backbone_idx_arr = np.arange(backbone_start, len(node_arr), dtype=int)
+    branch_tree = cKDTree(node_arr[branch_idx_arr, :2])
+    backbone_tree = cKDTree(node_arr[backbone_idx_arr, :2])
+    edges: List[Tuple[int, int, int]] = []
+
+    for pillar in terminal_pillars.values():
+        for k in range(len(pillar) - 1):
+            edges.append((int(pillar[k]), int(pillar[k + 1]), 1))
+
+    def connect_anchor_to_layer(anchor_idx: int, candidate_indices: np.ndarray, tree: cKDTree) -> None:
+        anchor_xy = node_arr[int(anchor_idx), :2]
+        for radius_m in REGULAR_PILLAR_CONNECT_RADII_M:
+            radius_km = float(radius_m) / 1000.0
+            cand_locals = tree.query_ball_point(anchor_xy, r=radius_km)
+            cand_locals = sorted(
+                cand_locals,
+                key=lambda local: float(np.linalg.norm(anchor_xy - node_arr[int(candidate_indices[int(local)]), :2])),
+            )
+            for local in cand_locals:
+                cand_idx = int(candidate_indices[int(local)])
+                if corridor_collision_free_segment(
+                    node_arr[int(anchor_idx)],
+                    node_arr[cand_idx],
+                    z_grid,
+                    floor_grid=floor_grid,
+                    ceiling_grid=ceiling_grid,
+                    layer_allowed=layer_allowed,
+                    n_samples=COLLISION_SAMPLES,
+                ):
+                    edges.append((int(anchor_idx), cand_idx, 0))
+                    return
+
+    for pillar in terminal_pillars.values():
+        connect_anchor_to_layer(int(pillar[1]), branch_idx_arr, branch_tree)
+        connect_anchor_to_layer(int(pillar[2]), backbone_idx_arr, backbone_tree)
+
+    terminal_l0 = [pillar[0] for pillar in terminal_pillars.values()]
+    for i in range(len(terminal_l0)):
+        for j in range(i + 1, len(terminal_l0)):
+            u = int(terminal_l0[i])
+            v = int(terminal_l0[j])
+            if np.linalg.norm(node_arr[u, :2] - node_arr[v, :2]) > REGULAR_INTRA_EDGE_DIST_M / 1000.0:
+                continue
+            if corridor_collision_free_segment(
+                node_arr[u],
+                node_arr[v],
+                z_grid,
+                floor_grid=floor_grid,
+                ceiling_grid=ceiling_grid,
+                layer_allowed=layer_allowed,
+                n_samples=COLLISION_SAMPLES,
+            ):
+                edges.append((u, v, 0))
+
+    def add_intra_edges(idx_start: int, idx_end: int, max_dist_m: float) -> None:
+        idx = np.arange(int(idx_start), int(idx_end), dtype=int)
+        if len(idx) < 2:
+            return
+        tree = cKDTree(node_arr[idx, :2])
+        for local_i, local_j in tree.query_pairs(r=float(max_dist_m) / 1000.0):
+            u = int(idx[int(local_i)])
+            v = int(idx[int(local_j)])
+            if corridor_collision_free_segment(
+                node_arr[u],
+                node_arr[v],
+                z_grid,
+                floor_grid=floor_grid,
+                ceiling_grid=ceiling_grid,
+                layer_allowed=layer_allowed,
+                n_samples=COLLISION_SAMPLES,
+            ):
+                edges.append((u, v, 0))
+
+    add_intra_edges(branch_start, backbone_start, REGULAR_INTRA_EDGE_DIST_M)
+    add_intra_edges(backbone_start, len(node_arr), REGULAR_INTRA_EDGE_DIST_M)
+
+    max_inter_km = REGULAR_INTER_EDGE_DIST_M / 1000.0
+    max_angle_rad = np.radians(REGULAR_MAX_CLIMB_ANGLE_DEG)
+    backbone_xy = node_arr[backbone_idx_arr, :2]
+    neighbor_lists = cKDTree(backbone_xy).query_ball_point(node_arr[branch_idx_arr, :2], r=max_inter_km)
+    for b_local, cand_locals in enumerate(neighbor_lists):
+        if not cand_locals:
+            continue
+        u = int(branch_idx_arr[int(b_local)])
+        if len(cand_locals) > REGULAR_MAX_INTER_NEIGHBORS:
+            cand_locals = sorted(
+                cand_locals,
+                key=lambda c_local: float(np.linalg.norm(node_arr[u, :2] - backbone_xy[int(c_local)])),
+            )[:REGULAR_MAX_INTER_NEIGHBORS]
+        for c_local in cand_locals:
+            v = int(backbone_idx_arr[int(c_local)])
+            horiz_km = float(np.linalg.norm(node_arr[u, :2] - node_arr[v, :2]))
+            if horiz_km <= 1e-9:
+                continue
+            vert_m = abs(float(node_arr[u, 2] - node_arr[v, 2]))
+            if math.atan2(vert_m, horiz_km * 1000.0) > max_angle_rad:
+                continue
+            if corridor_collision_free_segment(
+                node_arr[u],
+                node_arr[v],
+                z_grid,
+                floor_grid=floor_grid,
+                ceiling_grid=ceiling_grid,
+                layer_allowed=layer_allowed,
+                n_samples=COLLISION_SAMPLES,
+            ):
+                edges.append((u, v, 2))
+
+    if not edges:
+        raise RuntimeError("B6 规则三层图构建失败：未生成任何边。")
+
+    edge_arr = np.asarray(edges, dtype=int)
+    return build_weighted_graph("B6_regular_layered", node_arr, edge_arr, z_grid, risk_fields=risk_fields)
 
 
 class LPAStarPlanner:
@@ -1278,6 +1572,14 @@ def resolve_benchmark_data_context(args: argparse.Namespace, root: Path) -> Tupl
     return {}, root, False
 
 
+def resolve_output_dir(root: Path, out_dir_arg: str) -> Path:
+    """将命令行输出目录统一解析到工作区根目录，避免切换 cwd 后出现重复嵌套。"""
+    out_dir = Path(out_dir_arg)
+    if out_dir.is_absolute():
+        return out_dir
+    return (root / out_dir).resolve()
+
+
 def build_task_node_locator(graph: WeightedGraph) -> Dict[str, object]:
     """为物流任务坐标建立最近可用图节点查询结构。"""
     usable = np.asarray([i for i, adj_i in enumerate(graph.adj) if len(adj_i) > 0], dtype=int)
@@ -1434,13 +1736,36 @@ def paired_arrays(records: List[dict], a: str, b: str, field: str) -> Tuple[np.n
     return np.asarray(aa, dtype=float), np.asarray(bb, dtype=float)
 
 
-def paired_pvalue(x: np.ndarray, y: np.ndarray) -> float:
+def paired_significance(x: np.ndarray, y: np.ndarray) -> Dict[str, float | str]:
+    """优先使用 Wilcoxon 符号秩检验；不可用时退化为配对 t 检验。"""
     if x.size < 2 or y.size < 2:
-        return float("nan")
-    if ttest_rel is None:
-        return float("nan")
-    res = ttest_rel(x, y, nan_policy="omit")
-    return float(res.pvalue)
+        return {"test_name": "na", "p_value": float("nan")}
+
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    diff = y_arr - x_arr
+
+    if wilcoxon is not None:
+        if np.allclose(diff, 0.0, rtol=1e-12, atol=1e-12):
+            return {"test_name": "wilcoxon", "p_value": 1.0}
+        try:
+            res = wilcoxon(x_arr, y_arr, zero_method="wilcox", alternative="two-sided", mode="auto")
+            return {"test_name": "wilcoxon", "p_value": float(res.pvalue)}
+        except Exception:
+            pass
+
+    if ttest_rel is not None:
+        try:
+            res = ttest_rel(x_arr, y_arr, nan_policy="omit")
+            return {"test_name": "paired_t", "p_value": float(res.pvalue)}
+        except Exception:
+            pass
+
+    return {"test_name": "na", "p_value": float("nan")}
+
+
+def paired_pvalue(x: np.ndarray, y: np.ndarray) -> float:
+    return float(paired_significance(x, y).get("p_value", float("nan")))
 
 
 def write_csv(path: Path, rows: List[dict], fieldnames: Sequence[str]) -> None:
@@ -1495,10 +1820,10 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
 
 def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
     label_map = {
-        "B1_Voxel_Dijkstra": "B1 Voxel",
-        "B2_GlobalAstar_Layered": "B2 GlobalA*",
-        "B3_LPA_SingleLayer": "B3 FlatLPA*",
-        "B4_Proposed_LPA_Layered": "B4 Proposed",
+        "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
+        "B2_GlobalAstar_Layered": "B2 分层全局 A*",
+        "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
+        "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -1509,19 +1834,19 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
     row_by_baseline = {r["baseline"]: r for r in summary_rows}
 
     lines: List[str] = []
-    lines.append("# Four-Baseline Comparison Table")
+    lines.append("# 四基线对比表")
     lines.append("")
     lines.append(
-        f"- Trials: `{args.trials}`, seed: `{args.seed}`, "
-        f"area event: `{args.event_type}` / `{args.event_radius_km:.2f} km`"
+        f"- 试验次数：`{args.trials}`，随机种子：`{args.seed}`，"
+        f"区域事件：`{args.event_type}` / `{args.event_radius_km:.2f} km`"
     )
     lines.append("")
-    lines.append("| Method | Planning Time (ms) | Path Length (km) | Path Cost | Energy (kJ) | Min Clearance (m) | Comm Coverage | Max Loss (s) | Risk Exposure | Success Rate |")
+    lines.append("| 方法 | 规划时间 (ms) | 路径长度 (km) | 路径代价 | 能耗 (kJ) | 最小净空 (m) | 通信覆盖率 | 最长失联 (s) | 风险暴露 | 成功率 |")
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for key in ordered:
         r = row_by_baseline.get(key)
         if r is None:
-            lines.append(f"| {label_map[key]} | nan | nan | nan | nan | 0.0% |")
+            lines.append(f"| {label_map[key]} | nan | nan | nan | nan | nan | nan | nan | nan | 0.0% |")
             continue
         t = float(r.get("mean_replan_ms", float("nan")))
         l = float(r.get("mean_length_km", float("nan")))
@@ -1532,8 +1857,8 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
         loss = float(r.get("mean_max_comm_loss_time_s", float("nan")))
         exp = float(r.get("mean_risk_exposure_integral", float("nan")))
         succ = 100.0 * float(r.get("success_rate", 0.0))
-        e_str = f"{e:.2f}" if np.isfinite(e) else "—"
-        cov_str = f"{100.0*cov:.1f}%" if np.isfinite(cov) else "—"
+        e_str = f"{e:.2f}" if np.isfinite(e) else "nan"
+        cov_str = f"{100.0 * cov:.1f}%" if np.isfinite(cov) else "nan"
         lines.append(
             f"| {label_map[key]} | {t:.2f} | {l:.3f} | {c:.4f} | {e_str} | "
             f"{clr:.1f} | {cov_str} | {loss:.1f} | {exp:.3f} | {succ:.1f}% |"
@@ -1547,6 +1872,227 @@ def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Names
     return "\n".join(lines) + "\n"
 
 
+def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict], args: argparse.Namespace) -> str:
+    """增强版单次 benchmark 汇总表，显式给出中位数、P95 和检验类型。"""
+    lines: List[str] = []
+    lines.append("# Benchmark Table")
+    lines.append("")
+    lines.append(
+        f"- Trials requested: `{args.trials}`, random seed: `{args.seed}`, "
+        f"area event: `{args.event_type}`, radius `{args.event_radius_km:.2f} km`, severity `{args.event_severity:.2f}`"
+    )
+    lines.append(
+        f"- B1 voxel config: `xy_step={args.b1_xy_step_m:.0f}m`, "
+        f"`agl_step={args.b1_agl_step_m:.0f}m`, timeout `{args.b1_timeout_s:.1f}s`"
+    )
+    lines.append("")
+    lines.append("## Per-baseline summary")
+    lines.append("")
+    lines.append(
+        "| Baseline | Success | Replan ms (mean+/-std) | P50/P95 ms | Expanded (mean) | Cost (mean) | Energy kJ (mean) | Length km (mean) | Min clearance m | Comm coverage | Max loss s | Risk exposure |"
+    )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in summary_rows:
+        succ = f"{r['n_success']}/{r['n_trials']} ({100.0*r['success_rate']:.1f}%)"
+        ms = f"{r['mean_replan_ms']:.2f}+/-{r['std_replan_ms']:.2f}"
+        p = f"{r['p50_replan_ms']:.2f}/{r['p95_replan_ms']:.2f}"
+        lines.append(
+            f"| {r['baseline']} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
+            f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} | "
+            f"{r['mean_min_clearance_m']:.1f} | {100.0*r['mean_comm_coverage_ratio']:.1f}% | "
+            f"{r['mean_max_comm_loss_time_s']:.1f} | {r['mean_risk_exposure_integral']:.3f} |"
+        )
+    lines.append("")
+    lines.append("## Paired significance checks")
+    lines.append("")
+    lines.append("| Pair | Metric | N paired | Mean A | Mean B | P50 A | P50 B | P95 A | P95 B | Median(B/A) | Test | p-value |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
+    for r in pair_rows:
+        lines.append(
+            f"| {r['pair']} | {r['metric']} | {r['n']} | {r['mean_a']:.4f} | {r['mean_b']:.4f} | "
+            f"{r['median_a']:.4f} | {r['median_b']:.4f} | {r['p95_a']:.4f} | {r['p95_b']:.4f} | "
+            f"{r['median_ratio_b_over_a']:.3f} | {r['test_name']} | {r['p_value']:.3e} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def render_single_event_comparison_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
+    """增强版多基线单事件对比表，纳入 B6 结构性消融。"""
+    label_map = {
+        "B1_Voxel_Dijkstra": "B1 Voxel",
+        "B2_GlobalAstar_Layered": "B2 GlobalA*",
+        "B3_LPA_SingleLayer": "B3 FlatLPA*",
+        "B6_RegularLayered_LPA": "B6 RegularLayered LPA*",
+        "B4_Proposed_LPA_Layered": "B4 Proposed",
+    }
+    ordered = [
+        "B1_Voxel_Dijkstra",
+        "B2_GlobalAstar_Layered",
+        "B3_LPA_SingleLayer",
+        "B6_RegularLayered_LPA",
+        "B4_Proposed_LPA_Layered",
+    ]
+    row_by_baseline = {r["baseline"]: r for r in summary_rows}
+
+    lines: List[str] = []
+    lines.append("# Single-Event Multi-Baseline Comparison Table")
+    lines.append("")
+    lines.append(
+        f"- Trials: `{args.trials}`, seed: `{args.seed}`, "
+        f"area event: `{args.event_type}` / `{args.event_radius_km:.2f} km`"
+    )
+    lines.append("")
+    lines.append("| Method | Planning Time (mean+/-std, ms) | P50/P95 (ms) | Path Length (km) | Path Cost | Energy (kJ) | Min Clearance (m) | Comm Coverage | Max Loss (s) | Risk Exposure | Success Rate |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for key in ordered:
+        r = row_by_baseline.get(key)
+        if r is None:
+            lines.append(f"| {label_map[key]} | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.0% |")
+            continue
+        t = float(r.get("mean_replan_ms", float("nan")))
+        t_std = float(r.get("std_replan_ms", float("nan")))
+        t_p50 = float(r.get("p50_replan_ms", float("nan")))
+        t_p95 = float(r.get("p95_replan_ms", float("nan")))
+        l = float(r.get("mean_length_km", float("nan")))
+        c = float(r.get("mean_cost", float("nan")))
+        e = float(r.get("mean_energy_kj", float("nan")))
+        clr = float(r.get("mean_min_clearance_m", float("nan")))
+        cov = float(r.get("mean_comm_coverage_ratio", float("nan")))
+        loss = float(r.get("mean_max_comm_loss_time_s", float("nan")))
+        exp = float(r.get("mean_risk_exposure_integral", float("nan")))
+        succ = 100.0 * float(r.get("success_rate", 0.0))
+        e_str = f"{e:.2f}" if np.isfinite(e) else "nan"
+        cov_str = f"{100.0 * cov:.1f}%" if np.isfinite(cov) else "nan"
+        lines.append(
+            f"| {label_map[key]} | {t:.2f}+/-{t_std:.2f} | {t_p50:.2f}/{t_p95:.2f} | {l:.3f} | {c:.4f} | {e_str} | "
+            f"{clr:.1f} | {cov_str} | {loss:.1f} | {exp:.3f} | {succ:.1f}% |"
+        )
+    lines.append("")
+    lines.append(
+        "Note: B6 keeps the same three-layer semantic structure and the same LPA* replanner as B4, "
+        "but replaces terrain-driven node sampling with regular grid sampling. "
+        "This isolates the contribution of terrain-aware layered network construction."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict], args: argparse.Namespace) -> str:
+    """中文版单次 benchmark 汇总表，显式给出中位数、P95 和显著性检验信息。"""
+    label_map = {
+        "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
+        "B2_GlobalAstar_Layered": "B2 分层全局 A*",
+        "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
+        "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
+        "B6_RegularLayered_LPA": "B6 规则三层 LPA*",
+    }
+    test_label = {
+        "wilcoxon": "Wilcoxon",
+        "paired_t": "配对 t 检验",
+        "na": "不适用",
+    }
+    lines: List[str] = []
+    lines.append("# 基准实验汇总表")
+    lines.append("")
+    lines.append(
+        f"- 请求试验次数：`{args.trials}`，随机种子：`{args.seed}`，"
+        f"区域事件：`{args.event_type}`，半径 `{args.event_radius_km:.2f} km`，强度 `{args.event_severity:.2f}`"
+    )
+    lines.append(
+        f"- B1 体素参数：`xy_step={args.b1_xy_step_m:.0f}m`，"
+        f"`agl_step={args.b1_agl_step_m:.0f}m`，超时 `{args.b1_timeout_s:.1f}s`"
+    )
+    lines.append("")
+    lines.append("## 各基线统计")
+    lines.append("")
+    lines.append(
+        "| 基线 | 成功情况 | 重规划时间 (均值+/-标准差, ms) | P50/P95 (ms) | 扩展节点均值 | 路径代价均值 | 能耗均值 (kJ) | 路径长度均值 (km) | 最小净空 (m) | 通信覆盖率 | 最长失联 (s) | 风险暴露 |"
+    )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in summary_rows:
+        succ = f"{r['n_success']}/{r['n_trials']} ({100.0 * r['success_rate']:.1f}%)"
+        ms = f"{r['mean_replan_ms']:.2f}+/-{r['std_replan_ms']:.2f}"
+        p = f"{r['p50_replan_ms']:.2f}/{r['p95_replan_ms']:.2f}"
+        baseline_label = label_map.get(str(r["baseline"]), str(r["baseline"]))
+        lines.append(
+            f"| {baseline_label} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
+            f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} | "
+            f"{r['mean_min_clearance_m']:.1f} | {100.0 * r['mean_comm_coverage_ratio']:.1f}% | "
+            f"{r['mean_max_comm_loss_time_s']:.1f} | {r['mean_risk_exposure_integral']:.3f} |"
+        )
+    lines.append("")
+    lines.append("## 配对显著性检验")
+    lines.append("")
+    lines.append("| 对比对 | 指标 | 配对样本数 | A 均值 | B 均值 | A 的 P50 | B 的 P50 | A 的 P95 | B 的 P95 | 中位数比值 (B/A) | 检验 | p 值 |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
+    for r in pair_rows:
+        test_name = test_label.get(str(r["test_name"]), str(r["test_name"]))
+        lines.append(
+            f"| {r['pair']} | {r['metric']} | {r['n']} | {r['mean_a']:.4f} | {r['mean_b']:.4f} | "
+            f"{r['median_a']:.4f} | {r['median_b']:.4f} | {r['p95_a']:.4f} | {r['p95_b']:.4f} | "
+            f"{r['median_ratio_b_over_a']:.3f} | {test_name} | {r['p_value']:.3e} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: argparse.Namespace) -> str:
+    """中文版多基线单事件对比表，纳入 B6 结构性消融。"""
+    label_map = {
+        "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
+        "B2_GlobalAstar_Layered": "B2 分层全局 A*",
+        "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
+        "B6_RegularLayered_LPA": "B6 规则三层 LPA*",
+        "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
+    }
+    ordered = [
+        "B1_Voxel_Dijkstra",
+        "B2_GlobalAstar_Layered",
+        "B3_LPA_SingleLayer",
+        "B6_RegularLayered_LPA",
+        "B4_Proposed_LPA_Layered",
+    ]
+    row_by_baseline = {r["baseline"]: r for r in summary_rows}
+
+    lines: List[str] = []
+    lines.append("# 单事件多基线对比表")
+    lines.append("")
+    lines.append(
+        f"- 试验次数：`{args.trials}`，随机种子：`{args.seed}`，"
+        f"区域事件：`{args.event_type}` / `{args.event_radius_km:.2f} km`"
+    )
+    lines.append("")
+    lines.append("| 方法 | 规划时间 (均值+/-标准差, ms) | P50/P95 (ms) | 路径长度 (km) | 路径代价 | 能耗 (kJ) | 最小净空 (m) | 通信覆盖率 | 最长失联 (s) | 风险暴露 | 成功率 |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for key in ordered:
+        r = row_by_baseline.get(key)
+        if r is None:
+            lines.append(f"| {label_map[key]} | nan | nan | nan | nan | nan | nan | nan | nan | nan | 0.0% |")
+            continue
+        t = float(r.get("mean_replan_ms", float("nan")))
+        t_std = float(r.get("std_replan_ms", float("nan")))
+        t_p50 = float(r.get("p50_replan_ms", float("nan")))
+        t_p95 = float(r.get("p95_replan_ms", float("nan")))
+        l = float(r.get("mean_length_km", float("nan")))
+        c = float(r.get("mean_cost", float("nan")))
+        e = float(r.get("mean_energy_kj", float("nan")))
+        clr = float(r.get("mean_min_clearance_m", float("nan")))
+        cov = float(r.get("mean_comm_coverage_ratio", float("nan")))
+        loss = float(r.get("mean_max_comm_loss_time_s", float("nan")))
+        exp = float(r.get("mean_risk_exposure_integral", float("nan")))
+        succ = 100.0 * float(r.get("success_rate", 0.0))
+        e_str = f"{e:.2f}" if np.isfinite(e) else "nan"
+        cov_str = f"{100.0 * cov:.1f}%" if np.isfinite(cov) else "nan"
+        lines.append(
+            f"| {label_map[key]} | {t:.2f}+/-{t_std:.2f} | {t_p50:.2f}/{t_p95:.2f} | {l:.3f} | {c:.4f} | {e_str} | "
+            f"{clr:.1f} | {cov_str} | {loss:.1f} | {exp:.3f} | {succ:.1f}% |"
+        )
+    lines.append("")
+    lines.append(
+        "说明：B6 保持与 B4 相同的三层语义结构和同一套 LPA* 重规划器，"
+        "仅将地形驱动采样替换为规则网格采样，用来隔离“地形驱动分层航路网络构造”的贡献。"
+    )
+    return "\n".join(lines) + "\n"
+
+
 def run_benchmark(args: argparse.Namespace) -> None:
     global RESOLUTION
     root = Path(args.workdir).resolve()
@@ -1555,7 +2101,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
     RESOLUTION = resolve_resolution_m(scene_cfg, data_root)
-    out_dir = Path(args.out_dir).resolve()
+    out_dir = resolve_output_dir(root, args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     z_grid = np.load("Z_crop.npy")
@@ -1567,6 +2113,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
         f"weights={risk_fields['risk_weights']}"
     )
     task_bundle = load_logistics_task_bundle(data_root)
+    depots_by_name = {str(v["name"]): dict(v) for v in task_bundle.get("depots", [])}
+    targets_by_name = {str(v["name"]): dict(v) for v in task_bundle.get("targets", [])}
     print(
         f"[tasks] logistics tasks={len(task_bundle.get('tasks', []))}, "
         f"depots={len(task_bundle.get('depots', []))}, targets={len(task_bundle.get('targets', []))}"
@@ -1593,6 +2141,36 @@ def run_benchmark(args: argparse.Namespace) -> None:
         risk_fields=risk_fields,
     )
     print(f"[build] B3 graph: |V|={b3_graph.n_nodes}, |E|={b3_graph.n_edges}")
+
+    b6_graph = None
+    b6_task_locator = None
+    terminal_status_path = data_root / "graph_terminal_status.json"
+    layer_mid_path = data_root / "layer_mid.npy"
+    layer_allowed_path = data_root / "layer_allowed.npy"
+    if terminal_status_path.exists() and layer_mid_path.exists() and layer_allowed_path.exists():
+        layer_mid = np.asarray(np.load(layer_mid_path), dtype=float)
+        layer_allowed = np.asarray(np.load(layer_allowed_path), dtype=bool)
+        floor_grid = np.asarray(np.load(data_root / "floor.npy"), dtype=float) if (data_root / "floor.npy").exists() else None
+        ceiling_grid = np.asarray(np.load(data_root / "ceiling.npy"), dtype=float) if (data_root / "ceiling.npy").exists() else None
+        terminal_status = json.loads(terminal_status_path.read_text(encoding="utf-8"))
+        terminal_site_count = int(np.sum(np.rint(layered_nodes[:, 3]).astype(int) == 0))
+        branch_regular_count = int(np.sum(np.rint(layered_nodes[:, 3]).astype(int) == 1) - terminal_site_count)
+        backbone_regular_count = int(np.sum(np.rint(layered_nodes[:, 3]).astype(int) == 2) - terminal_site_count)
+        print("[build] building regular layered graph for B6...")
+        b6_graph = build_regular_layered_graph(
+            z_grid,
+            layer_mid,
+            layer_allowed,
+            terminal_status,
+            resolution_m=RESOLUTION,
+            branch_budget=branch_regular_count,
+            backbone_budget=backbone_regular_count,
+            risk_fields=risk_fields,
+            floor_grid=floor_grid,
+            ceiling_grid=ceiling_grid,
+        )
+        b6_task_locator = build_task_node_locator(b6_graph)
+        print(f"[build] B6 regular layered graph: |V|={b6_graph.n_nodes}, |E|={b6_graph.n_edges}")
 
     voxel_planner = None
     if not args.skip_b1:
@@ -1631,6 +2209,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
             )
         except RuntimeError:
             continue
+
+        start_b6 = None
+        goal_b6 = None
+        if b6_graph is not None and b6_task_locator is not None:
+            depot_item = depots_by_name.get(str(task_meta.get("depot", "")))
+            target_item = targets_by_name.get(str(task_meta.get("target", "")))
+            if depot_item is not None and target_item is not None:
+                start_b6 = nearest_task_node(b6_graph, b6_task_locator, depot_item, prefer=(1, 2, 0))
+                goal_b6 = nearest_task_node(b6_graph, b6_task_locator, target_item, prefer=(1, 2, 0))
 
         # B4 初始规划，用路径中段附近采样区域扰动中心。
         b4 = LPAStarPlanner(layered_graph, start, goal)
@@ -1810,6 +2397,87 @@ def run_benchmark(args: argparse.Namespace) -> None:
             }
         records.append(rec_b3)
 
+        # ---------- B6 (Regular layered graph + LPA*) ----------
+        if b6_graph is not None and start_b6 is not None and goal_b6 is not None:
+            area_event_b6 = build_area_event_from_center(
+                b6_graph.nodes,
+                b6_graph.edge_pairs,
+                area_event.center_x_km,
+                area_event.center_y_km,
+                event_type=area_event.event_type,
+                radius_km=area_event.radius_km,
+                severity=area_event.severity,
+            )
+            b6 = LPAStarPlanner(b6_graph, int(start_b6), int(goal_b6))
+            ok_init_b6 = b6.compute_shortest_path()
+            if ok_init_b6 and area_event_b6.affected_edges:
+                b6.apply_area_event(area_event_b6)
+                t0 = time.perf_counter()
+                ok_b6 = b6.compute_shortest_path()
+                t1 = time.perf_counter()
+                path_b6 = b6.extract_path() if ok_b6 else []
+                m_b6 = b6_graph.path_metrics(path_b6) if ok_b6 else {}
+                rec_b6 = {
+                    "trial": trial,
+                    "baseline": BASELINE_B6,
+                    "start_node": int(start_b6),
+                    "goal_node": int(goal_b6),
+                    "task_id": task_meta.get("task_id", ""),
+                    "task_depot": task_meta.get("depot", ""),
+                    "task_target": task_meta.get("target", ""),
+                    "task_stratum": task_meta.get("stratum", ""),
+                    "event_type": area_event.event_type,
+                    "event_center_x_km": area_event.center_x_km,
+                    "event_center_y_km": area_event.center_y_km,
+                    "event_radius_km": area_event.radius_km,
+                    "event_severity": area_event.severity,
+                    "event_affected_edges": len(area_event_b6.affected_edges),
+                    "area_event_edges": json.dumps(area_event_b6.affected_edges),
+                    "success": bool(ok_b6),
+                    "replan_ms": (t1 - t0) * 1000.0 if ok_b6 else float("nan"),
+                    "expanded": int(b6.nodes_expanded) if ok_b6 else -1,
+                    "path_cost": m_b6.get("cost", float("nan")),
+                    "path_energy_kj": m_b6.get("energy_kj", float("nan")),
+                    "path_len_km": m_b6.get("length_km", float("nan")),
+                    "min_clearance_m": m_b6.get("min_clearance_m", float("nan")),
+                    "risk_exposure_integral": m_b6.get("risk_exposure_integral", float("nan")),
+                    "comm_coverage_ratio": m_b6.get("comm_coverage_ratio", float("nan")),
+                    "max_comm_loss_time_s": m_b6.get("max_comm_loss_time_s", float("nan")),
+                    "max_comm_loss_length_km": m_b6.get("max_comm_loss_length_km", float("nan")),
+                    "note": "",
+                }
+            else:
+                rec_b6 = {
+                    "trial": trial,
+                    "baseline": BASELINE_B6,
+                    "start_node": int(start_b6),
+                    "goal_node": int(goal_b6),
+                    "task_id": task_meta.get("task_id", ""),
+                    "task_depot": task_meta.get("depot", ""),
+                    "task_target": task_meta.get("target", ""),
+                    "task_stratum": task_meta.get("stratum", ""),
+                    "event_type": area_event.event_type,
+                    "event_center_x_km": area_event.center_x_km,
+                    "event_center_y_km": area_event.center_y_km,
+                    "event_radius_km": area_event.radius_km,
+                    "event_severity": area_event.severity,
+                    "event_affected_edges": len(area_event_b6.affected_edges),
+                    "area_event_edges": json.dumps(area_event_b6.affected_edges),
+                    "success": False,
+                    "replan_ms": float("nan"),
+                    "expanded": -1,
+                    "path_cost": float("nan"),
+                    "path_energy_kj": float("nan"),
+                    "path_len_km": float("nan"),
+                    "min_clearance_m": float("nan"),
+                    "risk_exposure_integral": float("nan"),
+                    "comm_coverage_ratio": float("nan"),
+                    "max_comm_loss_time_s": float("nan"),
+                    "max_comm_loss_length_km": float("nan"),
+                    "note": "init_fail_or_no_area_event_mapping",
+                }
+            records.append(rec_b6)
+
         # ---------- B1 (Traditional voxel + Dijkstra) ----------
         if voxel_planner is not None:
             start_xyz = (
@@ -1884,6 +2552,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "B2_GlobalAstar_Layered",
         "B3_LPA_SingleLayer",
     ]
+    if b6_graph is not None:
+        baselines.append(BASELINE_B6)
     if voxel_planner is not None:
         baselines.append("B1_Voxel_Dijkstra")
 
@@ -1894,11 +2564,20 @@ def run_benchmark(args: argparse.Namespace) -> None:
         ("B4_Proposed_LPA_Layered", "B2_GlobalAstar_Layered", "replan_ms"),
         ("B4_Proposed_LPA_Layered", "B3_LPA_SingleLayer", "path_cost"),
     ]
+    if b6_graph is not None:
+        pair_cfg.extend(
+            [
+                ("B4_Proposed_LPA_Layered", BASELINE_B6, "replan_ms"),
+                ("B4_Proposed_LPA_Layered", BASELINE_B6, "path_cost"),
+                ("B4_Proposed_LPA_Layered", BASELINE_B6, "path_len_km"),
+            ]
+        )
     if voxel_planner is not None:
         pair_cfg.append(("B4_Proposed_LPA_Layered", "B1_Voxel_Dijkstra", "replan_ms"))
 
     for a, b, metric in pair_cfg:
         xa, xb = paired_arrays(records, a, b, metric)
+        sig = paired_significance(xa, xb)
         if xa.size == 0:
             pair_rows.append(
                 {
@@ -1907,8 +2586,13 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "n": 0,
                     "mean_a": float("nan"),
                     "mean_b": float("nan"),
+                    "median_a": float("nan"),
+                    "median_b": float("nan"),
+                    "p95_a": float("nan"),
+                    "p95_b": float("nan"),
                     "median_ratio_b_over_a": float("nan"),
-                    "p_value": float("nan"),
+                    "test_name": str(sig.get("test_name", "na")),
+                    "p_value": float(sig.get("p_value", float("nan"))),
                 }
             )
             continue
@@ -1920,8 +2604,13 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "n": int(xa.size),
                 "mean_a": float(np.mean(xa)),
                 "mean_b": float(np.mean(xb)),
+                "median_a": float(np.median(xa)),
+                "median_b": float(np.median(xb)),
+                "p95_a": float(np.percentile(xa, 95)),
+                "p95_b": float(np.percentile(xb, 95)),
                 "median_ratio_b_over_a": float(ratio),
-                "p_value": paired_pvalue(xa, xb),
+                "test_name": str(sig.get("test_name", "na")),
+                "p_value": float(sig.get("p_value", float("nan"))),
             }
         )
 
@@ -1964,10 +2653,11 @@ def run_benchmark(args: argparse.Namespace) -> None:
     if pair_fields:
         write_csv(out_dir / "benchmark_pairwise.csv", pair_rows, pair_fields)
 
-    md = render_markdown(summary_rows, pair_rows, args)
+    md = render_benchmark_markdown_cn(summary_rows, pair_rows, args)
     (out_dir / "benchmark_table.md").write_text(md, encoding="utf-8")
-    md4 = render_four_baseline_markdown(summary_rows, args)
+    md4 = render_single_event_comparison_markdown_cn(summary_rows, args)
     (out_dir / "benchmark_table_four_baselines.md").write_text(md4, encoding="utf-8")
+    (out_dir / "benchmark_table_structural_ablation.md").write_text(md4, encoding="utf-8")
 
     config = vars(args).copy()
     config["accepted_trials"] = accepted
@@ -1983,6 +2673,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     print(f"  - {out_dir / 'benchmark_pairwise.csv'}")
     print(f"  - {out_dir / 'benchmark_table.md'}")
     print(f"  - {out_dir / 'benchmark_table_four_baselines.md'}")
+    print(f"  - {out_dir / 'benchmark_table_structural_ablation.md'}")
     print(f"  - {out_dir / 'benchmark_config.json'}")
 
 
@@ -2067,22 +2758,23 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
     if args.skip_four_baseline:
         return
 
-    # Also generate a complete 4-baseline table (B1/B2/B3/B4) in the same experiment root.
+    # 同时在相同实验根目录下补充完整的单事件多基线对比表（B1/B2/B3/B4/B6）。
     baseline_dir = Path(args.out_dir).resolve() / "four_baseline"
     single_args = argparse.Namespace(**vars(args))
     single_args.mode = "single"
     single_args.out_dir = str(baseline_dir)
     single_args.n_block = int(args.matrix_focus_n_block_scale)
     print(
-        "[matrix] running additional four-baseline summary: "
+        "[matrix] 正在补充单事件多基线汇总："
         f"n_block={single_args.n_block}, out={baseline_dir}"
     )
     run_benchmark(single_args)
 
-    # Promote key four-baseline artifacts to the matrix root output for direct paper use.
+    # 将关键的单事件多基线产物提升到矩阵根目录，便于论文直接引用。
     out_dir = Path(args.out_dir).resolve()
     promote = [
         ("benchmark_table_four_baselines.md", "benchmark_table_four_baselines.md"),
+        ("benchmark_table_structural_ablation.md", "benchmark_table_structural_ablation.md"),
         ("benchmark_summary.csv", "benchmark_summary_four_baselines.csv"),
         ("benchmark_trials.csv", "benchmark_trials_four_baselines.csv"),
     ]
@@ -2093,7 +2785,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
             shutil.copyfile(src, dst)
             print(f"[matrix] promoted: {dst}")
 
-    # Ensure root benchmark_trials.csv explicitly includes B1/B3/B4/B2 rows.
+    # 确保根目录下的 benchmark_trials.csv 显式包含单事件 B1/B2/B3/B4/B6 结果。
     matrix_trials = out_dir / "benchmark_trials.csv"
     baseline_trials = baseline_dir / "benchmark_trials.csv"
     if matrix_trials.exists() and baseline_trials.exists():
@@ -2107,7 +2799,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         for r in matrix_rows:
             r["experiment_type"] = "matrix_event_stream"
         for r in four_rows:
-            r["experiment_type"] = "four_baseline_single_event"
+            r["experiment_type"] = "single_event_multi_baseline"
 
         all_rows = matrix_rows + four_rows
         if all_rows:
@@ -2123,9 +2815,9 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
                 writer.writeheader()
                 for row in all_rows:
                     writer.writerow(row)
-            print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4)")
+            print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4/B6)")
 
-    # Enrich matrix config with explicit four-baseline run metadata.
+    # 在矩阵配置中补充单事件多基线运行元数据。
     cfg_path = out_dir / "benchmark_config.json"
     cfg_data: dict = {}
     if cfg_path.exists():
@@ -2140,6 +2832,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         "B1_Voxel_Dijkstra",
         "B2_GlobalAstar_Layered",
         "B3_LPA_SingleLayer",
+        BASELINE_B6,
         "B4_Proposed_LPA_Layered",
     ]
     cfg_data["benchmark_trials_merged"] = bool(matrix_trials.exists() and baseline_trials.exists())
@@ -2148,7 +2841,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4 baselines.")
+    parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4/B6 baselines.")
     parser.add_argument(
         "--mode",
         type=str,
@@ -2202,7 +2895,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-four-baseline",
         action="store_true",
-        help="Skip extra single-mode run that outputs the complete B1/B2/B3/B4 table.",
+        help="Skip extra single-mode run that outputs the complete B1/B2/B3/B4/B6 table.",
     )
     return parser.parse_args()
 

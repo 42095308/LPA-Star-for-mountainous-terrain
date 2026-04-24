@@ -101,7 +101,7 @@ python benchmark.py --mode single --scenario-config scenarios/huashan.json --wor
 4. `communication_risk.py`：基于地形视距和地面通信源生成三层通信风险。
 5. `layered_graph.py`：对终端层、区域支路层和骨干层采样，进行碰撞检测并生成分层图。
 6. `task_generator.py`：自动生成虚拟配送站、补充候选目标点和分层物流任务。
-7. `benchmark.py --mode single`：比较 B1/B2/B3/B4 或在 `--skip-b1` 下跳过传统体素 Dijkstra。
+7. `benchmark.py --mode single`：比较 B1/B2/B3/B4/B6，其中 B6 为“规则三层图 + LPA*”结构性消融；在 `--skip-b1` 下可跳过传统体素 Dijkstra。
 
 也可以使用总入口一次跑完：
 
@@ -149,11 +149,13 @@ python lpa_star.py --scenario-config scenarios/huashan.json --workdir . --event-
 python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode single --trials 5 --skip-b1 --disable-plots --skip-layered-plot
 ```
 
+`run_multi_scene.py` 会自动跳过 `*.example.json` 示例模板，避免 `scenarios/template.example.json` 被通配符纳入正式多场景实验。
+
 所有场景输出进入 `outputs/<scene_name>/`。benchmark 测试结果默认进入 `outputs/<scene_name>/tests/benchmark_multi_scene/`，总汇总写入 `outputs/_summaries/multi_scene_summary.csv`。
 
 ## Benchmark 流
 
-`benchmark.py --mode single` 输出一次四基线统计表：
+`benchmark.py --mode single` 输出一次多基线统计表（含 B6 结构性消融）：
 
 ```powershell
 python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --out-dir tests/benchmark_single
@@ -164,6 +166,13 @@ python benchmark.py --mode single --scenario-config scenarios/huashan.json --wor
 ```powershell
 python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --disable-plots --out-dir tests/benchmark_matrix
 ```
+
+如果想保持 full matrix 的广度，同时把论文主分析涉及的关键组合提升到约 30 次，可直接运行：
+```powershell
+python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . --trials 10 --key-trials 30 --disable-plots --out-dir tests/benchmark_matrix_paper
+```
+
+该脚本会自动把实验 A/B/C/D 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
 
 矩阵实验含义：
 
@@ -224,6 +233,7 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_events.csv` | matrix 模式下事件流采样记录。 |
 | `benchmark_table.md` | 可直接放入论文草稿的结果表。 |
 | `benchmark_table_four_baselines.md` | 四基线对比表。 |
+| `benchmark_table_structural_ablation.md` | 含 B6 的结构性消融对比表。 |
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
 | `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |
 | `benchmark_config.json` | 本次实验参数快照。 |

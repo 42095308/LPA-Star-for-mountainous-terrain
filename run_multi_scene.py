@@ -22,6 +22,9 @@ from typing import Dict, List, Sequence
 from article_planner.scenario_config import load_scenario_config, scenario_output_dir
 
 
+EXAMPLE_SCENARIO_SUFFIX = ".example.json"
+
+
 @dataclass
 class StepResult:
     name: str
@@ -57,6 +60,9 @@ def expand_scenario_paths(patterns: Sequence[str], workdir: Path) -> List[Path]:
     dedup: List[Path] = []
     seen = set()
     for p in paths:
+        if p.name.endswith(EXAMPLE_SCENARIO_SUFFIX):
+            print(f"[跳过] 示例场景配置不会纳入多场景实验: {p}")
+            continue
         key = str(p)
         if key not in seen:
             dedup.append(p)
