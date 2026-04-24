@@ -1,0 +1,102 @@
+{
+  "scene_name": "emeishan",
+  "dem_path": "data/raw/emeishan/AP_26513_FBS_F0580_RT1.dem.tif",
+  "output_dir": "outputs/{scene_name}",
+  "crop": {
+    "center_lon": 103.336,
+    "center_lat": 29.525,
+    "crop_size_m": 15000.0
+  },
+  "targets": {
+    "金顶": {
+      "lon": 103.337173,
+      "lat": 29.522803,
+      "elev": 3077.0,
+      "display_name": "Golden Summit"
+    },
+    "万佛顶": {
+      "lon": 103.331833,
+      "lat": 29.510329,
+      "elev": 3099.0,
+      "display_name": "Wanfo Summit"
+    }
+  },
+  "default_start": "虚拟配送站1",
+  "default_goal": "金顶",
+  "display_names": {
+    "虚拟配送站1": "Virtual Depot 1",
+    "虚拟配送站2": "Virtual Depot 2"
+  },
+  "virtual_depots": {
+    "count": 2,
+    "slope_max_deg": 12.0,
+    "elevation_percentile_max": 35.0,
+    "foot_elevation_percentile": 20.0,
+    "edge_buffer_km": 1.0,
+    "min_target_distance_km": 1.2,
+    "min_depot_spacing_km": 1.5,
+    "risk_max": 0.2,
+    "name_prefix": "虚拟配送站"
+  },
+  "terrain_sampling": {
+    "branch_node_budget": 3364,
+    "backbone_node_budget": 3364,
+    "terrain_ratio": 0.7,
+    "supplement_grid_ratio": 0.3,
+    "min_spacing_m": 130.0,
+    "branch_terminal_radius_km": 1.4,
+    "branch_corridor_width_km": 0.55,
+    "low_risk_threshold": 0.3
+  },
+  "adaptive_corridor": {
+    "base_floor_offset_m": 30.0,
+    "base_ceiling_offset_m": 120.0,
+    "slope_threshold_deg": 18.0,
+    "slope_high_deg": 42.0,
+    "slope_floor_extra_m": 35.0,
+    "ridge_floor_extra_m": 20.0,
+    "open_ceiling_extra_m": 35.0,
+    "terminal_radius_km": 0.75,
+    "terminal_thickness_m": 72.0,
+    "min_thickness_m": 60.0,
+    "high_risk_threshold": 0.65,
+    "layer_positions": [0.22, 0.52, 0.82]
+  },
+  "communication": {
+    "enabled": true,
+    "source_height_agl_m": 35.0,
+    "edge_source_count": 2,
+    "max_range_km": 5.0,
+    "los_samples": 18,
+    "coarse_stride": 4,
+    "risk_threshold": 0.55,
+    "weights": {
+      "terrain": 0.45,
+      "human": 0.35,
+      "communication": 0.2
+    },
+    "base_stations": []
+  },
+  "task_generation": {
+    "depot_count": 2,
+    "target_count": 8,
+    "pair_count": 12,
+    "min_pair_distance_km": 1.5,
+    "target_min_spacing_km": 0.8,
+    "target_elevation_percentile_min": 65.0,
+    "max_target_slope_deg": 38.0,
+    "risk_max": 0.65,
+    "distance_bins_km": [2.5, 5.0],
+    "elevation_bins_m": [300.0, 900.0],
+    "ridge_prominence_m": 120.0,
+    "random_seed": 20260420
+  },
+  "osm_file": "data/raw/emeishan/map.osm",
+  "osm_risk_keywords": {
+    "L1_DANGEROUS_NAMES": [],
+    "L2_PEAK_NAMES": ["金顶", "万佛顶"],
+    "L2_HIGH_NAMES": ["雷洞坪", "接引殿"],
+    "L3_MEDIUM_NAMES": ["清音阁", "报国寺", "伏虎寺"],
+    "L4_LOW_ROAD_NAMES": []
+  }
+}
