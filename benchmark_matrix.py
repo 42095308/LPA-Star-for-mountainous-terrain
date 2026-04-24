@@ -599,7 +599,11 @@ def summarise_combo_baseline_matrix(
         "ci95_event_replan_ms": float("nan"),
         "std_event_replan_ms": float("nan"),
         "mean_cumulative_expanded": float("nan"),
+        "p50_cumulative_expanded": float("nan"),
+        "p95_cumulative_expanded": float("nan"),
         "mean_event_expanded": float("nan"),
+        "p50_event_expanded": float("nan"),
+        "p95_event_expanded": float("nan"),
         "ci95_event_expanded": float("nan"),
         "std_event_expanded": float("nan"),
         "mean_cumulative_queue_pushes": float("nan"),
@@ -658,7 +662,11 @@ def summarise_combo_baseline_matrix(
             "ci95_event_replan_ms": ci95(ms / max(1, int(k_events))),
             "std_event_replan_ms": float(np.std(ms / max(1, int(k_events)), ddof=1) if ms.size > 1 else 0.0),
             "mean_cumulative_expanded": float(np.mean(ex)),
+            "p50_cumulative_expanded": float(np.percentile(ex, 50)),
+            "p95_cumulative_expanded": float(np.percentile(ex, 95)),
             "mean_event_expanded": float(np.mean(ex / max(1, int(k_events)))),
+            "p50_event_expanded": float(np.percentile(ex / max(1, int(k_events)), 50)),
+            "p95_event_expanded": float(np.percentile(ex / max(1, int(k_events)), 95)),
             "ci95_event_expanded": ci95(ex / max(1, int(k_events))),
             "std_event_expanded": float(np.std(ex / max(1, int(k_events)), ddof=1) if ex.size > 1 else 0.0),
             "mean_cumulative_queue_pushes": float(np.mean(qp)),
@@ -721,10 +729,16 @@ def build_pairwise_rows_matrix(
     metrics = [
         "mean_event_replan_ms",
         "cumulative_replan_ms",
+        "mean_event_expanded",
         "cumulative_expanded",
         "cumulative_queue_pushes",
         "cumulative_updated_vertices",
         "cumulative_reopened_states",
+        "final_path_cost",
+        "final_path_len_km",
+        "final_path_energy_kj",
+        "final_risk_exposure_integral",
+        "final_comm_coverage_ratio",
     ]
     out: List[dict] = []
     for scale in scales:
@@ -746,13 +760,16 @@ def build_pairwise_rows_matrix(
                                 "median_b2": float("nan"),
                                 "p95_b4": float("nan"),
                                 "p95_b2": float("nan"),
+                                "mean_ratio_b2_over_b4": float("nan"),
                                 "median_ratio_b2_over_b4": float("nan"),
+                                "p95_ratio_b2_over_b4": float("nan"),
+                                "b4_better_rate": float("nan"),
                                 "test_name": "na",
                                 "p_value": float("nan"),
                             }
                         )
                         continue
-                    ratio = np.median(xb2 / np.maximum(xb4, EPS))
+                    ratio_arr = xb2 / np.maximum(xb4, EPS)
                     sig = paired_significance(xb4, xb2)
                     out.append(
                         {
@@ -767,7 +784,10 @@ def build_pairwise_rows_matrix(
                             "median_b2": float(np.median(xb2)),
                             "p95_b4": float(np.percentile(xb4, 95)),
                             "p95_b2": float(np.percentile(xb2, 95)),
-                            "median_ratio_b2_over_b4": float(ratio),
+                            "mean_ratio_b2_over_b4": float(np.mean(ratio_arr)),
+                            "median_ratio_b2_over_b4": float(np.median(ratio_arr)),
+                            "p95_ratio_b2_over_b4": float(np.percentile(ratio_arr, 95)),
+                            "b4_better_rate": float(np.mean(ratio_arr > 1.0)),
                             "test_name": str(sig.get("test_name", "na")),
                             "p_value": float(sig.get("p_value", float("nan"))),
                         }
@@ -808,6 +828,9 @@ def build_focus_tables_matrix(
         b2_ms = float(b2.get("mean_event_replan_ms", float("nan")))
         if np.isfinite(b4_ms) and np.isfinite(b2_ms):
             ratio = b2_ms / max(b4_ms, EPS)
+        time_pair = pair_idx.get((scale_focus, int(n_block), int(k_intensity), "mean_event_replan_ms"), {})
+        ratio_mean_of_means = ratio
+        ratio = float(time_pair.get("median_ratio_b2_over_b4", ratio))
         table_a.append(
             {
                 "scale": scale_focus,
@@ -820,12 +843,20 @@ def build_focus_tables_matrix(
                 "b2_p50_event_ms": float(b2.get("p50_event_replan_ms", float("nan"))),
                 "b2_p95_event_ms": float(b2.get("p95_event_replan_ms", float("nan"))),
                 "b2_over_b4_time_ratio": ratio,
+                "b2_over_b4_time_ratio_mean_of_means": ratio_mean_of_means,
+                "b2_over_b4_time_ratio_mean": float(time_pair.get("mean_ratio_b2_over_b4", float("nan"))),
+                "b2_over_b4_time_ratio_p95": float(time_pair.get("p95_ratio_b2_over_b4", float("nan"))),
+                "b4_faster_rate": float(time_pair.get("b4_better_rate", float("nan"))),
                 "b4_mean_event_expanded": float(b4.get("mean_event_expanded", float("nan"))),
+                "b4_p50_event_expanded": float(b4.get("p50_event_expanded", float("nan"))),
+                "b4_p95_event_expanded": float(b4.get("p95_event_expanded", float("nan"))),
                 "b2_mean_event_expanded": float(b2.get("mean_event_expanded", float("nan"))),
+                "b2_p50_event_expanded": float(b2.get("p50_event_expanded", float("nan"))),
+                "b2_p95_event_expanded": float(b2.get("p95_event_expanded", float("nan"))),
                 "b4_success_rate": float(b4.get("success_rate", float("nan"))),
                 "b2_success_rate": float(b2.get("success_rate", float("nan"))),
-                "time_test_name": str(pair_idx.get((scale_focus, int(n_block), int(k_intensity), "mean_event_replan_ms"), {}).get("test_name", "na")),
-                "time_p_value": float(pair_idx.get((scale_focus, int(n_block), int(k_intensity), "mean_event_replan_ms"), {}).get("p_value", float("nan"))),
+                "time_test_name": str(time_pair.get("test_name", "na")),
+                "time_p_value": float(time_pair.get("p_value", float("nan"))),
             }
         )
 
@@ -838,6 +869,9 @@ def build_focus_tables_matrix(
         b2_ms = float(b2.get("mean_cumulative_replan_ms", float("nan")))
         if np.isfinite(b4_ms) and np.isfinite(b2_ms):
             ratio = b2_ms / max(b4_ms, EPS)
+        time_pair = pair_idx.get((scale_focus, int(n_block_cont), int(k_events), "cumulative_replan_ms"), {})
+        ratio_mean_of_means = ratio
+        ratio = float(time_pair.get("median_ratio_b2_over_b4", ratio))
         table_b.append(
             {
                 "scale": scale_focus,
@@ -850,12 +884,20 @@ def build_focus_tables_matrix(
                 "b2_p50_cumulative_ms": float(b2.get("p50_cumulative_replan_ms", float("nan"))),
                 "b2_p95_cumulative_ms": float(b2.get("p95_cumulative_replan_ms", float("nan"))),
                 "b2_over_b4_time_ratio": ratio,
+                "b2_over_b4_time_ratio_mean_of_means": ratio_mean_of_means,
+                "b2_over_b4_time_ratio_mean": float(time_pair.get("mean_ratio_b2_over_b4", float("nan"))),
+                "b2_over_b4_time_ratio_p95": float(time_pair.get("p95_ratio_b2_over_b4", float("nan"))),
+                "b4_faster_rate": float(time_pair.get("b4_better_rate", float("nan"))),
                 "b4_mean_cumulative_expanded": float(b4.get("mean_cumulative_expanded", float("nan"))),
+                "b4_p50_cumulative_expanded": float(b4.get("p50_cumulative_expanded", float("nan"))),
+                "b4_p95_cumulative_expanded": float(b4.get("p95_cumulative_expanded", float("nan"))),
                 "b2_mean_cumulative_expanded": float(b2.get("mean_cumulative_expanded", float("nan"))),
+                "b2_p50_cumulative_expanded": float(b2.get("p50_cumulative_expanded", float("nan"))),
+                "b2_p95_cumulative_expanded": float(b2.get("p95_cumulative_expanded", float("nan"))),
                 "b4_success_rate": float(b4.get("success_rate", float("nan"))),
                 "b2_success_rate": float(b2.get("success_rate", float("nan"))),
-                "time_test_name": str(pair_idx.get((scale_focus, int(n_block_cont), int(k_events), "cumulative_replan_ms"), {}).get("test_name", "na")),
-                "time_p_value": float(pair_idx.get((scale_focus, int(n_block_cont), int(k_events), "cumulative_replan_ms"), {}).get("p_value", float("nan"))),
+                "time_test_name": str(time_pair.get("test_name", "na")),
+                "time_p_value": float(time_pair.get("p_value", float("nan"))),
             }
         )
 
@@ -868,6 +910,9 @@ def build_focus_tables_matrix(
         b2_ms = float(b2.get("mean_cumulative_replan_ms", float("nan")))
         if np.isfinite(b4_ms) and np.isfinite(b2_ms):
             ratio = b2_ms / max(b4_ms, EPS)
+        time_pair = pair_idx.get((scale, int(n_block_scale), int(k_scale), "cumulative_replan_ms"), {})
+        ratio_mean_of_means = ratio
+        ratio = float(time_pair.get("median_ratio_b2_over_b4", ratio))
         table_c.append(
             {
                 "scale": scale,
@@ -878,6 +923,9 @@ def build_focus_tables_matrix(
                 "b4_mean_cumulative_ms": b4_ms,
                 "b2_mean_cumulative_ms": b2_ms,
                 "b2_over_b4_time_ratio": ratio,
+                "b2_over_b4_time_ratio_mean_of_means": ratio_mean_of_means,
+                "b2_over_b4_time_ratio_p95": float(time_pair.get("p95_ratio_b2_over_b4", float("nan"))),
+                "b4_faster_rate": float(time_pair.get("b4_better_rate", float("nan"))),
                 "b4_success_rate": float(b4.get("success_rate", float("nan"))),
                 "b2_success_rate": float(b2.get("success_rate", float("nan"))),
             }
@@ -887,11 +935,27 @@ def build_focus_tables_matrix(
     for n_block in n_blocks:
         b4 = s_idx.get((scale_focus, int(n_block), int(k_scale), BASELINE_B4), {})
         b2 = s_idx.get((scale_focus, int(n_block), int(k_scale), BASELINE_B2), {})
+        ex_pair = pair_idx.get((scale_focus, int(n_block), int(k_scale), "mean_event_expanded"), {})
+        b4_ex = float(b4.get("mean_event_expanded", float("nan")))
+        b2_ex = float(b2.get("mean_event_expanded", float("nan")))
+        expanded_reduction = float("nan")
+        if np.isfinite(b4_ex) and np.isfinite(b2_ex):
+            expanded_reduction = 1.0 - b4_ex / max(b2_ex, EPS)
         table_d.append(
             {
                 "scale": scale_focus,
                 "n_block": int(n_block),
                 "k_events": int(k_scale),
+                "b4_mean_event_expanded": b4_ex,
+                "b4_p50_event_expanded": float(b4.get("p50_event_expanded", float("nan"))),
+                "b4_p95_event_expanded": float(b4.get("p95_event_expanded", float("nan"))),
+                "b2_mean_event_expanded": b2_ex,
+                "b2_p50_event_expanded": float(b2.get("p50_event_expanded", float("nan"))),
+                "b2_p95_event_expanded": float(b2.get("p95_event_expanded", float("nan"))),
+                "expanded_reduction": expanded_reduction,
+                "expanded_ratio_p50_b2_over_b4": float(ex_pair.get("median_ratio_b2_over_b4", float("nan"))),
+                "expanded_test_name": str(ex_pair.get("test_name", "na")),
+                "expanded_p_value": float(ex_pair.get("p_value", float("nan"))),
                 "b4_mean_cumulative_queue_pushes": float(b4.get("mean_cumulative_queue_pushes", float("nan"))),
                 "b2_mean_cumulative_queue_pushes": float(b2.get("mean_cumulative_queue_pushes", float("nan"))),
                 "b4_mean_cumulative_updated_vertices": float(b4.get("mean_cumulative_updated_vertices", float("nan"))),
@@ -1009,6 +1073,108 @@ def render_markdown_matrix(
             f"{f(r['b4_mean_cumulative_expanded'])} | {f(r['b2_mean_cumulative_expanded'])} |"
         )
     lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def render_markdown_matrix_paper(
+    tables: Dict[str, List[dict]],
+    args: argparse.Namespace,
+    resolved: Dict[str, int | str],
+    anomaly_note: str = "",
+    k_note: str = "",
+    quality_note: str = "",
+) -> str:
+    """按论文展示口径生成矩阵实验摘要表。"""
+
+    def f(v: float, d: int = 2) -> str:
+        if not np.isfinite(float(v)):
+            return "nan"
+        return f"{float(v):.{d}f}"
+
+    def pf(v: float) -> str:
+        if not np.isfinite(float(v)):
+            return "nan"
+        return f"{float(v):.3e}"
+
+    def pct(v: float) -> str:
+        if not np.isfinite(float(v)):
+            return "nan"
+        return f"{100.0 * float(v):.1f}%"
+
+    key_trials = max(int(args.trials), int(getattr(args, "key_trials", 0)))
+    lines: List[str] = []
+    lines.append("# 矩阵实验汇总表")
+    lines.append("")
+    lines.append(f"- 常规组合 trial 数：`{args.trials}`")
+    if key_trials > int(args.trials):
+        lines.append(f"- 关键组合 trial 数：`{key_trials}`，关键组合数量：`{resolved.get('key_combo_count', 0)}`")
+    lines.append("- 统计口径：所有 speedup 均为同一 Monte Carlo trial 内先配对计算 `B2/B4`，再对 speedup 分布取中位数。")
+    lines.append("- 分布口径：P50/P95 来自成功 trial；显著性检验使用配对 Wilcoxon，必要时退化为配对 t 检验。")
+    lines.append(f"- 区域事件强度网格：`{args.n_block_grid}`；连续事件数 K 网格：`{args.k_events_grid}`；图规模：`{args.scales}`")
+    lines.append(f"- 随机种子：`{args.seed}`")
+    lines.append(
+        f"- 焦点设置：scale=`{resolved['focus_scale']}`，K-intensity=`{resolved['focus_k_intensity']}`，"
+        f"K-scale=`{resolved['focus_k_scale']}`，n_block-cont=`{resolved['focus_n_block_cont']}`"
+    )
+    if anomaly_note:
+        lines.append(f"- 实验 A 诊断：{anomaly_note}")
+    if k_note:
+        lines.append(f"- 实验 B 诊断：{k_note}")
+    if quality_note:
+        lines.append(f"- 路径质量诊断：{quality_note}")
+    lines.append("")
+
+    lines.append("## 实验 A：扰动强度敏感性")
+    lines.append("")
+    lines.append("| n_block | B4 事件时间 mean | B2 事件时间 mean | B4 P50/P95 | B2 P50/P95 | speedup 中位数 | B4 更快比例 | 检验 | p 值 | B4 expanded mean | B2 expanded mean |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|")
+    for r in tables["A"]:
+        lines.append(
+            f"| {r['n_block']} | {f(r['b4_mean_event_ms'])} | {f(r['b2_mean_event_ms'])} | "
+            f"{f(r['b4_p50_event_ms'])}/{f(r['b4_p95_event_ms'])} | {f(r['b2_p50_event_ms'])}/{f(r['b2_p95_event_ms'])} | "
+            f"{f(r['b2_over_b4_time_ratio'], 3)} | {pct(r['b4_faster_rate'])} | {r['time_test_name']} | {pf(r['time_p_value'])} | "
+            f"{f(r['b4_mean_event_expanded'])} | {f(r['b2_mean_event_expanded'])} |"
+        )
+    lines.append("")
+
+    lines.append("## 实验 B：连续多事件重规划")
+    lines.append("")
+    lines.append("| K | B4 累计时间 mean | B2 累计时间 mean | B4 P50/P95 | B2 P50/P95 | speedup 中位数 | speedup P95 | B4 更快比例 | 检验 | p 值 |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
+    for r in tables["B"]:
+        lines.append(
+            f"| {r['k_events']} | {f(r['b4_mean_cumulative_ms'])} | {f(r['b2_mean_cumulative_ms'])} | "
+            f"{f(r['b4_p50_cumulative_ms'])}/{f(r['b4_p95_cumulative_ms'])} | {f(r['b2_p50_cumulative_ms'])}/{f(r['b2_p95_cumulative_ms'])} | "
+            f"{f(r['b2_over_b4_time_ratio'], 3)} | {f(r['b2_over_b4_time_ratio_p95'], 3)} | {pct(r['b4_faster_rate'])} | "
+            f"{r['time_test_name']} | {pf(r['time_p_value'])} |"
+        )
+    lines.append("")
+
+    lines.append("## 实验 C：图规模扫描")
+    lines.append("")
+    lines.append("| scale | |V| | |E| | B4 累计时间 mean | B2 累计时间 mean | speedup 中位数 | B4 更快比例 | B4 成功率 | B2 成功率 |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in tables["C"]:
+        lines.append(
+            f"| {r['scale']} | {r['graph_nodes']} | {r['graph_edges']} | {f(r['b4_mean_cumulative_ms'])} | "
+            f"{f(r['b2_mean_cumulative_ms'])} | {f(r['b2_over_b4_time_ratio'], 3)} | {pct(r['b4_faster_rate'])} | "
+            f"{pct(r['b4_success_rate'])} | {pct(r['b2_success_rate'])} |"
+        )
+    lines.append("")
+
+    lines.append("## 实验 D：工作量机制")
+    lines.append("")
+    lines.append("| n_block | B4 expanded/event mean | B2 expanded/event mean | B4 P50/P95 | B2 P50/P95 | expanded reduction | expanded speedup 中位数 | 检验 | p 值 |")
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|---|---:|")
+    for r in tables["D"]:
+        lines.append(
+            f"| {r['n_block']} | {f(r['b4_mean_event_expanded'])} | {f(r['b2_mean_event_expanded'])} | "
+            f"{f(r['b4_p50_event_expanded'])}/{f(r['b4_p95_event_expanded'])} | "
+            f"{f(r['b2_p50_event_expanded'])}/{f(r['b2_p95_event_expanded'])} | {pct(r['expanded_reduction'])} | "
+            f"{f(r['expanded_ratio_p50_b2_over_b4'], 3)} | {r['expanded_test_name']} | {pf(r['expanded_p_value'])} |"
+        )
+    lines.append("")
+    lines.append("说明：Experiment D 的正文主指标为 expanded nodes；queue push、updated vertices 和 reopened states 仍保留在 `experiment_D.csv` 作为机制补充。")
     return "\n".join(lines) + "\n"
 
 
@@ -1133,6 +1299,7 @@ def diagnose_path_quality_consistency(
 ) -> Tuple[List[dict], str]:
     rows: List[dict] = []
     equal_rates = []
+    no_worse_rates = []
     for scale in scales:
         for n_block in n_blocks:
             for k_events in k_values:
@@ -1148,8 +1315,12 @@ def diagnose_path_quality_consistency(
 
                 gaps_cost = []
                 gaps_len = []
+                signed_cost = []
+                signed_len = []
                 eq_cost = 0
                 eq_len = 0
+                b4_no_worse_cost = 0
+                b4_no_worse_len = 0
                 trial_ids = sorted(
                     {
                         int(r["trial"])
@@ -1172,12 +1343,20 @@ def diagnose_path_quality_consistency(
                         continue
                     dc = abs(c4 - c2)
                     dl = abs(l4 - l2)
+                    sc = c4 - c2
+                    sl = l4 - l2
                     gaps_cost.append(dc)
                     gaps_len.append(dl)
+                    signed_cost.append(sc)
+                    signed_len.append(sl)
                     if dc <= cost_tol:
                         eq_cost += 1
                     if dl <= len_tol:
                         eq_len += 1
+                    if sc <= cost_tol:
+                        b4_no_worse_cost += 1
+                    if sl <= len_tol:
+                        b4_no_worse_len += 1
 
                 n = len(gaps_cost)
                 if n == 0:
@@ -1188,20 +1367,33 @@ def diagnose_path_quality_consistency(
                             "k_events": int(k_events),
                             "n_paired": 0,
                             "mean_abs_cost_gap": float("nan"),
+                            "median_abs_cost_gap": float("nan"),
                             "p95_abs_cost_gap": float("nan"),
+                            "median_signed_cost_gap": float("nan"),
+                            "p95_signed_cost_gap": float("nan"),
                             "equal_cost_rate": float("nan"),
+                            "b4_no_worse_cost_rate": float("nan"),
                             "mean_abs_len_gap_km": float("nan"),
+                            "median_abs_len_gap_km": float("nan"),
                             "p95_abs_len_gap_km": float("nan"),
+                            "median_signed_len_gap_km": float("nan"),
+                            "p95_signed_len_gap_km": float("nan"),
                             "equal_len_rate": float("nan"),
+                            "b4_no_worse_len_rate": float("nan"),
                         }
                     )
                     continue
 
                 gaps_cost_arr = np.asarray(gaps_cost, dtype=float)
                 gaps_len_arr = np.asarray(gaps_len, dtype=float)
+                signed_cost_arr = np.asarray(signed_cost, dtype=float)
+                signed_len_arr = np.asarray(signed_len, dtype=float)
                 eq_cost_rate = float(eq_cost / n)
                 eq_len_rate = float(eq_len / n)
+                b4_no_worse_cost_rate = float(b4_no_worse_cost / n)
+                b4_no_worse_len_rate = float(b4_no_worse_len / n)
                 equal_rates.append(eq_cost_rate)
+                no_worse_rates.append(b4_no_worse_cost_rate)
                 rows.append(
                     {
                         "scale": scale,
@@ -1209,11 +1401,19 @@ def diagnose_path_quality_consistency(
                         "k_events": int(k_events),
                         "n_paired": int(n),
                         "mean_abs_cost_gap": float(np.mean(gaps_cost_arr)),
+                        "median_abs_cost_gap": float(np.percentile(gaps_cost_arr, 50)),
                         "p95_abs_cost_gap": float(np.percentile(gaps_cost_arr, 95)),
+                        "median_signed_cost_gap": float(np.percentile(signed_cost_arr, 50)),
+                        "p95_signed_cost_gap": float(np.percentile(signed_cost_arr, 95)),
                         "equal_cost_rate": eq_cost_rate,
+                        "b4_no_worse_cost_rate": b4_no_worse_cost_rate,
                         "mean_abs_len_gap_km": float(np.mean(gaps_len_arr)),
+                        "median_abs_len_gap_km": float(np.percentile(gaps_len_arr, 50)),
                         "p95_abs_len_gap_km": float(np.percentile(gaps_len_arr, 95)),
+                        "median_signed_len_gap_km": float(np.percentile(signed_len_arr, 50)),
+                        "p95_signed_len_gap_km": float(np.percentile(signed_len_arr, 95)),
                         "equal_len_rate": eq_len_rate,
+                        "b4_no_worse_len_rate": b4_no_worse_len_rate,
                     }
                 )
 
@@ -1221,6 +1421,7 @@ def diagnose_path_quality_consistency(
         return rows, "没有足够的配对成功 trial，暂时无法评估路径质量一致性。"
 
     avg_eq = float(np.mean(np.asarray(equal_rates, dtype=float)))
+    avg_no_worse = float(np.mean(np.asarray(no_worse_rates, dtype=float))) if no_worse_rates else float("nan")
     if avg_eq >= 0.7:
         note = (
             f"B4/B2 的路径代价经常相同（平均等代价比例={100.0 * avg_eq:.1f}%）。"
@@ -1230,6 +1431,7 @@ def diagnose_path_quality_consistency(
     else:
         note = (
             f"B4/B2 的等代价比例处于中等水平（平均={100.0 * avg_eq:.1f}%），"
+            f"B4 代价不高于 B2 的比例为 {100.0 * avg_no_worse:.1f}%。"
             "说明在部分 trial 中，事件流状态复用也可能导致不同的局部可行路径选择。"
         )
     return rows, note
@@ -1327,6 +1529,40 @@ def make_plots_matrix(
     paths.append(str(p2))
 
     fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
+    xs: List[int] = []
+    ys: List[float] = []
+    lo_vals: List[float] = []
+    hi_vals: List[float] = []
+    for kk in k_values:
+        xb4, xb2 = paired_arrays_combo_matrix(
+            trial_rows,
+            scale_plot,
+            int(n_block_cont),
+            int(kk),
+            "cumulative_replan_ms",
+        )
+        if xb4.size == 0:
+            continue
+        ratio = xb2 / np.maximum(xb4, EPS)
+        xs.append(int(kk))
+        ys.append(float(np.percentile(ratio, 50)))
+        lo_vals.append(float(np.percentile(ratio, 25)))
+        hi_vals.append(float(np.percentile(ratio, 75)))
+    if xs:
+        ax.plot(xs, ys, marker="o", linewidth=2.0, color="#2ca02c", label="median B2/B4")
+        ax.fill_between(xs, lo_vals, hi_vals, alpha=0.18, color="#2ca02c", label="IQR")
+        ax.axhline(1.0, color="0.25", linestyle="--", linewidth=1.2)
+    ax.set_xlabel("Number of events (K)")
+    ax.set_ylabel("Paired speedup ratio (B2/B4)")
+    ax.set_title(f"Speedup under Consecutive Events (scale={scale_plot}, n_block={n_block_cont})")
+    ax.grid(alpha=0.3)
+    ax.legend()
+    p_speed = out_dir / "fig3_k_vs_speedup.png"
+    fig.savefig(p_speed, bbox_inches="tight")
+    plt.close(fig)
+    paths.append(str(p_speed))
+
+    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
         (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
         (BASELINE_B2, "B2 global A*", "#1f77b4"),
@@ -1355,7 +1591,7 @@ def make_plots_matrix(
     ax.set_title(f"Event Intensity vs Expanded Nodes (scale={scale_plot}, K={k_intensity})")
     ax.grid(alpha=0.3)
     ax.legend()
-    p3 = out_dir / "fig3_event_intensity_vs_expanded.png"
+    p3 = out_dir / "fig4_event_intensity_vs_expanded.png"
     fig.savefig(p3, bbox_inches="tight")
     plt.close(fig)
     paths.append(str(p3))
@@ -1420,7 +1656,7 @@ def make_plots_matrix(
         ax2.set_title("CDF")
         ax2.grid(alpha=0.3)
         ax2.legend()
-        p4 = out_dir / "fig4_time_distribution_box_cdf.png"
+        p4 = out_dir / "fig5_time_distribution_box_cdf.png"
         fig.savefig(p4, bbox_inches="tight")
         plt.close(fig)
         paths.append(str(p4))
@@ -1578,7 +1814,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     anomaly_rows, anomaly_note = diagnose_event_intensity_anomaly(tables, resolved)
     k_diag_rows, k_diag_note = diagnose_continuous_replan_k_effect(tables, resolved)
     quality_rows, quality_note = diagnose_path_quality_consistency(trial_records, scales, n_blocks, k_values)
-    markdown = render_markdown_matrix(
+    markdown = render_markdown_matrix_paper(
         tables,
         args,
         resolved,
@@ -1696,7 +1932,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-every", type=int, default=5)
 
     parser.add_argument("--n-block-grid", type=str, default="2,4,6,8")
-    parser.add_argument("--k-events-grid", type=str, default="1,2,3,5,8")
+    parser.add_argument("--k-events-grid", type=str, default="1,3,5,7,10")
     parser.add_argument("--scales", type=str, default="large")
     parser.add_argument("--scale-fractions", type=str, default="small:0.55,medium:0.78,large:1.0")
     parser.add_argument("--event-radius-km", type=float, default=0.8)
@@ -1706,16 +1942,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-plots", action="store_true")
 
     parser.add_argument("--focus-scale", type=str, default="large")
-    parser.add_argument("--focus-k-intensity", type=int, default=3)
+    parser.add_argument("--focus-k-intensity", type=int, default=5)
     parser.add_argument("--focus-n-block-cont", type=int, default=4)
-    parser.add_argument("--focus-k-scale", type=int, default=3)
+    parser.add_argument("--focus-k-scale", type=int, default=5)
     parser.add_argument("--focus-n-block-scale", type=int, default=4)
-    parser.add_argument("--focus-k-distribution", type=int, default=3)
+    parser.add_argument("--focus-k-distribution", type=int, default=10)
 
     parser.add_argument("--plot-scale", type=str, default="large")
-    parser.add_argument("--plot-k-intensity", type=int, default=3)
+    parser.add_argument("--plot-k-intensity", type=int, default=5)
     parser.add_argument("--plot-n-block-cont", type=int, default=4)
-    parser.add_argument("--plot-k-distribution", type=int, default=3)
+    parser.add_argument("--plot-k-distribution", type=int, default=10)
     return parser.parse_args()
 
 

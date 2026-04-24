@@ -164,7 +164,7 @@ python benchmark.py --mode single --scenario-config scenarios/huashan.json --wor
 `benchmark.py --mode matrix` 输出论文式 A/B/C/D 实验矩阵：
 
 ```powershell
-python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --disable-plots --out-dir tests/benchmark_matrix
+python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 10 --matrix-key-trials 30 --skip-b1 --disable-plots --out-dir tests/benchmark_matrix
 ```
 
 如果想保持 full matrix 的广度，同时把论文主分析涉及的关键组合提升到约 30 次，可直接运行：
@@ -172,7 +172,7 @@ python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --wor
 python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . --trials 10 --key-trials 30 --disable-plots --out-dir tests/benchmark_matrix_paper
 ```
 
-该脚本会自动把实验 A/B/C/D 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
+该脚本会自动把实验 A/B/C/D 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 配对 speedup / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
 
 矩阵实验含义：
 

@@ -2699,6 +2699,8 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         str(args.out_dir),
         "--trials",
         str(args.trials),
+        "--key-trials",
+        str(args.matrix_key_trials),
         "--seed",
         str(args.seed),
         "--n-block-grid",
@@ -2878,6 +2880,7 @@ def parse_args() -> argparse.Namespace:
     # Matrix mode defaults aligned with final paper experiment settings.
     parser.add_argument("--matrix-n-block-grid", type=str, default="2,4,6,8")
     parser.add_argument("--matrix-k-events-grid", type=str, default="1,3,5,7,10")
+    parser.add_argument("--matrix-key-trials", type=int, default=0)
     parser.add_argument("--matrix-scales", type=str, default="small,medium,large")
     parser.add_argument("--matrix-scale-fractions", type=str, default="small:0.55,medium:0.78,large:1.0")
     parser.add_argument("--matrix-focus-scale", type=str, default="large")
