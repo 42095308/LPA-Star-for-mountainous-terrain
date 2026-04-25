@@ -1,12 +1,13 @@
 """
-面向场景配置的 Monte Carlo benchmark，比较四类规划基线。
+面向场景配置的 Monte Carlo benchmark，比较五类规划基线。
 
 Baselines
---------
-B4: Proposed (Layered graph + multi-objective cost + LPA* incremental replanning)
-B2: Ablation A (Layered graph + multi-objective cost + global A* recompute)
-B3: Ablation B (Single-layer flattened graph + LPA* incremental replanning)
-B1: Traditional (Coarse 3D voxel + Dijkstra from scratch)
+---------
+B4 / Terrain-aware Layered LPA*: proposed method
+B2 / Layered A*: terrain-aware layered graph with global A* recomputation
+B3 / Single-layer LPA*: single-layer graph with LPA*-based replanning
+B5 / Regular-layered LPA*: regular three-layer graph with LPA*-based replanning
+B1 / Voxel Search: coarse voxel graph with global search
 """
 
 from __future__ import annotations
@@ -117,6 +118,23 @@ STRUCTURAL_ABLATION_METHODS = [
         "classical_voxel_baseline",
     ),
 ]
+
+DISPLAY_LABELS = {
+    BASELINE_B4: "Terrain-aware LPA*",
+    BASELINE_B2: "Layered A*",
+    BASELINE_B3: "Single-layer LPA*",
+    BASELINE_B5: "Regular-layered LPA*",
+    BASELINE_B6: "Regular-layered LPA*",
+    BASELINE_B1: "Voxel Search",
+}
+
+
+def display_baseline_name(baseline: str, proposed: bool = False) -> str:
+    """把内部 baseline ID 转成论文图表使用的语义化方法名。"""
+    name = DISPLAY_LABELS.get(str(baseline), str(baseline))
+    if proposed and str(baseline) == BASELINE_B4:
+        return f"{name} (Proposed)"
+    return name
 
 REGULAR_INTRA_EDGE_DIST_M = 250.0
 REGULAR_INTER_EDGE_DIST_M = 250.0
@@ -1880,8 +1898,9 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
         succ = f"{r['n_success']}/{r['n_trials']} ({100.0*r['success_rate']:.1f}%)"
         ms = f"{r['mean_replan_ms']:.2f}+/-{r['std_replan_ms']:.2f}"
         p = f"{r['p50_replan_ms']:.2f}/{r['p95_replan_ms']:.2f}"
+        baseline_label = display_baseline_name(str(r["baseline"]), proposed=True)
         lines.append(
-            f"| {r['baseline']} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
+            f"| {baseline_label} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
             f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} | "
             f"{r['mean_min_clearance_m']:.1f} | {100.0*r['mean_comm_coverage_ratio']:.1f}% | "
             f"{r['mean_max_comm_loss_time_s']:.1f} | {r['mean_risk_exposure_integral']:.3f} |"
@@ -1977,8 +1996,9 @@ def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict]
         succ = f"{r['n_success']}/{r['n_trials']} ({100.0*r['success_rate']:.1f}%)"
         ms = f"{r['mean_replan_ms']:.2f}+/-{r['std_replan_ms']:.2f}"
         p = f"{r['p50_replan_ms']:.2f}/{r['p95_replan_ms']:.2f}"
+        baseline_label = display_baseline_name(str(r["baseline"]), proposed=True)
         lines.append(
-            f"| {r['baseline']} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
+            f"| {baseline_label} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
             f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} | "
             f"{r['mean_min_clearance_m']:.1f} | {100.0*r['mean_comm_coverage_ratio']:.1f}% | "
             f"{r['mean_max_comm_loss_time_s']:.1f} | {r['mean_risk_exposure_integral']:.3f} |"
@@ -2095,7 +2115,7 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
         succ = f"{r['n_success']}/{r['n_trials']} ({100.0 * r['success_rate']:.1f}%)"
         ms = f"{r['mean_replan_ms']:.2f}+/-{r['std_replan_ms']:.2f}"
         p = f"{r['p50_replan_ms']:.2f}/{r['p95_replan_ms']:.2f}"
-        baseline_label = label_map.get(str(r["baseline"]), str(r["baseline"]))
+        baseline_label = display_baseline_name(str(r["baseline"]), proposed=True)
         lines.append(
             f"| {baseline_label} | {succ} | {ms} | {p} | {r['mean_expanded']:.1f} | "
             f"{r['mean_cost']:.4f} | {r['mean_energy_kj']:.2f} | {r['mean_length_km']:.3f} | "
@@ -2669,10 +2689,13 @@ def run_benchmark(args: argparse.Namespace) -> None:
     for a, b, metric in pair_cfg:
         xa, xb = paired_arrays(records, a, b, metric)
         sig = paired_significance(xa, xb)
+        pair_label = f"{display_baseline_name(a)} vs {display_baseline_name(b)}"
         if xa.size == 0:
             pair_rows.append(
                 {
-                    "pair": f"{a} vs {b}",
+                    "pair": pair_label,
+                    "pair_a_id": a,
+                    "pair_b_id": b,
                     "metric": metric,
                     "n": 0,
                     "mean_a": float("nan"),
@@ -2690,7 +2713,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
         ratio = np.median(xb / np.maximum(xa, EPS))
         pair_rows.append(
             {
-                "pair": f"{a} vs {b}",
+                "pair": pair_label,
+                "pair_a_id": a,
+                "pair_b_id": b,
                 "metric": metric,
                 "n": int(xa.size),
                 "mean_a": float(np.mean(xa)),
