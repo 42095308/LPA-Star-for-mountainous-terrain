@@ -87,6 +87,40 @@ def sorted_by_int(rows: Sequence[dict], field: str) -> List[dict]:
     return sorted(rows, key=lambda r: to_int(r.get(field)))
 
 
+def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Path:
+    """Experiment A：事件强度索引对单事件重规划时间的影响。"""
+    rows = sorted(rows, key=lambda r: to_int(r.get("intensity_index", r.get("n_block"))))
+    x = np.asarray([to_int(r.get("intensity_index", r.get("n_block"))) for r in rows], dtype=float)
+    b4_mean = np.asarray([to_float(r.get("b4_mean_event_ms")) for r in rows], dtype=float)
+    b2_mean = np.asarray([to_float(r.get("b2_mean_event_ms")) for r in rows], dtype=float)
+    b4_p50 = np.asarray([to_float(r.get("b4_p50_event_ms")) for r in rows], dtype=float)
+    b4_p95 = np.asarray([to_float(r.get("b4_p95_event_ms")) for r in rows], dtype=float)
+    b2_p50 = np.asarray([to_float(r.get("b2_p50_event_ms")) for r in rows], dtype=float)
+    b2_p95 = np.asarray([to_float(r.get("b2_p95_event_ms")) for r in rows], dtype=float)
+    ratio = np.asarray([to_float(r.get("b2_over_b4_time_ratio")) for r in rows], dtype=float)
+
+    fig, ax = plt.subplots(figsize=(5.3, 3.4))
+    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label="B4 terrain-aware LPA*")
+    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label="B2 global A*")
+    if np.isfinite(b4_p50).any() and np.isfinite(b4_p95).any():
+        ax.fill_between(x, b4_p50, b4_p95, color="#d95f02", alpha=0.16, linewidth=0)
+    if np.isfinite(b2_p50).any() and np.isfinite(b2_p95).any():
+        ax.fill_between(x, b2_p50, b2_p95, color="#1f78b4", alpha=0.14, linewidth=0)
+    ax.set_xlabel("Event intensity index")
+    ax.set_ylabel("Mean replanning time per event (ms)")
+    ax.set_title("Experiment A: event-intensity sensitivity")
+    style_axes(ax)
+    ax2 = ax.twinx()
+    ax2.axhline(1.0, color="#555555", linestyle="--", linewidth=0.9, alpha=0.55)
+    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label="B2/B4 speedup")
+    ax2.set_ylabel("Speedup ratio (B2 / B4)")
+    ax2.spines["top"].set_visible(False)
+    lines, labels = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(lines + lines2, labels + labels2, frameon=False, fontsize=8, loc="best")
+    return save_figure(fig, out_dir, "fig_expA_event_intensity_time.pdf", dpi)
+
+
 def plot_exp_b_cumulative_time(rows: List[dict], out_dir: Path, dpi: int) -> Path:
     """Experiment B：连续 K 次扰动下的累计重规划时间。"""
     rows = sorted_by_int(rows, "k_events")
@@ -252,7 +286,7 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
     """B5 结构性消融图：B4/B5/B3/B2 四类方法同图比较。"""
     if not rows:
         return None
-    by_baseline = {str(r.get("baseline")): r for r in rows}
+    by_baseline = {str(r.get("baseline_id", r.get("baseline"))): r for r in rows}
     if B6_LEGACY in by_baseline and B5 not in by_baseline:
         by_baseline[B5] = by_baseline[B6_LEGACY]
     if B5 not in by_baseline:
@@ -267,7 +301,7 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
     if len(present) < 2:
         return None
 
-    labels = [p[0] for p in present]
+    labels = [str(by_baseline[p[1]].get("method", p[0])).replace(" ", "\n", 1) for p in present]
     colors = [p[2] for p in present]
     times = [to_float(by_baseline[p[1]].get("mean_replan_ms")) for p in present]
     costs = [to_float(by_baseline[p[1]].get("mean_cost")) for p in present]
@@ -347,7 +381,7 @@ def main() -> None:
         return
 
     summary_rows = read_csv_rows(result_dir / "benchmark_summary.csv", required=True)
-    _experiment_a_rows = read_csv_rows(result_dir / "experiment_A.csv", required=True)
+    experiment_a_rows = read_csv_rows(result_dir / "experiment_A.csv", required=True)
     experiment_b_rows = read_csv_rows(result_dir / "experiment_B.csv", required=True)
     experiment_c_rows = read_csv_rows(result_dir / "experiment_C.csv", required=True)
     experiment_d_rows = read_csv_rows(result_dir / "experiment_D.csv", required=True)
@@ -355,6 +389,7 @@ def main() -> None:
     quality_rows = read_csv_rows(result_dir / "experiment_path_quality.csv", required=False)
 
     produced = [
+        plot_exp_a_event_intensity(experiment_a_rows, out_dir, args.dpi),
         plot_exp_b_cumulative_time(experiment_b_rows, out_dir, args.dpi),
         plot_exp_b_speedup(experiment_b_rows, out_dir, args.dpi),
         plot_exp_d_workload(experiment_d_rows, out_dir, args.dpi),

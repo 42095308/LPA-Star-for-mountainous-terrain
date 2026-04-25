@@ -60,6 +60,20 @@ FAILURE_REASON_FIELDS = [
     "graph_nodes",
     "graph_edges",
 ]
+TRIAL_FAILURE_FIELDS = [
+    "scale",
+    "n_block",
+    "intensity_index",
+    "k_events",
+    "trial",
+    "attempt",
+    "baseline",
+    "stage",
+    "failure_reason",
+    "detail",
+    "graph_nodes",
+    "graph_edges",
+]
 
 
 def parse_int_grid_arg(raw: str, name: str) -> List[int]:
@@ -211,6 +225,31 @@ def build_failure_reason_rows(trial_rows: List[dict], combo_status: List[dict]) 
                 "attempts": "",
                 "graph_nodes": int(graph_nodes),
                 "graph_edges": int(graph_edges),
+            }
+        )
+    return rows
+
+
+def build_accepted_trial_failure_rows(trial_rows: List[dict]) -> List[dict]:
+    """把已接受 trial 内部的基线失败展开成 trial 级失败记录。"""
+    rows: List[dict] = []
+    for r in trial_rows:
+        if bool(r.get("success_all_events", False)):
+            continue
+        rows.append(
+            {
+                "scale": str(r.get("scale", "")),
+                "n_block": int(r.get("n_block", 0)),
+                "intensity_index": int(r.get("intensity_index", r.get("n_block", 0))),
+                "k_events": int(r.get("k_events", 0)),
+                "trial": int(r.get("trial", 0)),
+                "attempt": "",
+                "baseline": str(r.get("baseline", "")),
+                "stage": "accepted_trial",
+                "failure_reason": str(r.get("failure_reason", "") or "event_path_disconnected"),
+                "detail": str(r.get("note", "")),
+                "graph_nodes": int(r.get("graph_nodes", 0) or 0),
+                "graph_edges": int(r.get("graph_edges", 0) or 0),
             }
         )
     return rows
@@ -1849,6 +1888,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
 
     event_records: List[dict] = []
     trial_records: List[dict] = []
+    trial_failure_records: List[dict] = []
     combo_status: List[dict] = []
 
     total_combo = len(scales) * len(n_blocks) * len(k_values)
@@ -1883,8 +1923,25 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                             args.min_start_goal_dist_km,
                             trial_id,
                         )
-                    except RuntimeError:
-                        failure_counts[normalize_failure_reason(scale, "min_distance_fail")] += 1
+                    except RuntimeError as exc:
+                        reason = normalize_failure_reason(scale, "min_distance_fail")
+                        failure_counts[reason] += 1
+                        trial_failure_records.append(
+                            {
+                                "scale": scale,
+                                "n_block": int(n_block),
+                                "intensity_index": int(n_block),
+                                "k_events": int(k_events),
+                                "trial": int(trial_id),
+                                "attempt": int(attempts),
+                                "baseline": "",
+                                "stage": "start_goal_sampling",
+                                "failure_reason": reason,
+                                "detail": str(exc),
+                                "graph_nodes": int(graph.n_nodes),
+                                "graph_edges": int(graph.n_edges),
+                            }
+                        )
                         continue
                     result = run_event_stream_trial(
                         graph=graph,
@@ -1904,6 +1961,22 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                     if result is None:
                         reason = normalize_failure_reason(scale, str(task_meta.get("failure_reason", "start_goal_not_connected")))
                         failure_counts[reason] += 1
+                        trial_failure_records.append(
+                            {
+                                "scale": scale,
+                                "n_block": int(n_block),
+                                "intensity_index": int(n_block),
+                                "k_events": int(k_events),
+                                "trial": int(trial_id),
+                                "attempt": int(attempts),
+                                "baseline": "",
+                                "stage": "trial_initialization",
+                                "failure_reason": reason,
+                                "detail": "",
+                                "graph_nodes": int(graph.n_nodes),
+                                "graph_edges": int(graph.n_edges),
+                            }
+                        )
                         continue
                     ev_rows, tr_rows = result
                     event_records.extend(ev_rows)
@@ -1958,6 +2031,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     k_diag_rows, k_diag_note = diagnose_continuous_replan_k_effect(tables, resolved)
     quality_rows, quality_note = diagnose_path_quality_consistency(trial_records, scales, n_blocks, k_values)
     failure_rows = build_failure_reason_rows(trial_records, combo_status)
+    trial_failure_rows = trial_failure_records + build_accepted_trial_failure_rows(trial_records)
     markdown = render_markdown_matrix_paper(
         tables,
         args,
@@ -1979,6 +2053,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     if combo_status:
         write_csv(out_dir / "benchmark_combo_status.csv", combo_status, list(combo_status[0].keys()))
     write_csv(out_dir / "benchmark_failure_reasons.csv", failure_rows, FAILURE_REASON_FIELDS)
+    write_csv(out_dir / "benchmark_trial_failures.csv", trial_failure_rows, TRIAL_FAILURE_FIELDS)
     for key, rows in tables.items():
         if rows:
             write_csv(out_dir / f"experiment_{key}.csv", rows, list(rows[0].keys()))
@@ -2053,6 +2128,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     print(f"  - {out_dir / 'benchmark_pairwise.csv'}")
     print(f"  - {out_dir / 'benchmark_combo_status.csv'}")
     print(f"  - {out_dir / 'benchmark_failure_reasons.csv'}")
+    print(f"  - {out_dir / 'benchmark_trial_failures.csv'}")
     print(f"  - {out_dir / 'experiment_A.csv'}")
     print(f"  - {out_dir / 'experiment_B.csv'}")
     print(f"  - {out_dir / 'experiment_C.csv'}")

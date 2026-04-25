@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -76,6 +77,16 @@ BASELINE_B2 = "B2_GlobalAstar_Layered"
 BASELINE_B5 = "B5_RegularLayered_LPA"
 # 兼容旧结果中曾使用的 B6 命名；新输出统一写 B5。
 BASELINE_B6 = "B6_RegularLayered_LPA"
+BASELINE_B3 = "B3_LPA_SingleLayer"
+BASELINE_B1 = "B1_Voxel_Dijkstra"
+
+STRUCTURAL_ABLATION_METHODS = [
+    (BASELINE_B4, "Terrain-aware Layered LPA*", "proposed_full_method"),
+    (BASELINE_B2, "Terrain-aware Layered A*", "incremental_replanning_ablation"),
+    (BASELINE_B3, "Single-layer LPA*", "layered_network_ablation"),
+    (BASELINE_B5, "Regular-layered LPA*", "terrain_aware_layering_ablation"),
+    (BASELINE_B1, "Voxel Global Search", "classical_voxel_baseline"),
+]
 
 REGULAR_INTRA_EDGE_DIST_M = 250.0
 REGULAR_INTER_EDGE_DIST_M = 250.0
@@ -1469,11 +1480,12 @@ class TraditionalVoxelDijkstra:
                 "path_risk": float("nan"), "path_multi_cost": float("nan"),
                 "min_clearance_m": float("nan"), "risk_exposure_integral": float("nan"),
                 "comm_coverage_ratio": float("nan"), "max_comm_loss_time_s": float("nan"),
-                "max_comm_loss_length_km": float("nan")}
+                "max_comm_loss_length_km": float("nan"), "failure_reason": "voxel_unreachable"}
 
         while heap:
             if (time.perf_counter() - t0) > timeout_s:
                 fail["expanded"] = expanded
+                fail["failure_reason"] = "voxel_timeout"
                 return fail
             d, sid = heapq.heappop(heap)
             if visited[sid]:
@@ -1513,6 +1525,7 @@ class TraditionalVoxelDijkstra:
             expanded += 1
             if expanded >= max_expansions:
                 fail["expanded"] = expanded
+                fail["failure_reason"] = "voxel_max_expansions"
                 return fail
 
             ix, iy, iz = self._decode(sid)
@@ -1669,10 +1682,14 @@ def ci95(arr: np.ndarray) -> float:
 def summarise_baseline(records: List[dict], baseline: str) -> dict:
     subset = [r for r in records if r["baseline"] == baseline]
     ok = [r for r in subset if r["success"]]
+    failed = [r for r in subset if not r["success"]]
+    failure_counts = Counter(str(r.get("failure_reason", "") or str(r.get("note", "")) or "unknown_failure") for r in failed)
     out = {
         "baseline": baseline,
         "n_trials": len(subset),
         "n_success": len(ok),
+        "n_failed": len(failed),
+        "failure_reason_top": "" if not failure_counts else f"{failure_counts.most_common(1)[0][0]}:{failure_counts.most_common(1)[0][1]}",
         "success_rate": (len(ok) / max(1, len(subset))),
         "mean_replan_ms": float("nan"),
         "std_replan_ms": float("nan"),
@@ -1721,6 +1738,28 @@ def summarise_baseline(records: List[dict], baseline: str) -> dict:
         }
     )
     return out
+
+
+def build_structural_ablation_rows(summary_rows: List[dict]) -> List[dict]:
+    """生成论文结构性消融 CSV，只保留五类明确方法。"""
+    row_by_baseline = {str(r.get("baseline", "")): dict(r) for r in summary_rows}
+    if BASELINE_B6 in row_by_baseline and BASELINE_B5 not in row_by_baseline:
+        legacy_row = dict(row_by_baseline[BASELINE_B6])
+        legacy_row["baseline"] = BASELINE_B5
+        row_by_baseline[BASELINE_B5] = legacy_row
+
+    rows: List[dict] = []
+    for order, (baseline, method, role) in enumerate(STRUCTURAL_ABLATION_METHODS, start=1):
+        src = row_by_baseline.get(baseline)
+        if src is None:
+            continue
+        row = dict(src)
+        row["method_order"] = order
+        row["method"] = method
+        row["baseline_id"] = baseline
+        row["ablation_role"] = role
+        rows.append(row)
+    return rows
 
 
 def paired_arrays(records: List[dict], a: str, b: str, field: str) -> Tuple[np.ndarray, np.ndarray]:
@@ -2277,6 +2316,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "event_affected_edges": len(area_event.affected_edges),
                 "area_event_edges": json.dumps(area_event.affected_edges),
                 "success": bool(ok_b4),
+                "failure_reason": "" if ok_b4 else "event_path_disconnected",
                 "replan_ms": replan_b4_ms if ok_b4 else float("nan"),
                 "expanded": int(b4.nodes_expanded) if ok_b4 else -1,
                 "path_cost": m_b4.get("cost", float("nan")),
@@ -2315,6 +2355,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "event_affected_edges": len(area_event.affected_edges),
                 "area_event_edges": json.dumps(area_event.affected_edges),
                 "success": bool(ok_b2),
+                "failure_reason": "" if ok_b2 else "event_path_disconnected",
                 "replan_ms": replan_b2_ms if ok_b2 else float("nan"),
                 "expanded": int(st_b2.get("expanded", -1)) if ok_b2 else -1,
                 "path_cost": m_b2.get("cost", float("nan")),
@@ -2365,6 +2406,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "event_affected_edges": len(area_event_b3.affected_edges),
                 "area_event_edges": json.dumps(area_event_b3.affected_edges),
                 "success": bool(ok_b3),
+                "failure_reason": "" if ok_b3 else "event_path_disconnected",
                 "replan_ms": (t1 - t0) * 1000.0 if ok_b3 else float("nan"),
                 "expanded": int(b3.nodes_expanded) if ok_b3 else -1,
                 "path_cost": m_b3.get("cost", float("nan")),
@@ -2395,6 +2437,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 "event_affected_edges": len(area_event_b3.affected_edges),
                 "area_event_edges": json.dumps(area_event_b3.affected_edges),
                 "success": False,
+                "failure_reason": "start_goal_not_connected" if not ok_init_b3 else "event_schedule_unavailable",
                 "replan_ms": float("nan"),
                 "expanded": -1,
                 "path_cost": float("nan"),
@@ -2446,6 +2489,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "event_affected_edges": len(area_event_b6.affected_edges),
                     "area_event_edges": json.dumps(area_event_b6.affected_edges),
                     "success": bool(ok_b6),
+                    "failure_reason": "" if ok_b6 else "event_path_disconnected",
                     "replan_ms": (t1 - t0) * 1000.0 if ok_b6 else float("nan"),
                     "expanded": int(b6.nodes_expanded) if ok_b6 else -1,
                     "path_cost": m_b6.get("cost", float("nan")),
@@ -2476,6 +2520,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "event_affected_edges": len(area_event_b6.affected_edges),
                     "area_event_edges": json.dumps(area_event_b6.affected_edges),
                     "success": False,
+                    "failure_reason": "start_goal_not_connected" if not ok_init_b6 else "event_schedule_unavailable",
                     "replan_ms": float("nan"),
                     "expanded": -1,
                     "path_cost": float("nan"),
@@ -2535,6 +2580,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                     "event_affected_edges": len(area_event.affected_edges),
                     "area_event_edges": json.dumps(area_event.affected_edges),
                     "success": ok_b1,
+                    "failure_reason": "" if ok_b1 else str(b1_result.get("failure_reason", "voxel_unreachable")),
                     "replan_ms": (t1 - t0) * 1000.0 if ok_b1 else float("nan"),
                     "expanded": int(b1_result["expanded"]) if ok_b1 else -1,
                     "path_cost": float(b1_result["path_multi_cost"]) if ok_b1 else float("nan"),
@@ -2643,6 +2689,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "event_affected_edges",
         "area_event_edges",
         "success",
+        "failure_reason",
         "replan_ms",
         "expanded",
         "path_cost",
@@ -2660,15 +2707,12 @@ def run_benchmark(args: argparse.Namespace) -> None:
     summary_fields = list(summary_rows[0].keys()) if summary_rows else []
     if summary_fields:
         write_csv(out_dir / "benchmark_summary.csv", summary_rows, summary_fields)
-        structural_baselines = {
-            "B2_GlobalAstar_Layered",
-            "B3_LPA_SingleLayer",
-            BASELINE_B5,
-            "B4_Proposed_LPA_Layered",
-        }
-        structural_rows = [r for r in summary_rows if str(r.get("baseline", "")) in structural_baselines]
+        structural_rows = build_structural_ablation_rows(summary_rows)
         if structural_rows:
-            write_csv(out_dir / "benchmark_structural_ablation.csv", structural_rows, summary_fields)
+            structural_fields = ["method_order", "method", "baseline_id", "ablation_role"] + [
+                f for f in summary_fields if f not in {"method_order", "method", "baseline_id", "ablation_role"}
+            ]
+            write_csv(out_dir / "benchmark_structural_ablation.csv", structural_rows, structural_fields)
 
     pair_fields = list(pair_rows[0].keys()) if pair_rows else []
     if pair_fields:

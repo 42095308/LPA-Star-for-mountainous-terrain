@@ -263,6 +263,61 @@ def should_run_osm(cfg: Dict[str, object], workdir: Path, skip_osm: bool, requir
     return False, f"未找到 OSM 文件，跳过 human_risk_osm.py: {osm_path}"
 
 
+def append_matrix_benchmark_args(
+    cmd: List[str],
+    args: argparse.Namespace,
+    benchmark_runner: str,
+    benchmark_mode: str,
+) -> None:
+    """把 run_multi_scene 的矩阵参数映射到具体 benchmark runner。"""
+    if benchmark_runner == "benchmark_matrix":
+        mapping = [
+            ("n_block_grid", "--n-block-grid"),
+            ("k_events_grid", "--k-events-grid"),
+            ("scales", "--scales"),
+            ("scale_fractions", "--scale-fractions"),
+            ("focus_scale", "--focus-scale"),
+            ("focus_k_intensity", "--focus-k-intensity"),
+            ("focus_n_block_cont", "--focus-n-block-cont"),
+            ("focus_k_scale", "--focus-k-scale"),
+            ("focus_n_block_scale", "--focus-n-block-scale"),
+            ("focus_k_distribution", "--focus-k-distribution"),
+            ("plot_scale", "--plot-scale"),
+            ("plot_k_intensity", "--plot-k-intensity"),
+            ("plot_n_block_cont", "--plot-n-block-cont"),
+            ("plot_k_distribution", "--plot-k-distribution"),
+            ("event_pool_factor", "--event-pool-factor"),
+        ]
+    elif benchmark_mode == "matrix":
+        mapping = [
+            ("n_block_grid", "--matrix-n-block-grid"),
+            ("k_events_grid", "--matrix-k-events-grid"),
+            ("scales", "--matrix-scales"),
+            ("scale_fractions", "--matrix-scale-fractions"),
+            ("focus_scale", "--matrix-focus-scale"),
+            ("focus_k_intensity", "--matrix-focus-k-intensity"),
+            ("focus_n_block_cont", "--matrix-focus-n-block-cont"),
+            ("focus_k_scale", "--matrix-focus-k-scale"),
+            ("focus_n_block_scale", "--matrix-focus-n-block-scale"),
+            ("focus_k_distribution", "--matrix-focus-k-distribution"),
+            ("plot_scale", "--matrix-plot-scale"),
+            ("plot_k_intensity", "--matrix-plot-k-intensity"),
+            ("plot_n_block_cont", "--matrix-plot-n-block-cont"),
+            ("plot_k_distribution", "--matrix-plot-k-distribution"),
+            ("event_pool_factor", "--matrix-event-pool-factor"),
+        ]
+    else:
+        return
+
+    for attr, flag in mapping:
+        value = getattr(args, attr, None)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        cmd.extend([flag, str(value)])
+
+
 def run_scene(
     scenario_path: Path,
     args: argparse.Namespace,
@@ -406,6 +461,7 @@ def run_scene(
                 bench_cmd.append("--skip-b1")
         if args.disable_plots:
             bench_cmd.append("--disable-plots")
+        append_matrix_benchmark_args(bench_cmd, args, benchmark_runner, args.benchmark_mode)
         if args.benchmark_extra_args:
             bench_cmd.extend(shlex.split(args.benchmark_extra_args))
         steps.append(run_step(benchmark_runner, bench_cmd, workdir, args.dry_run))
@@ -448,6 +504,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--event-radius-km", type=float, default=0.8)
     parser.add_argument("--event-severity", type=float, default=1.0)
     parser.add_argument("--min-start-goal-dist-km", type=float, default=1.5)
+    parser.add_argument("--n-block-grid", type=str, default="", help="矩阵实验事件强度索引网格，例如 2,4,6,8。")
+    parser.add_argument("--k-events-grid", type=str, default="", help="矩阵实验连续事件数网格，例如 1,3,5,7,10。")
+    parser.add_argument("--scales", type=str, default="", help="矩阵实验图规模列表，例如 small,medium,large。")
+    parser.add_argument("--scale-fractions", type=str, default="", help="矩阵实验图规模裁剪比例，例如 small:0.55,medium:0.78,large:1.0。")
+    parser.add_argument("--focus-scale", type=str, default="", help="Experiment A/B/D 的焦点图规模。")
+    parser.add_argument("--focus-k-intensity", type=int, default=None, help="Experiment A 的焦点 K。")
+    parser.add_argument("--focus-n-block-cont", type=int, default=None, help="Experiment B 的焦点强度索引。")
+    parser.add_argument("--focus-k-scale", type=int, default=None, help="Experiment C 的焦点 K。")
+    parser.add_argument("--focus-n-block-scale", type=int, default=None, help="Experiment C 的焦点强度索引。")
+    parser.add_argument("--focus-k-distribution", type=int, default=None, help="路径质量分布诊断的焦点 K。")
+    parser.add_argument("--plot-scale", type=str, default="", help="矩阵内置绘图的焦点图规模。")
+    parser.add_argument("--plot-k-intensity", type=int, default=None, help="矩阵内置绘图的焦点 K。")
+    parser.add_argument("--plot-n-block-cont", type=int, default=None, help="矩阵内置绘图的焦点强度索引。")
+    parser.add_argument("--plot-k-distribution", type=int, default=None, help="矩阵内置路径质量图的焦点 K。")
+    parser.add_argument("--event-pool-factor", type=int, default=None, help="矩阵区域事件候选池倍数。")
     parser.add_argument("--task-target-count", type=int, default=-1)
     parser.add_argument("--task-pair-count", type=int, default=-1)
     parser.add_argument("--skip-b1", action="store_true")

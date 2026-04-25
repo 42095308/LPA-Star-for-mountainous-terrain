@@ -180,6 +180,11 @@ python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . 
 python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --benchmark-out-name tests/matrix_final
 ```
 
+`run_multi_scene.py` 已直接支持矩阵参数，不需要全部塞进 `--benchmark-extra-args`，例如：
+```powershell
+python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --n-block-grid 2,4,6,8 --k-events-grid 1,3,5,7,10 --scales small,medium,large --scale-fractions small:0.55,medium:0.78,large:1.0 --focus-scale large --focus-k-intensity 5 --focus-n-block-cont 4 --benchmark-out-name tests/matrix_final
+```
+
 矩阵结果生成后，可直接输出论文 PDF 图：
 ```powershell
 python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/matrix_final
@@ -248,12 +253,14 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_pairwise.csv` | 成对基线统计比较。 |
 | `benchmark_combo_status.csv` | matrix 模式下各组合接受 trial 情况。 |
 | `benchmark_failure_reasons.csv` | matrix 模式下失败原因统计，用于解释 small scale 低成功率。 |
+| `benchmark_trial_failures.csv` | matrix 模式下 trial 级失败原因，包含采样失败和事件后断路。 |
 | `benchmark_events.csv` | matrix 模式下事件流采样记录。 |
 | `benchmark_table.md` | 可直接放入论文草稿的结果表。 |
 | `benchmark_table_four_baselines.md` | 四基线对比表。 |
 | `benchmark_table_structural_ablation.md` | 含 B5 的结构性消融对比表。 |
 | `benchmark_structural_ablation.csv` | B2/B3/B4/B5 结构性消融 CSV。 |
-| `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的论文图。 |
+| `fig_expA_event_intensity_time.pdf` | Experiment A 事件强度时间图。 |
+| `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的其他论文图。 |
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
 | `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |
 | `benchmark_config.json` | 本次实验参数快照。 |
