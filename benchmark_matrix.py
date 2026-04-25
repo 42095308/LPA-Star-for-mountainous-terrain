@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -43,6 +44,22 @@ from benchmark import (
 from dynamic_events import build_area_event_from_path
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
 BASELINE_B2 = "B2_GlobalAstar_Layered"
+FAILURE_REASON_FIELDS = [
+    "scale",
+    "n_block",
+    "intensity_index",
+    "k_events",
+    "baseline",
+    "stage",
+    "failure_reason",
+    "count",
+    "share",
+    "trials_requested",
+    "trials_collected",
+    "attempts",
+    "graph_nodes",
+    "graph_edges",
+]
 
 
 def parse_int_grid_arg(raw: str, name: str) -> List[int]:
@@ -104,6 +121,99 @@ def nearest_scale(target: str, values: Sequence[str]) -> str:
     if target in values:
         return target
     return values[-1] if values else target
+
+
+def normalize_failure_reason(scale: str, reason: str) -> str:
+    """把底层失败点归并成论文可解释的失败原因。"""
+    reason = (reason or "unknown_failure").strip()
+    if scale == "small" and reason in {"min_distance_fail", "start_goal_not_connected"}:
+        return "small_graph_task_unreachable"
+    return reason
+
+
+def top_failure_reason(rows: Sequence[dict]) -> str:
+    """返回当前组合或基线中出现次数最多的失败原因。"""
+    counts = Counter(str(r.get("failure_reason", "") or "") for r in rows if str(r.get("failure_reason", "") or ""))
+    if not counts:
+        return ""
+    reason, count = counts.most_common(1)[0]
+    return f"{reason}:{count}"
+
+
+def failure_counts_json(counts: Counter) -> str:
+    """把失败原因计数写成稳定 JSON，便于后处理和论文统计。"""
+    cleaned = {str(k): int(v) for k, v in sorted(counts.items()) if int(v) > 0}
+    return json.dumps(cleaned, ensure_ascii=False, sort_keys=True)
+
+
+def build_failure_reason_rows(trial_rows: List[dict], combo_status: List[dict]) -> List[dict]:
+    """汇总被拒绝 trial 和已接受 trial 内部断路两类失败。"""
+    rows: List[dict] = []
+    for combo in combo_status:
+        raw = str(combo.get("failure_reason_counts_json", "") or "{}")
+        try:
+            counts = json.loads(raw)
+        except Exception:
+            counts = {}
+        total = sum(int(v) for v in counts.values())
+        for reason, count in sorted(counts.items()):
+            rows.append(
+                {
+                    "scale": combo.get("scale", ""),
+                    "n_block": int(combo.get("n_block", 0)),
+                    "intensity_index": int(combo.get("intensity_index", combo.get("n_block", 0))),
+                    "k_events": int(combo.get("k_events", 0)),
+                    "baseline": "",
+                    "stage": "trial_rejection",
+                    "failure_reason": str(reason),
+                    "count": int(count),
+                    "share": float(int(count) / max(1, total)),
+                    "trials_requested": int(combo.get("trials_requested", 0)),
+                    "trials_collected": int(combo.get("trials_collected", 0)),
+                    "attempts": int(combo.get("attempts", 0)),
+                    "graph_nodes": int(combo.get("graph_nodes", 0)),
+                    "graph_edges": int(combo.get("graph_edges", 0)),
+                }
+            )
+
+    trial_counts: Dict[Tuple[str, int, int, str, str], int] = {}
+    trial_totals: Dict[Tuple[str, int, int, str], int] = {}
+    graph_sizes: Dict[Tuple[str, int, int], Tuple[int, int]] = {}
+    for r in trial_rows:
+        if bool(r.get("success_all_events", False)):
+            continue
+        reason = str(r.get("failure_reason", "") or "event_path_disconnected")
+        key_base = (str(r["scale"]), int(r["n_block"]), int(r["k_events"]), str(r["baseline"]))
+        key = (*key_base, reason)
+        trial_counts[key] = trial_counts.get(key, 0) + 1
+        trial_totals[key_base] = trial_totals.get(key_base, 0) + 1
+        graph_sizes[(str(r["scale"]), int(r["n_block"]), int(r["k_events"]))] = (
+            int(r.get("graph_nodes", 0) or 0),
+            int(r.get("graph_edges", 0) or 0),
+        )
+
+    for (scale, n_block, k_events, baseline, reason), count in sorted(trial_counts.items()):
+        graph_nodes, graph_edges = graph_sizes.get((scale, n_block, k_events), (0, 0))
+        total = trial_totals.get((scale, n_block, k_events, baseline), 0)
+        rows.append(
+            {
+                "scale": scale,
+                "n_block": int(n_block),
+                "intensity_index": int(n_block),
+                "k_events": int(k_events),
+                "baseline": baseline,
+                "stage": "accepted_trial",
+                "failure_reason": reason,
+                "count": int(count),
+                "share": float(int(count) / max(1, total)),
+                "trials_requested": "",
+                "trials_collected": "",
+                "attempts": "",
+                "graph_nodes": int(graph_nodes),
+                "graph_edges": int(graph_edges),
+            }
+        )
+    return rows
 
 
 def build_key_combo_set(
@@ -335,6 +445,8 @@ def run_event_stream_trial(
     ok_init = b4.compute_shortest_path()
     init_path = b4.extract_path() if ok_init else []
     if not ok_init or len(init_path) < 3:
+        if task_meta is not None:
+            task_meta["failure_reason"] = normalize_failure_reason(scale, "start_goal_not_connected")
         return None
 
     schedule = build_event_schedule(
@@ -349,6 +461,8 @@ def run_event_stream_trial(
         event_severity=event_severity,
     )
     if len(schedule) != k_events:
+        if task_meta is not None:
+            task_meta["failure_reason"] = "event_schedule_unavailable"
         return None
 
     event_rows: List[dict] = []
@@ -406,6 +520,7 @@ def run_event_stream_trial(
                 "scale": scale,
                 "trial": trial_id,
                 "n_block": n_block,
+                "intensity_index": int(n_block),
                 "k_events": k_events,
                 "event_idx": event_idx,
                 "baseline": BASELINE_B4,
@@ -423,6 +538,7 @@ def run_event_stream_trial(
                 "area_event_edges_event": json.dumps(event_edges),
                 "area_event_edges_total": len(area_edge_set),
                 "success": bool(ok_b4),
+                "failure_reason": "" if ok_b4 else "event_path_disconnected",
                 "replan_ms": float(b4_ms),
                 "expanded": int(stats_b4.get("expanded", 0)),
                 "queue_pushes": int(stats_b4.get("queue_pushes", 0)),
@@ -473,6 +589,7 @@ def run_event_stream_trial(
                 "scale": scale,
                 "trial": trial_id,
                 "n_block": n_block,
+                "intensity_index": int(n_block),
                 "k_events": k_events,
                 "event_idx": event_idx,
                 "baseline": BASELINE_B2,
@@ -490,6 +607,7 @@ def run_event_stream_trial(
                 "area_event_edges_event": json.dumps(event_edges),
                 "area_event_edges_total": len(area_edge_set),
                 "success": bool(ok_b2),
+                "failure_reason": "" if ok_b2 else "event_path_disconnected",
                 "replan_ms": float(b2_ms),
                 "expanded": int(stats_b2.get("expanded", 0)),
                 "queue_pushes": int(stats_b2.get("queue_pushes", 0)),
@@ -525,6 +643,7 @@ def run_event_stream_trial(
                 "scale": scale,
                 "trial": trial_id,
                 "n_block": n_block,
+                "intensity_index": int(n_block),
                 "k_events": k_events,
                 "baseline": baseline,
                 "start_node": start,
@@ -536,6 +655,9 @@ def run_event_stream_trial(
                 "n_events_target": k_events,
                 "n_events_succeeded": int(success_count[baseline]),
                 "success_all_events": ok_all,
+                "failure_reason": "" if ok_all else "event_path_disconnected",
+                "graph_nodes": int(graph.n_nodes),
+                "graph_edges": int(graph.n_edges),
                 "cumulative_replan_ms": float(cum[baseline]["cumulative_replan_ms"]),
                 "mean_event_replan_ms": float(cum[baseline]["cumulative_replan_ms"]) / max(1, int(k_events)),
                 "cumulative_expanded": float(cum[baseline]["cumulative_expanded"]),
@@ -583,10 +705,13 @@ def summarise_combo_baseline_matrix(
     out = {
         "scale": scale,
         "n_block": int(n_block),
+        "intensity_index": int(n_block),
         "k_events": int(k_events),
         "baseline": baseline,
         "n_trials": len(subset),
         "n_success": len(ok),
+        "n_failed": max(0, len(subset) - len(ok)),
+        "failure_reason_top": top_failure_reason([r for r in subset if not r["success_all_events"]]),
         "success_rate": (len(ok) / max(1, len(subset))),
         "mean_cumulative_replan_ms": float("nan"),
         "std_cumulative_replan_ms": float("nan"),
@@ -751,6 +876,7 @@ def build_pairwise_rows_matrix(
                             {
                                 "scale": scale,
                                 "n_block": int(n_block),
+                                "intensity_index": int(n_block),
                                 "k_events": int(k_events),
                                 "metric": metric,
                                 "n_paired": 0,
@@ -775,6 +901,7 @@ def build_pairwise_rows_matrix(
                         {
                             "scale": scale,
                             "n_block": int(n_block),
+                            "intensity_index": int(n_block),
                             "k_events": int(k_events),
                             "metric": metric,
                             "n_paired": int(xb4.size),
@@ -836,6 +963,7 @@ def build_focus_tables_matrix(
                 "scale": scale_focus,
                 "k_events": int(k_intensity),
                 "n_block": int(n_block),
+                "intensity_index": int(n_block),
                 "b4_mean_event_ms": b4_ms,
                 "b2_mean_event_ms": b2_ms,
                 "b4_p50_event_ms": float(b4.get("p50_event_replan_ms", float("nan"))),
@@ -876,6 +1004,7 @@ def build_focus_tables_matrix(
             {
                 "scale": scale_focus,
                 "n_block": int(n_block_cont),
+                "intensity_index": int(n_block_cont),
                 "k_events": int(k_events),
                 "b4_mean_cumulative_ms": b4_ms,
                 "b2_mean_cumulative_ms": b2_ms,
@@ -917,6 +1046,7 @@ def build_focus_tables_matrix(
             {
                 "scale": scale,
                 "n_block": int(n_block_scale),
+                "intensity_index": int(n_block_scale),
                 "k_events": int(k_scale),
                 "graph_nodes": int(b4.get("graph_nodes", b2.get("graph_nodes", 0))),
                 "graph_edges": int(b4.get("graph_edges", b2.get("graph_edges", 0))),
@@ -945,6 +1075,7 @@ def build_focus_tables_matrix(
             {
                 "scale": scale_focus,
                 "n_block": int(n_block),
+                "intensity_index": int(n_block),
                 "k_events": int(k_scale),
                 "b4_mean_event_expanded": b4_ex,
                 "b4_p50_event_expanded": float(b4.get("p50_event_expanded", float("nan"))),
@@ -1110,6 +1241,7 @@ def render_markdown_matrix_paper(
         lines.append(f"- 关键组合 trial 数：`{key_trials}`，关键组合数量：`{resolved.get('key_combo_count', 0)}`")
     lines.append("- 统计口径：所有 speedup 均为同一 Monte Carlo trial 内先配对计算 `B2/B4`，再对 speedup 分布取中位数。")
     lines.append("- 分布口径：P50/P95 来自成功 trial；显著性检验使用配对 Wilcoxon，必要时退化为配对 t 检验。")
+    lines.append("- 变量口径：旧变量 `n_block` 保留用于兼容；论文中使用 `intensity_index` 表示区域扰动强度索引。")
     lines.append(f"- 区域事件强度网格：`{args.n_block_grid}`；连续事件数 K 网格：`{args.k_events_grid}`；图规模：`{args.scales}`")
     lines.append(f"- 随机种子：`{args.seed}`")
     lines.append(
@@ -1126,7 +1258,7 @@ def render_markdown_matrix_paper(
 
     lines.append("## 实验 A：扰动强度敏感性")
     lines.append("")
-    lines.append("| n_block | B4 事件时间 mean | B2 事件时间 mean | B4 P50/P95 | B2 P50/P95 | speedup 中位数 | B4 更快比例 | 检验 | p 值 | B4 expanded mean | B2 expanded mean |")
+    lines.append("| intensity_index | B4 事件时间 mean | B2 事件时间 mean | B4 P50/P95 | B2 P50/P95 | speedup 中位数 | B4 更快比例 | 检验 | p 值 | B4 expanded mean | B2 expanded mean |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|")
     for r in tables["A"]:
         lines.append(
@@ -1164,7 +1296,7 @@ def render_markdown_matrix_paper(
 
     lines.append("## 实验 D：工作量机制")
     lines.append("")
-    lines.append("| n_block | B4 expanded/event mean | B2 expanded/event mean | B4 P50/P95 | B2 P50/P95 | expanded reduction | expanded speedup 中位数 | 检验 | p 值 |")
+    lines.append("| intensity_index | B4 expanded/event mean | B2 expanded/event mean | B4 P50/P95 | B2 P50/P95 | expanded reduction | expanded speedup 中位数 | 检验 | p 值 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---|---:|")
     for r in tables["D"]:
         lines.append(
@@ -1204,6 +1336,7 @@ def diagnose_event_intensity_anomaly(
                 "scale": str(r["scale"]),
                 "k_events": int(r["k_events"]),
                 "n_block": int(r["n_block"]),
+                "intensity_index": int(r["n_block"]),
                 "b4_mean_event_ms": float(r["b4_mean_event_ms"]),
                 "b2_mean_event_ms": float(r["b2_mean_event_ms"]),
                 "b4_mean_event_expanded": float(r["b4_mean_event_expanded"]),
@@ -1254,6 +1387,7 @@ def diagnose_continuous_replan_k_effect(
             {
                 "scale": str(r["scale"]),
                 "n_block": int(r["n_block"]),
+                "intensity_index": int(r["n_block"]),
                 "k_events": int(r["k_events"]),
                 "b4_mean_cumulative_ms": float(r["b4_mean_cumulative_ms"]),
                 "b2_mean_cumulative_ms": float(r["b2_mean_cumulative_ms"]),
@@ -1364,6 +1498,7 @@ def diagnose_path_quality_consistency(
                         {
                             "scale": scale,
                             "n_block": int(n_block),
+                            "intensity_index": int(n_block),
                             "k_events": int(k_events),
                             "n_paired": 0,
                             "mean_abs_cost_gap": float("nan"),
@@ -1398,6 +1533,7 @@ def diagnose_path_quality_consistency(
                     {
                         "scale": scale,
                         "n_block": int(n_block),
+                        "intensity_index": int(n_block),
                         "k_events": int(k_events),
                         "n_paired": int(n),
                         "mean_abs_cost_gap": float(np.mean(gaps_cost_arr)),
@@ -1671,7 +1807,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
     benchmark_core.RESOLUTION = benchmark_core.resolve_resolution_m(scene_cfg, data_root)
-    out_dir = benchmark_core.resolve_output_dir(root, args.out_dir)
+    out_dir = benchmark_core.resolve_scene_out_dir(args.out_dir, data_root, root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     n_blocks = parse_int_grid_arg(args.n_block_grid, "--n-block-grid")
@@ -1728,6 +1864,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                 accepted = 0
                 attempts = 0
                 rng = np.random.default_rng(args.seed + combo_id * 10007)
+                failure_counts: Counter = Counter()
 
                 combo_tag = " [关键组合]" if combo_key in key_combos and requested_trials > int(args.trials) else ""
                 print(
@@ -1747,6 +1884,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                             trial_id,
                         )
                     except RuntimeError:
+                        failure_counts[normalize_failure_reason(scale, "min_distance_fail")] += 1
                         continue
                     result = run_event_stream_trial(
                         graph=graph,
@@ -1764,6 +1902,8 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                         task_meta=task_meta,
                     )
                     if result is None:
+                        reason = normalize_failure_reason(scale, str(task_meta.get("failure_reason", "start_goal_not_connected")))
+                        failure_counts[reason] += 1
                         continue
                     ev_rows, tr_rows = result
                     event_records.extend(ev_rows)
@@ -1776,6 +1916,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                     {
                         "scale": scale,
                         "n_block": int(n_block),
+                        "intensity_index": int(n_block),
                         "k_events": int(k_events),
                         "trials_requested": int(requested_trials),
                         "trials_collected": int(accepted),
@@ -1784,6 +1925,8 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
                         "graph_nodes": int(graph.n_nodes),
                         "graph_edges": int(graph.n_edges),
                         "is_key_combo": int(combo_key in key_combos),
+                        "failure_reason_counts_json": failure_counts_json(failure_counts),
+                        "failure_reason_top": failure_counts.most_common(1)[0][0] if failure_counts else "",
                     }
                 )
                 if accepted < requested_trials:
@@ -1814,6 +1957,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     anomaly_rows, anomaly_note = diagnose_event_intensity_anomaly(tables, resolved)
     k_diag_rows, k_diag_note = diagnose_continuous_replan_k_effect(tables, resolved)
     quality_rows, quality_note = diagnose_path_quality_consistency(trial_records, scales, n_blocks, k_values)
+    failure_rows = build_failure_reason_rows(trial_records, combo_status)
     markdown = render_markdown_matrix_paper(
         tables,
         args,
@@ -1834,6 +1978,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         write_csv(out_dir / "benchmark_pairwise.csv", pair_rows, list(pair_rows[0].keys()))
     if combo_status:
         write_csv(out_dir / "benchmark_combo_status.csv", combo_status, list(combo_status[0].keys()))
+    write_csv(out_dir / "benchmark_failure_reasons.csv", failure_rows, FAILURE_REASON_FIELDS)
     for key, rows in tables.items():
         if rows:
             write_csv(out_dir / f"experiment_{key}.csv", rows, list(rows[0].keys()))
@@ -1872,6 +2017,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         "2. 随着 K 增大，状态复用效果会逐步累积，B4 的累计优势会更清晰。",
         "3. 时间随 n_block 非单调并不反常，因为事件几何位置可能把绕行更早推入干净子图，反而减少被更新状态。",
         "4. B4 与 B2 在很多 trial 中路径代价相同是预期现象，因为两者优化的是同一套加权目标；真正拉开差距的是重规划时间和工作负载。",
+        "5. small scale 的低成功率优先按图规模敏感性解释：`benchmark_failure_reasons.csv` 区分最小距离失败、起终点不连通、事件后路径断裂和小图任务不可达。",
     ]
     (out_dir / "benchmark_discussion.md").write_text("\n".join(discussion_lines) + "\n", encoding="utf-8")
 
@@ -1884,8 +2030,15 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     cfg["key_combo_resolved"] = key_combo_resolved
     cfg["key_combo_count"] = len(key_combos)
     cfg["key_combos"] = [
-        {"scale": scale, "n_block": int(n_block), "k_events": int(k_events)}
+        {"scale": scale, "n_block": int(n_block), "intensity_index": int(n_block), "k_events": int(k_events)}
         for scale, n_block, k_events in sorted(key_combos)
+    ]
+    cfg["failure_reason_categories"] = [
+        "min_distance_fail",
+        "start_goal_not_connected",
+        "event_path_disconnected",
+        "small_graph_task_unreachable",
+        "event_schedule_unavailable",
     ]
     cfg["plot_paths"] = plot_paths
     (out_dir / "benchmark_config.json").write_text(
@@ -1899,6 +2052,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     print(f"  - {out_dir / 'benchmark_summary.csv'}")
     print(f"  - {out_dir / 'benchmark_pairwise.csv'}")
     print(f"  - {out_dir / 'benchmark_combo_status.csv'}")
+    print(f"  - {out_dir / 'benchmark_failure_reasons.csv'}")
     print(f"  - {out_dir / 'experiment_A.csv'}")
     print(f"  - {out_dir / 'experiment_B.csv'}")
     print(f"  - {out_dir / 'experiment_C.csv'}")

@@ -73,6 +73,8 @@ RISK_W_HUMAN_COMBINED = 0.50
 
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
 BASELINE_B2 = "B2_GlobalAstar_Layered"
+BASELINE_B5 = "B5_RegularLayered_LPA"
+# 兼容旧结果中曾使用的 B6 命名；新输出统一写 B5。
 BASELINE_B6 = "B6_RegularLayered_LPA"
 
 REGULAR_INTRA_EDGE_DIST_M = 250.0
@@ -262,7 +264,7 @@ def select_regular_grid_points(
     count: int,
     exclude: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> np.ndarray:
-    """在允许区域内均匀选取规则网格点，用于 B6 规则三层图。"""
+    """在允许区域内均匀选取规则网格点，用于 B5 规则三层图。"""
     if count <= 0:
         return np.zeros((0, 2), dtype=int)
 
@@ -773,7 +775,7 @@ def build_regular_layered_graph(
     floor_grid: Optional[np.ndarray] = None,
     ceiling_grid: Optional[np.ndarray] = None,
 ) -> WeightedGraph:
-    """构建 B6：规则三层图 + LPA*，仅把地形驱动采样替换为规则网格采样。"""
+    """构建 B5：规则三层图 + LPA*，仅把地形驱动采样替换为规则网格采样。"""
     rows, cols = z_grid.shape
 
     def pixel_to_km(r: int, c: int) -> Tuple[float, float]:
@@ -786,7 +788,7 @@ def build_regular_layered_graph(
 
     terminals = terminal_status.get("terminals", {})
     if not terminals:
-        raise RuntimeError("缺少 terminal_status.terminals，无法构建 B6 规则三层图。")
+        raise RuntimeError("缺少 terminal_status.terminals，无法构建 B5 规则三层图。")
 
     terminal_rcs: List[Tuple[int, int]] = []
     terminal_items: List[Tuple[str, dict]] = []
@@ -804,7 +806,7 @@ def build_regular_layered_graph(
     branch_pts = select_regular_grid_points(layer_allowed[1].astype(bool), int(branch_budget), exclude=exclude_rc)
     backbone_pts = select_regular_grid_points(layer_allowed[2].astype(bool), int(backbone_budget), exclude=exclude_rc)
     if len(branch_pts) == 0 or len(backbone_pts) == 0:
-        raise RuntimeError("B6 规则三层图构建失败：规则网格采样为空。")
+        raise RuntimeError("B5 规则三层图构建失败：规则网格采样为空。")
 
     nodes: List[List[float]] = []
     terminal_pillars: Dict[str, List[int]] = {}
@@ -939,10 +941,10 @@ def build_regular_layered_graph(
                 edges.append((u, v, 2))
 
     if not edges:
-        raise RuntimeError("B6 规则三层图构建失败：未生成任何边。")
+        raise RuntimeError("B5 规则三层图构建失败：未生成任何边。")
 
     edge_arr = np.asarray(edges, dtype=int)
-    return build_weighted_graph("B6_regular_layered", node_arr, edge_arr, z_grid, risk_fields=risk_fields)
+    return build_weighted_graph("B5_regular_layered", node_arr, edge_arr, z_grid, risk_fields=risk_fields)
 
 
 class LPAStarPlanner:
@@ -1572,12 +1574,19 @@ def resolve_benchmark_data_context(args: argparse.Namespace, root: Path) -> Tupl
     return {}, root, False
 
 
+def resolve_scene_out_dir(raw_out_dir: str, scene_out: Path, workdir: Path) -> Path:
+    """统一解析场景实验输出目录，避免 outputs/<scene> 被重复拼接。"""
+    p = Path(raw_out_dir)
+    if p.is_absolute():
+        return p
+    if str(p).replace("\\", "/").startswith("outputs/"):
+        return (workdir / p).resolve()
+    return (scene_out / p).resolve()
+
+
 def resolve_output_dir(root: Path, out_dir_arg: str) -> Path:
-    """将命令行输出目录统一解析到工作区根目录，避免切换 cwd 后出现重复嵌套。"""
-    out_dir = Path(out_dir_arg)
-    if out_dir.is_absolute():
-        return out_dir
-    return (root / out_dir).resolve()
+    """兼容旧调用：无场景上下文时，相对路径按工作区根目录解析。"""
+    return resolve_scene_out_dir(out_dir_arg, root, root)
 
 
 def build_task_node_locator(graph: WeightedGraph) -> Dict[str, object]:
@@ -1917,19 +1926,20 @@ def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict]
 
 
 def render_single_event_comparison_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
-    """增强版多基线单事件对比表，纳入 B6 结构性消融。"""
+    """增强版多基线单事件对比表，纳入 B5 结构性消融。"""
     label_map = {
         "B1_Voxel_Dijkstra": "B1 Voxel",
         "B2_GlobalAstar_Layered": "B2 GlobalA*",
         "B3_LPA_SingleLayer": "B3 FlatLPA*",
-        "B6_RegularLayered_LPA": "B6 RegularLayered LPA*",
+        BASELINE_B5: "B5 RegularLayered LPA*",
+        BASELINE_B6: "B6 RegularLayered LPA* (legacy)",
         "B4_Proposed_LPA_Layered": "B4 Proposed",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
         "B2_GlobalAstar_Layered",
         "B3_LPA_SingleLayer",
-        "B6_RegularLayered_LPA",
+        BASELINE_B5,
         "B4_Proposed_LPA_Layered",
     ]
     row_by_baseline = {r["baseline"]: r for r in summary_rows}
@@ -1969,7 +1979,7 @@ def render_single_event_comparison_markdown(summary_rows: List[dict], args: argp
         )
     lines.append("")
     lines.append(
-        "Note: B6 keeps the same three-layer semantic structure and the same LPA* replanner as B4, "
+        "Note: B5 keeps the same three-layer semantic structure and the same LPA* replanner as B4, "
         "but replaces terrain-driven node sampling with regular grid sampling. "
         "This isolates the contribution of terrain-aware layered network construction."
     )
@@ -1983,7 +1993,8 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
         "B2_GlobalAstar_Layered": "B2 分层全局 A*",
         "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
         "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
-        "B6_RegularLayered_LPA": "B6 规则三层 LPA*",
+        BASELINE_B5: "B5 规则三层 LPA*",
+        BASELINE_B6: "B6 规则三层 LPA*（旧命名）",
     }
     test_label = {
         "wilcoxon": "Wilcoxon",
@@ -2035,19 +2046,20 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
 
 
 def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: argparse.Namespace) -> str:
-    """中文版多基线单事件对比表，纳入 B6 结构性消融。"""
+    """中文版多基线单事件对比表，纳入 B5 结构性消融。"""
     label_map = {
         "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
         "B2_GlobalAstar_Layered": "B2 分层全局 A*",
         "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
-        "B6_RegularLayered_LPA": "B6 规则三层 LPA*",
+        BASELINE_B5: "B5 规则三层 LPA*",
+        BASELINE_B6: "B6 规则三层 LPA*（旧命名）",
         "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
         "B2_GlobalAstar_Layered",
         "B3_LPA_SingleLayer",
-        "B6_RegularLayered_LPA",
+        BASELINE_B5,
         "B4_Proposed_LPA_Layered",
     ]
     row_by_baseline = {r["baseline"]: r for r in summary_rows}
@@ -2087,7 +2099,7 @@ def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: a
         )
     lines.append("")
     lines.append(
-        "说明：B6 保持与 B4 相同的三层语义结构和同一套 LPA* 重规划器，"
+        "说明：B5 保持与 B4 相同的三层语义结构和同一套 LPA* 重规划器，"
         "仅将地形驱动采样替换为规则网格采样，用来隔离“地形驱动分层航路网络构造”的贡献。"
     )
     return "\n".join(lines) + "\n"
@@ -2101,7 +2113,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         print(f"[场景] 使用默认场景输出目录: {data_root}")
     os.chdir(data_root)
     RESOLUTION = resolve_resolution_m(scene_cfg, data_root)
-    out_dir = resolve_output_dir(root, args.out_dir)
+    out_dir = resolve_scene_out_dir(args.out_dir, data_root, root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     z_grid = np.load("Z_crop.npy")
@@ -2156,7 +2168,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         terminal_site_count = int(np.sum(np.rint(layered_nodes[:, 3]).astype(int) == 0))
         branch_regular_count = int(np.sum(np.rint(layered_nodes[:, 3]).astype(int) == 1) - terminal_site_count)
         backbone_regular_count = int(np.sum(np.rint(layered_nodes[:, 3]).astype(int) == 2) - terminal_site_count)
-        print("[build] building regular layered graph for B6...")
+        print("[build] building regular layered graph for B5...")
         b6_graph = build_regular_layered_graph(
             z_grid,
             layer_mid,
@@ -2170,7 +2182,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             ceiling_grid=ceiling_grid,
         )
         b6_task_locator = build_task_node_locator(b6_graph)
-        print(f"[build] B6 regular layered graph: |V|={b6_graph.n_nodes}, |E|={b6_graph.n_edges}")
+        print(f"[build] B5 regular layered graph: |V|={b6_graph.n_nodes}, |E|={b6_graph.n_edges}")
 
     voxel_planner = None
     if not args.skip_b1:
@@ -2397,7 +2409,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             }
         records.append(rec_b3)
 
-        # ---------- B6 (Regular layered graph + LPA*) ----------
+        # ---------- B5（规则三层图 + LPA*） ----------
         if b6_graph is not None and start_b6 is not None and goal_b6 is not None:
             area_event_b6 = build_area_event_from_center(
                 b6_graph.nodes,
@@ -2419,7 +2431,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 m_b6 = b6_graph.path_metrics(path_b6) if ok_b6 else {}
                 rec_b6 = {
                     "trial": trial,
-                    "baseline": BASELINE_B6,
+                    "baseline": BASELINE_B5,
                     "start_node": int(start_b6),
                     "goal_node": int(goal_b6),
                     "task_id": task_meta.get("task_id", ""),
@@ -2449,7 +2461,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             else:
                 rec_b6 = {
                     "trial": trial,
-                    "baseline": BASELINE_B6,
+                    "baseline": BASELINE_B5,
                     "start_node": int(start_b6),
                     "goal_node": int(goal_b6),
                     "task_id": task_meta.get("task_id", ""),
@@ -2553,7 +2565,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         "B3_LPA_SingleLayer",
     ]
     if b6_graph is not None:
-        baselines.append(BASELINE_B6)
+        baselines.append(BASELINE_B5)
     if voxel_planner is not None:
         baselines.append("B1_Voxel_Dijkstra")
 
@@ -2567,9 +2579,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
     if b6_graph is not None:
         pair_cfg.extend(
             [
-                ("B4_Proposed_LPA_Layered", BASELINE_B6, "replan_ms"),
-                ("B4_Proposed_LPA_Layered", BASELINE_B6, "path_cost"),
-                ("B4_Proposed_LPA_Layered", BASELINE_B6, "path_len_km"),
+                ("B4_Proposed_LPA_Layered", BASELINE_B5, "replan_ms"),
+                ("B4_Proposed_LPA_Layered", BASELINE_B5, "path_cost"),
+                ("B4_Proposed_LPA_Layered", BASELINE_B5, "path_len_km"),
             ]
         )
     if voxel_planner is not None:
@@ -2648,6 +2660,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
     summary_fields = list(summary_rows[0].keys()) if summary_rows else []
     if summary_fields:
         write_csv(out_dir / "benchmark_summary.csv", summary_rows, summary_fields)
+        structural_baselines = {
+            "B2_GlobalAstar_Layered",
+            "B3_LPA_SingleLayer",
+            BASELINE_B5,
+            "B4_Proposed_LPA_Layered",
+        }
+        structural_rows = [r for r in summary_rows if str(r.get("baseline", "")) in structural_baselines]
+        if structural_rows:
+            write_csv(out_dir / "benchmark_structural_ablation.csv", structural_rows, summary_fields)
 
     pair_fields = list(pair_rows[0].keys()) if pair_rows else []
     if pair_fields:
@@ -2670,6 +2691,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     print("[done] outputs:")
     print(f"  - {out_dir / 'benchmark_trials.csv'}")
     print(f"  - {out_dir / 'benchmark_summary.csv'}")
+    print(f"  - {out_dir / 'benchmark_structural_ablation.csv'}")
     print(f"  - {out_dir / 'benchmark_pairwise.csv'}")
     print(f"  - {out_dir / 'benchmark_table.md'}")
     print(f"  - {out_dir / 'benchmark_table_four_baselines.md'}")
@@ -2685,10 +2707,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
 
     root = Path(args.workdir).resolve()
     _scene_cfg, data_root, _use_scene = resolve_benchmark_data_context(args, root)
-    out_dir_arg = Path(args.out_dir)
-    if not out_dir_arg.is_absolute():
-        out_dir_arg = data_root / out_dir_arg
-    args.out_dir = str(out_dir_arg)
+    args.out_dir = str(resolve_scene_out_dir(args.out_dir, data_root, root))
 
     cmd = [
         sys.executable,
@@ -2760,7 +2779,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
     if args.skip_four_baseline:
         return
 
-    # 同时在相同实验根目录下补充完整的单事件多基线对比表（B1/B2/B3/B4/B6）。
+    # 同时在相同实验根目录下补充完整的单事件多基线对比表（B1/B2/B3/B4/B5）。
     baseline_dir = Path(args.out_dir).resolve() / "four_baseline"
     single_args = argparse.Namespace(**vars(args))
     single_args.mode = "single"
@@ -2778,6 +2797,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         ("benchmark_table_four_baselines.md", "benchmark_table_four_baselines.md"),
         ("benchmark_table_structural_ablation.md", "benchmark_table_structural_ablation.md"),
         ("benchmark_summary.csv", "benchmark_summary_four_baselines.csv"),
+        ("benchmark_structural_ablation.csv", "benchmark_structural_ablation.csv"),
         ("benchmark_trials.csv", "benchmark_trials_four_baselines.csv"),
     ]
     for src_name, dst_name in promote:
@@ -2787,7 +2807,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
             shutil.copyfile(src, dst)
             print(f"[matrix] promoted: {dst}")
 
-    # 确保根目录下的 benchmark_trials.csv 显式包含单事件 B1/B2/B3/B4/B6 结果。
+    # 确保根目录下的 benchmark_trials.csv 显式包含单事件 B1/B2/B3/B4/B5 结果。
     matrix_trials = out_dir / "benchmark_trials.csv"
     baseline_trials = baseline_dir / "benchmark_trials.csv"
     if matrix_trials.exists() and baseline_trials.exists():
@@ -2817,7 +2837,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
                 writer.writeheader()
                 for row in all_rows:
                     writer.writerow(row)
-            print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4/B6)")
+            print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4/B5)")
 
     # 在矩阵配置中补充单事件多基线运行元数据。
     cfg_path = out_dir / "benchmark_config.json"
@@ -2834,7 +2854,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
         "B1_Voxel_Dijkstra",
         "B2_GlobalAstar_Layered",
         "B3_LPA_SingleLayer",
-        BASELINE_B6,
+        BASELINE_B5,
         "B4_Proposed_LPA_Layered",
     ]
     cfg_data["benchmark_trials_merged"] = bool(matrix_trials.exists() and baseline_trials.exists())
@@ -2843,7 +2863,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4/B6 baselines.")
+    parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4/B5 baselines.")
     parser.add_argument(
         "--mode",
         type=str,
@@ -2898,7 +2918,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-four-baseline",
         action="store_true",
-        help="Skip extra single-mode run that outputs the complete B1/B2/B3/B4/B6 table.",
+        help="Skip extra single-mode run that outputs the complete B1/B2/B3/B4/B5 table.",
     )
     return parser.parse_args()
 

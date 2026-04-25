@@ -77,6 +77,15 @@ def resolve_optional_path(raw: str, workdir: Path) -> Path:
     return workdir / p
 
 
+def resolve_scene_out_dir(raw_out_dir: str, scene_out: Path, workdir: Path) -> Path:
+    p = Path(raw_out_dir)
+    if p.is_absolute():
+        return p
+    if str(p).replace("\\", "/").startswith("outputs/"):
+        return (workdir / p).resolve()
+    return (scene_out / p).resolve()
+
+
 def run_step(name: str, cmd: List[str], cwd: Path, dry_run: bool = False, note: str = "") -> StepResult:
     print(f"\n[步骤] {name}")
     print("[命令] " + " ".join(cmd))
@@ -144,6 +153,7 @@ def scene_summary_rows(
                 "baseline": "",
                 "scale": "",
                 "n_block": "",
+                "intensity_index": "",
                 "k_events": "",
                 "n_trials": "",
                 "n_success": "",
@@ -176,6 +186,7 @@ def scene_summary_rows(
                 "baseline": row.get("baseline", ""),
                 "scale": row.get("scale", ""),
                 "n_block": row.get("n_block", ""),
+                "intensity_index": first_existing_key(row, ["intensity_index", "n_block"]),
                 "k_events": row.get("k_events", ""),
                 "n_trials": row.get("n_trials", ""),
                 "n_success": row.get("n_success", ""),
@@ -212,6 +223,7 @@ def write_summary(path: Path, rows: Sequence[Dict[str, object]]) -> None:
         "baseline",
         "scale",
         "n_block",
+        "intensity_index",
         "k_events",
         "n_trials",
         "n_success",
@@ -259,7 +271,8 @@ def run_scene(
     cfg = load_scenario_config(scenario_path, workdir)
     scene_name = str(cfg.get("scene_name") or scenario_path.stem)
     scene_out = scenario_output_dir(cfg, workdir)
-    benchmark_out = scene_out / args.benchmark_out_name
+    benchmark_out = resolve_scene_out_dir(args.benchmark_out_name, scene_out, workdir)
+    benchmark_runner = "benchmark_matrix" if args.use_benchmark_matrix else args.benchmark_runner
     steps: List[StepResult] = []
     status = "ok"
     failed_step = ""
@@ -337,39 +350,67 @@ def run_scene(
         if steps[-1].returncode != 0:
             raise RuntimeError("task_generator 失败")
 
-        bench_cmd = [
-            args.python,
-            str(workdir / "benchmark.py"),
-            "--mode",
-            args.benchmark_mode,
-            "--scenario-config",
-            str(scenario_path),
-            "--workdir",
-            str(workdir),
-            "--trials",
-            str(args.trials),
-            "--seed",
-            str(args.seed),
-            "--out-dir",
-            str(benchmark_out),
-            "--event-type",
-            args.event_type,
-            "--event-radius-km",
-            str(args.event_radius_km),
-            "--event-severity",
-            str(args.event_severity),
-            "--min-start-goal-dist-km",
-            str(args.min_start_goal_dist_km),
-        ]
-        if args.skip_b1:
-            bench_cmd.append("--skip-b1")
+        if benchmark_runner == "benchmark_matrix":
+            bench_cmd = [
+                args.python,
+                str(workdir / "benchmark_matrix.py"),
+                "--scenario-config",
+                str(scenario_path),
+                "--workdir",
+                str(workdir),
+                "--trials",
+                str(args.trials),
+                "--key-trials",
+                str(args.key_trials),
+                "--seed",
+                str(args.seed),
+                "--out-dir",
+                str(benchmark_out),
+                "--event-type",
+                args.event_type,
+                "--event-radius-km",
+                str(args.event_radius_km),
+                "--event-severity",
+                str(args.event_severity),
+                "--min-start-goal-dist-km",
+                str(args.min_start_goal_dist_km),
+            ]
+        else:
+            bench_cmd = [
+                args.python,
+                str(workdir / "benchmark.py"),
+                "--mode",
+                args.benchmark_mode,
+                "--scenario-config",
+                str(scenario_path),
+                "--workdir",
+                str(workdir),
+                "--trials",
+                str(args.trials),
+                "--seed",
+                str(args.seed),
+                "--out-dir",
+                str(benchmark_out),
+                "--event-type",
+                args.event_type,
+                "--event-radius-km",
+                str(args.event_radius_km),
+                "--event-severity",
+                str(args.event_severity),
+                "--min-start-goal-dist-km",
+                str(args.min_start_goal_dist_km),
+            ]
+            if args.key_trials > 0:
+                bench_cmd.extend(["--matrix-key-trials", str(args.key_trials)])
+            if args.skip_b1:
+                bench_cmd.append("--skip-b1")
         if args.disable_plots:
             bench_cmd.append("--disable-plots")
         if args.benchmark_extra_args:
             bench_cmd.extend(shlex.split(args.benchmark_extra_args))
-        steps.append(run_step("benchmark", bench_cmd, workdir, args.dry_run))
+        steps.append(run_step(benchmark_runner, bench_cmd, workdir, args.dry_run))
         if steps[-1].returncode != 0:
-            raise RuntimeError("benchmark 失败")
+            raise RuntimeError(f"{benchmark_runner} 失败")
 
     except Exception as exc:
         status = "failed"
@@ -385,7 +426,7 @@ def run_scene(
         status,
         failed_step,
         steps,
-        args.benchmark_mode,
+        benchmark_runner if benchmark_runner == "benchmark_matrix" else args.benchmark_mode,
         error,
     )
 
@@ -395,10 +436,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario-configs", nargs="+", default=["scenarios/*.json"], help="场景 JSON 路径或 glob。")
     parser.add_argument("--workdir", type=str, default=".", help="项目根目录。")
     parser.add_argument("--python", type=str, default=sys.executable, help="用于执行各脚本的 Python 解释器。")
+    parser.add_argument("--benchmark-runner", choices=["benchmark", "benchmark_matrix"], default="benchmark")
+    parser.add_argument("--use-benchmark-matrix", action="store_true", help="等价于 --benchmark-runner benchmark_matrix。")
     parser.add_argument("--benchmark-mode", choices=["single", "matrix"], default="single")
     parser.add_argument("--benchmark-out-name", type=str, default="tests/benchmark_multi_scene")
     parser.add_argument("--summary-csv", type=str, default="outputs/_summaries/multi_scene_summary.csv")
     parser.add_argument("--trials", type=int, default=5)
+    parser.add_argument("--key-trials", type=int, default=0)
     parser.add_argument("--seed", type=int, default=20260309)
     parser.add_argument("--event-type", choices=["no_fly", "wind", "comm_risk"], default="no_fly")
     parser.add_argument("--event-radius-km", type=float, default=0.8)

@@ -20,6 +20,7 @@
 | `lpa_star.py` | 兼容入口：执行单次 LPA* 路径规划、区域扰动和增量重规划演示。 |
 | `benchmark.py` | 兼容入口：运行 single 或 matrix benchmark。 |
 | `benchmark_matrix.py` | matrix benchmark 的 B4/B2 事件流实验实现。 |
+| `tools/plot_matrix_results.py` | 读取 matrix CSV 并输出论文 PDF 图。 |
 | `run_multi_scene.py` | 多场景流水线执行器。 |
 | `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
 | `data/raw/huashan/map.osm` | 华山本地 OSM 输入。 |
@@ -101,7 +102,7 @@ python benchmark.py --mode single --scenario-config scenarios/huashan.json --wor
 4. `communication_risk.py`：基于地形视距和地面通信源生成三层通信风险。
 5. `layered_graph.py`：对终端层、区域支路层和骨干层采样，进行碰撞检测并生成分层图。
 6. `task_generator.py`：自动生成虚拟配送站、补充候选目标点和分层物流任务。
-7. `benchmark.py --mode single`：比较 B1/B2/B3/B4/B6，其中 B6 为“规则三层图 + LPA*”结构性消融；在 `--skip-b1` 下可跳过传统体素 Dijkstra。
+7. `benchmark.py --mode single`：比较 B1/B2/B3/B4/B5，其中 B5 为“规则三层图 + LPA*”结构性消融；在 `--skip-b1` 下可跳过传统体素 Dijkstra。
 
 也可以使用总入口一次跑完：
 
@@ -155,7 +156,7 @@ python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode s
 
 ## Benchmark 流
 
-`benchmark.py --mode single` 输出一次多基线统计表（含 B6 结构性消融）：
+`benchmark.py --mode single` 输出一次多基线统计表（含 B5 结构性消融）：
 
 ```powershell
 python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --out-dir tests/benchmark_single
@@ -173,6 +174,22 @@ python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . 
 ```
 
 该脚本会自动把实验 A/B/C/D 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 配对 speedup / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
+
+完整场景流水线也可以直接调用新版矩阵实验，不需要先生成场景再手动运行 `benchmark_matrix.py`：
+```powershell
+python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --benchmark-out-name tests/matrix_final
+```
+
+矩阵结果生成后，可直接输出论文 PDF 图：
+```powershell
+python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/matrix_final
+```
+
+若需要同时生成 `fig_structural_ablation.pdf`，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 B5 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
+单独给 single 输出目录画 B5 消融图可运行：
+```powershell
+python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/benchmark_single --ablation-only
+```
 
 矩阵实验含义：
 
@@ -230,10 +247,13 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_summary.csv` | 按基线或实验组合聚合后的均值、成功率和图规模。 |
 | `benchmark_pairwise.csv` | 成对基线统计比较。 |
 | `benchmark_combo_status.csv` | matrix 模式下各组合接受 trial 情况。 |
+| `benchmark_failure_reasons.csv` | matrix 模式下失败原因统计，用于解释 small scale 低成功率。 |
 | `benchmark_events.csv` | matrix 模式下事件流采样记录。 |
 | `benchmark_table.md` | 可直接放入论文草稿的结果表。 |
 | `benchmark_table_four_baselines.md` | 四基线对比表。 |
-| `benchmark_table_structural_ablation.md` | 含 B6 的结构性消融对比表。 |
+| `benchmark_table_structural_ablation.md` | 含 B5 的结构性消融对比表。 |
+| `benchmark_structural_ablation.csv` | B2/B3/B4/B5 结构性消融 CSV。 |
+| `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的论文图。 |
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
 | `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |
 | `benchmark_config.json` | 本次实验参数快照。 |
@@ -261,6 +281,7 @@ python benchmark.py --help
 python benchmark_matrix.py --help
 python run_multi_scene.py --help
 python tools/locate_targets.py --help
+python tools/plot_matrix_results.py --help
 ```
 
 单场景 smoke：
