@@ -19,7 +19,7 @@
 | `task_generator.py` | 兼容入口：生成虚拟配送站、候选目标点和物流任务。 |
 | `lpa_star.py` | 兼容入口：执行单次 LPA* 路径规划、区域扰动和增量重规划演示。 |
 | `benchmark.py` | 兼容入口：运行 single 或 matrix benchmark。 |
-| `benchmark_matrix.py` | matrix benchmark 的 B4/B2 事件流实验实现。 |
+| `benchmark_matrix.py` | matrix benchmark 的 M-P/M-A 事件流实验实现。 |
 | `tools/plot_matrix_results.py` | 读取 matrix CSV 并输出论文 PDF 图。 |
 | `run_multi_scene.py` | 多场景流水线执行器。 |
 | `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
@@ -102,7 +102,7 @@ python benchmark.py --mode single --scenario-config scenarios/huashan.json --wor
 4. `communication_risk.py`：基于地形视距和地面通信源生成三层通信风险。
 5. `layered_graph.py`：对终端层、区域支路层和骨干层采样，进行碰撞检测并生成分层图。
 6. `task_generator.py`：自动生成虚拟配送站、补充候选目标点和分层物流任务。
-7. `benchmark.py --mode single`：比较 B1/B2/B3/B4/B5，其中 B5 为“规则三层图 + LPA*”结构性消融；在 `--skip-b1` 下可跳过传统体素 Dijkstra。
+7. `benchmark.py --mode single`：比较 M-P/M-A/M-F/M-R/M-V 五类方法，其中 M-R 为“规则三层图 + LPA*”结构性消融；在 `--skip-b1` 下可跳过传统体素全局搜索。
 
 也可以使用总入口一次跑完：
 
@@ -156,23 +156,32 @@ python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode s
 
 ## Benchmark 流
 
-论文正文和结果图统一使用下表标签，CSV 仍保留 `baseline` 代号便于检索：
+论文正文和结果图统一使用 M 系列方法编号，CSV 的 `baseline` 字段仍保留 B 系列内部代号便于检索：
 
-| Code | Figure label | Full method name |
-|---|---|---|
-| B4 | Terrain-aware LPA* | Terrain-aware three-layer airway network with LPA*-based incremental replanning |
-| B2 | Layered A* | Terrain-aware three-layer airway network with global A* recomputation |
-| B3 | Single-layer LPA* | Single-layer graph with LPA*-based replanning |
-| B5 | Regular-layered LPA* | Regular three-layer graph with LPA*-based replanning |
-| B1 | Voxel Search | Coarse voxel graph with global search |
+| Method ID | Internal baseline ID | Figure label | Full method name | 作用 |
+|---|---|---|---|---|
+| M-P | B4_Proposed_LPA_Layered | Terrain-aware Layered LPA* (Proposed) | Terrain-aware three-layer airway network with LPA*-based incremental replanning | 本文主方法 |
+| M-A | B2_GlobalAstar_Layered | Terrain-aware Layered A* | Terrain-aware three-layer airway network with global A* recomputation | 消融增量重规划 |
+| M-F | B3_LPA_SingleLayer | Flat-graph LPA* | Flat graph with LPA*-based replanning | 消融三层航线结构 |
+| M-R | B5_RegularLayered_LPA | Regular-layered LPA* | Regular three-layer graph with LPA*-based replanning | 消融地形驱动分层 |
+| M-V | B1_Voxel_Dijkstra | Voxel Global Search | Coarse voxel graph with global search | 传统基线 |
 
-`benchmark.py --mode single` 输出一次多基线统计表（含 B5 结构性消融）：
+论文实验编号统一使用 E 系列：
+
+| Experiment ID | Recommended name | 对应输出 | 主要目的 |
+|---|---|---|---|
+| E1 | Cross-terrain Generalization and Baseline Comparison | `multi_scene_summary.csv` / `benchmark_summary.csv` | 验证跨华山、黄山、峨眉山的泛化能力，并进行综合基线对比。 |
+| E2 | Structural Ablation Study | `benchmark_structural_ablation.csv` | 拆开验证增量机制、三层结构、地形驱动分层和传统体素基线。 |
+| E3 | Event-driven Replanning Matrix Analysis | `experiment_A.csv` / `experiment_B.csv` / `experiment_C.csv` / `experiment_D.csv` | 在不同事件参数下分析 M-P 与 M-A 的增量重规划差异。 |
+| E4 | Path-quality Consistency Analysis | `experiment_path_quality.csv` / `benchmark_trials.csv` | 验证 M-P 的速度优势不是通过牺牲路径质量获得。 |
+
+`benchmark.py --mode single` 输出一次多基线统计表（含 M-R 结构性消融）：
 
 ```powershell
 python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --out-dir tests/benchmark_single
 ```
 
-`benchmark.py --mode matrix` 输出论文式 A/B/C/D 实验矩阵：
+`benchmark.py --mode matrix` 输出论文式 E3.1-E3.4 事件驱动矩阵实验：
 
 ```powershell
 python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 10 --matrix-key-trials 30 --skip-b1 --disable-plots --out-dir tests/benchmark_matrix
@@ -183,7 +192,7 @@ python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --wor
 python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . --trials 10 --key-trials 30 --disable-plots --out-dir tests/benchmark_matrix_paper
 ```
 
-该脚本会自动把实验 A/B/C/D 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 配对 speedup / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
+该脚本会自动把 E3.1-E3.4 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 配对 speedup / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
 
 完整场景流水线也可以直接调用新版矩阵实验，不需要先生成场景再手动运行 `benchmark_matrix.py`：
 ```powershell
@@ -200,20 +209,20 @@ python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmar
 python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/matrix_final
 ```
 
-若需要同时生成 `fig_structural_ablation.pdf`，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 B5 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
-单独给 single 输出目录画 B5 消融图可运行：
+若需要同时生成 `fig_structural_ablation.pdf`，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
+单独给 single 输出目录画 M-R 消融图可运行：
 ```powershell
 python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/benchmark_single --ablation-only
 ```
 
-矩阵实验含义：
+E3 子实验含义：
 
-| 实验 | 输出文件 | 含义 |
-|---|---|---|
-| A | `experiment_A.csv` | 事件强度或封锁规模变化下的性能。 |
-| B | `experiment_B.csv` | 连续多事件重规划下的累计性能。 |
-| C | `experiment_C.csv` | 图规模变化下的性能。 |
-| D | `experiment_D.csv` | 队列、更新和 reopened 等工作量指标。 |
+| Sub-experiment ID | 输出文件 | 推荐名称 | 变化参数 | 固定/对比方法 |
+|---|---|---|---|---|
+| E3.1 | `experiment_A.csv` | Event-intensity Sensitivity | `intensity_index` / `n_block` | M-P vs M-A |
+| E3.2 | `experiment_B.csv` | Consecutive-event Replanning | `K` | M-P vs M-A |
+| E3.3 | `experiment_C.csv` | Graph-scale Sensitivity | `scale` | M-P vs M-A |
+| E3.4 | `experiment_D.csv` | Workload Mechanism Analysis | workload metrics | M-P vs M-A |
 
 ## 输出结果说明
 
@@ -267,9 +276,9 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_events.csv` | matrix 模式下事件流采样记录。 |
 | `benchmark_table.md` | 可直接放入论文草稿的结果表。 |
 | `benchmark_table_four_baselines.md` | 四基线对比表。 |
-| `benchmark_table_structural_ablation.md` | 含 B5 的结构性消融对比表。 |
-| `benchmark_structural_ablation.csv` | B1/B2/B3/B4/B5 结构性消融 CSV，含 `code`、`figure_label` 和 `full_method_name`。 |
-| `fig_expA_event_intensity_time.pdf` | Experiment A 事件强度时间图。 |
+| `benchmark_table_structural_ablation.md` | 含 M-R 的结构性消融对比表。 |
+| `benchmark_structural_ablation.csv` | M-P/M-A/M-F/M-R/M-V 结构性消融 CSV，含 `method_id`、`internal_code`、`figure_label` 和 `full_method_name`。 |
+| `fig_expA_event_intensity_time.pdf` | E3.1 事件强度时间图。 |
 | `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的其他论文图。 |
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
 | `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |

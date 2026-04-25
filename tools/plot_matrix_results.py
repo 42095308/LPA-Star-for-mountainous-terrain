@@ -27,19 +27,19 @@ B1 = "B1_Voxel_Dijkstra"
 B6_LEGACY = "B6_RegularLayered_LPA"
 
 FIGURE_LABELS = {
-    B4: "Terrain-aware LPA* (Proposed)",
-    B2: "Layered A*",
-    B3: "Single-layer LPA*",
+    B4: "Terrain-aware Layered LPA* (Proposed)",
+    B2: "Terrain-aware Layered A*",
+    B3: "Flat-graph LPA*",
     B5: "Regular-layered LPA*",
-    B1: "Voxel Search",
+    B1: "Voxel Global Search",
 }
 
 AXIS_LABELS = {
-    B4: "Terrain-aware LPA*",
-    B2: "Layered A*",
-    B3: "Single-layer LPA*",
+    B4: "Terrain-aware Layered LPA*",
+    B2: "Terrain-aware Layered A*",
+    B3: "Flat-graph LPA*",
     B5: "Regular-layered LPA*",
-    B1: "Voxel Search",
+    B1: "Voxel Global Search",
 }
 
 
@@ -105,7 +105,7 @@ def sorted_by_int(rows: Sequence[dict], field: str) -> List[dict]:
 
 
 def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Path:
-    """Experiment A：事件强度索引对单事件重规划时间的影响。"""
+    """E3.1：事件强度索引对单事件重规划时间的影响。"""
     rows = sorted(rows, key=lambda r: to_int(r.get("intensity_index", r.get("n_block"))))
     x = np.asarray([to_int(r.get("intensity_index", r.get("n_block"))) for r in rows], dtype=float)
     b4_mean = np.asarray([to_float(r.get("b4_mean_event_ms")) for r in rows], dtype=float)
@@ -125,12 +125,12 @@ def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Pat
         ax.fill_between(x, b2_p50, b2_p95, color="#1f78b4", alpha=0.14, linewidth=0)
     ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Mean replanning time per event (ms)")
-    ax.set_title("Experiment A: event-intensity sensitivity")
+    ax.set_title("E3.1 Event-intensity Sensitivity")
     style_axes(ax)
     ax2 = ax.twinx()
     ax2.axhline(1.0, color="#555555", linestyle="--", linewidth=0.9, alpha=0.55)
-    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label="Layered A* / Terrain-aware LPA*")
-    ax2.set_ylabel("Speedup ratio (Layered A* / Terrain-aware LPA*)")
+    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label=f"{AXIS_LABELS[B2]} / {AXIS_LABELS[B4]}")
+    ax2.set_ylabel(f"Speedup ratio ({AXIS_LABELS[B2]} / {AXIS_LABELS[B4]})")
     ax2.spines["top"].set_visible(False)
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -139,7 +139,7 @@ def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Pat
 
 
 def plot_exp_b_cumulative_time(rows: List[dict], out_dir: Path, dpi: int) -> Path:
-    """Experiment B：连续 K 次扰动下的累计重规划时间。"""
+    """E3.2：连续 K 次扰动下的累计重规划时间。"""
     rows = sorted_by_int(rows, "k_events")
     x = np.asarray([to_int(r.get("k_events")) for r in rows], dtype=float)
     b4_mean = np.asarray([to_float(r.get("b4_mean_cumulative_ms")) for r in rows], dtype=float)
@@ -158,14 +158,14 @@ def plot_exp_b_cumulative_time(rows: List[dict], out_dir: Path, dpi: int) -> Pat
         ax.fill_between(x, b2_p50, b2_p95, color="#1f78b4", alpha=0.14, linewidth=0)
     ax.set_xlabel("Number of sequential events K")
     ax.set_ylabel("Cumulative replanning time (ms)")
-    ax.set_title("Experiment B: cumulative replanning time")
+    ax.set_title("E3.2 Consecutive-event Replanning")
     ax.legend(frameon=False, fontsize=8)
     style_axes(ax)
     return save_figure(fig, out_dir, "fig_expB_cumulative_time.pdf", dpi)
 
 
 def plot_exp_b_speedup(rows: List[dict], out_dir: Path, dpi: int) -> Path:
-    """Experiment B：B2/B4 时间比，突出状态复用收益。"""
+    """E3.2：M-A/M-P 时间比，突出状态复用收益。"""
     rows = sorted_by_int(rows, "k_events")
     x = np.asarray([to_int(r.get("k_events")) for r in rows], dtype=float)
     ratio = np.asarray([to_float(r.get("b2_over_b4_time_ratio")) for r in rows], dtype=float)
@@ -181,15 +181,15 @@ def plot_exp_b_speedup(rows: List[dict], out_dir: Path, dpi: int) -> Path:
         if math.isfinite(yi) and math.isfinite(fr):
             ax.annotate(f"{100.0 * fr:.0f}%", (xi, yi), textcoords="offset points", xytext=(0, 7), ha="center", fontsize=7)
     ax.set_xlabel("Number of sequential events K")
-    ax.set_ylabel("Speedup ratio (Layered A* / Terrain-aware LPA*)")
-    ax.set_title("Experiment B: state-reuse speedup")
+    ax.set_ylabel(f"Speedup ratio ({AXIS_LABELS[B2]} / {AXIS_LABELS[B4]})")
+    ax.set_title("E3.2 Consecutive-event Replanning Speedup")
     ax.legend(frameon=False, fontsize=8)
     style_axes(ax)
     return save_figure(fig, out_dir, "fig_expB_speedup.pdf", dpi)
 
 
 def plot_exp_d_workload(rows: List[dict], out_dir: Path, dpi: int) -> Path:
-    """Experiment D：不同扰动强度下的 expanded nodes 工作量。"""
+    """E3.4：不同扰动强度下的 expanded nodes 工作量。"""
     rows = sorted_by_int(rows, "intensity_index")
     x = np.asarray([to_int(r.get("intensity_index", r.get("n_block"))) for r in rows], dtype=float)
     b4 = np.asarray([to_float(r.get("b4_mean_event_expanded")) for r in rows], dtype=float)
@@ -202,11 +202,11 @@ def plot_exp_d_workload(rows: List[dict], out_dir: Path, dpi: int) -> Path:
     ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label=FIGURE_LABELS[B2])
     ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Expanded nodes per event")
-    ax.set_title("Experiment D: workload reduction")
+    ax.set_title("E3.4 Workload Mechanism Analysis")
     style_axes(ax)
     ax2 = ax.twinx()
     ax2.plot(x, 100.0 * reduction, color="#238b45", marker="D", linewidth=1.8, label="Reduction")
-    ax2.set_ylabel("Terrain-aware LPA* workload reduction (%)")
+    ax2.set_ylabel(f"{AXIS_LABELS[B4]} workload reduction (%)")
     ax2.spines["top"].set_visible(False)
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -215,7 +215,7 @@ def plot_exp_d_workload(rows: List[dict], out_dir: Path, dpi: int) -> Path:
 
 
 def plot_exp_c_scale_success(rows: List[dict], out_dir: Path, dpi: int) -> Path:
-    """Experiment C：图规模敏感性下的成功率。"""
+    """E3.3：图规模敏感性下的成功率。"""
     order = ["small", "medium", "large"]
     rows_by_scale = {str(r.get("scale")): r for r in rows}
     scales = [s for s in order if s in rows_by_scale] + [s for s in rows_by_scale if s not in order]
@@ -233,14 +233,14 @@ def plot_exp_c_scale_success(rows: List[dict], out_dir: Path, dpi: int) -> Path:
     ax.set_xticklabels([f"{s}\n|V|={n}" for s, n in zip(scales, nodes)])
     ax.set_ylabel("Success rate (%)")
     ax.set_xlabel("Graph scale")
-    ax.set_title("Experiment C: scale sensitivity")
+    ax.set_title("E3.3 Graph-scale Sensitivity")
     ax.legend(frameon=False, fontsize=8, loc="lower right")
     style_axes(ax)
     return save_figure(fig, out_dir, "fig_expC_scale_success.pdf", dpi)
 
 
 def paired_trial_costs(rows: List[dict]) -> Tuple[np.ndarray, np.ndarray]:
-    """从 trial 级记录中配对提取 B2 与 B4 的最终路径代价。"""
+    """从 trial 级记录中配对提取 M-A 与 M-P 的最终路径代价。"""
     by_key: Dict[Tuple[str, int, int, int, str], dict] = {}
     for r in rows:
         baseline = str(r.get("baseline", ""))
@@ -273,7 +273,7 @@ def paired_trial_costs(rows: List[dict]) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def plot_path_quality_scatter(trial_rows: List[dict], quality_rows: List[dict], out_dir: Path, dpi: int) -> Path:
-    """路径质量散点：B4 与 B2 优化目标相同，理想情况下应接近 y=x。"""
+    """路径质量散点：M-P 与 M-A 优化目标相同，理想情况下应接近 y=x。"""
     b2_cost, b4_cost = paired_trial_costs(trial_rows)
     fig, ax = plt.subplots(figsize=(4.5, 4.2))
     if b2_cost.size > 0:
@@ -284,23 +284,23 @@ def plot_path_quality_scatter(trial_rows: List[dict], quality_rows: List[dict], 
         ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], linestyle="--", color="#d95f02", linewidth=1.3)
         ax.set_xlim(lo - pad, hi + pad)
         ax.set_ylim(lo - pad, hi + pad)
-        ax.set_xlabel("Layered A* final path cost")
-        ax.set_ylabel("Terrain-aware LPA* final path cost")
-        ax.set_title("Path quality consistency")
+        ax.set_xlabel(f"{AXIS_LABELS[B2]} final path cost")
+        ax.set_ylabel(f"{AXIS_LABELS[B4]} final path cost")
+        ax.set_title("E4 Path-quality Consistency")
     else:
         x = np.arange(len(quality_rows), dtype=float)
         gap = np.asarray([to_float(r.get("median_abs_cost_gap")) for r in quality_rows], dtype=float)
         ax.bar(x, gap, color="#737373", alpha=0.75)
         ax.set_xlabel("Matrix combo index")
         ax.set_ylabel("Median absolute cost gap")
-        ax.set_title("Path quality summary")
+        ax.set_title("E4 Path-quality Summary")
         ax.text(0.5, 0.92, "Trial-level pairs not found", transform=ax.transAxes, ha="center", fontsize=8)
     style_axes(ax)
     return save_figure(fig, out_dir, "fig_path_quality_scatter.pdf", dpi)
 
 
 def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path | None:
-    """B5 结构性消融图：B4/B5/B3/B2 四类方法同图比较。"""
+    """E2 结构性消融图：M-P/M-A/M-F/M-R/M-V 同图比较。"""
     if not rows:
         return None
     by_baseline = {str(r.get("baseline_id", r.get("baseline"))): r for r in rows}
@@ -309,11 +309,11 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
     if B5 not in by_baseline:
         return None
     ordered = [
-        ("B1\nVoxel Search", B1, "#8c510a"),
-        ("B2\nLayered A*", B2, "#1f78b4"),
-        ("B3\nSingle-layer LPA*", B3, "#7570b3"),
-        ("B5\nRegular-layered LPA*", B5, "#66a61e"),
-        ("B4\nProposed", B4, "#d95f02"),
+        ("M-A\nTerrain-aware\nLayered A*", B2, "#1f78b4"),
+        ("M-F\nFlat-graph\nLPA*", B3, "#7570b3"),
+        ("M-R\nRegular-layered\nLPA*", B5, "#66a61e"),
+        ("M-V\nVoxel Global\nSearch", B1, "#8c510a"),
+        ("M-P\nProposed", B4, "#d95f02"),
     ]
     present = [(label, key, color) for label, key, color in ordered if key in by_baseline]
     if len(present) < 2:
@@ -341,7 +341,7 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
         ax.set_xticks(x)
         ax.set_xticklabels(labels, fontsize=8)
         style_axes(ax)
-    fig.suptitle("Structural ablation of terrain-aware LPA*", y=1.03, fontsize=11)
+    fig.suptitle("E2 Structural Ablation Study", y=1.03, fontsize=11)
     return save_figure(fig, out_dir, "fig_structural_ablation.pdf", dpi)
 
 
@@ -363,7 +363,7 @@ def configure_matplotlib() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="绘制 benchmark matrix 论文图。")
-    parser.add_argument("--result-dir", type=str, required=True, help="包含 benchmark_summary.csv 和 experiment_A/B/C/D.csv 的目录。")
+    parser.add_argument("--result-dir", type=str, required=True, help="包含 benchmark_summary.csv 和 E3.1-E3.4（experiment_A/B/C/D.csv）的目录。")
     parser.add_argument("--out-dir", type=str, default="", help="图输出目录；默认写回 result-dir。")
     parser.add_argument("--ablation-only", action="store_true", help="只读取结构性消融 CSV 并生成 fig_structural_ablation.pdf。")
     parser.add_argument("--dpi", type=int, default=300, help="PDF 中嵌入栅格元素的分辨率。")
@@ -371,15 +371,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_structural_rows(result_dir: Path, summary_rows: List[dict] | None = None) -> List[dict]:
-    """按优先级读取 B5 结构性消融结果。"""
+    """按优先级读取 E2 结构性消融结果。"""
     structural_rows = read_csv_rows(result_dir / "benchmark_structural_ablation.csv", required=False)
     if not structural_rows:
         structural_rows = read_csv_rows(result_dir / "benchmark_summary_four_baselines.csv", required=False)
     if not structural_rows and summary_rows is not None:
-        structural_rows = [r for r in summary_rows if str(r.get("baseline", "")) in {B2, B3, B4, B5, B6_LEGACY}]
+        structural_rows = [r for r in summary_rows if str(r.get("baseline", "")) in {B1, B2, B3, B4, B5, B6_LEGACY}]
     if not structural_rows:
         structural_rows = read_csv_rows(result_dir / "benchmark_summary.csv", required=False)
-        structural_rows = [r for r in structural_rows if str(r.get("baseline", "")) in {B2, B3, B4, B5, B6_LEGACY}]
+        structural_rows = [r for r in structural_rows if str(r.get("baseline", "")) in {B1, B2, B3, B4, B5, B6_LEGACY}]
     return structural_rows
 
 
@@ -393,7 +393,7 @@ def main() -> None:
         structural_rows = load_structural_rows(result_dir)
         ablation_path = plot_structural_ablation(structural_rows, out_dir, args.dpi)
         if ablation_path is None:
-            raise RuntimeError("未找到包含 B5_RegularLayered_LPA 的结构性消融结果。")
+            raise RuntimeError("未找到包含 M-R / B5_RegularLayered_LPA 的结构性消融结果。")
         print("[done] 结构性消融图已生成：")
         print(f"  - {ablation_path}")
         return

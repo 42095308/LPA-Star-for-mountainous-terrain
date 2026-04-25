@@ -3,11 +3,11 @@
 
 Baselines
 ---------
-B4 / Terrain-aware Layered LPA*: proposed method
-B2 / Layered A*: terrain-aware layered graph with global A* recomputation
-B3 / Single-layer LPA*: single-layer graph with LPA*-based replanning
-B5 / Regular-layered LPA*: regular three-layer graph with LPA*-based replanning
-B1 / Voxel Search: coarse voxel graph with global search
+M-P / B4 / Terrain-aware Layered LPA*: proposed method
+M-A / B2 / Terrain-aware Layered A*: terrain-aware layered graph with global A* recomputation
+M-F / B3 / Flat-graph LPA*: flat graph with LPA*-based replanning
+M-R / B5 / Regular-layered LPA*: regular three-layer graph with LPA*-based replanning
+M-V / B1 / Voxel Global Search: coarse voxel graph with global search
 """
 
 from __future__ import annotations
@@ -83,27 +83,31 @@ BASELINE_B1 = "B1_Voxel_Dijkstra"
 
 STRUCTURAL_ABLATION_METHODS = [
     (
+        "M-P",
         "B4",
         BASELINE_B4,
-        "Terrain-aware LPA*",
+        "Terrain-aware Layered LPA* (Proposed)",
         "Terrain-aware three-layer airway network with LPA*-based incremental replanning",
         "proposed_full_method",
     ),
     (
+        "M-A",
         "B2",
         BASELINE_B2,
-        "Layered A*",
+        "Terrain-aware Layered A*",
         "Terrain-aware three-layer airway network with global A* recomputation",
         "incremental_replanning_ablation",
     ),
     (
+        "M-F",
         "B3",
         BASELINE_B3,
-        "Single-layer LPA*",
-        "Single-layer graph with LPA*-based replanning",
+        "Flat-graph LPA*",
+        "Flat graph with LPA*-based replanning",
         "layered_network_ablation",
     ),
     (
+        "M-R",
         "B5",
         BASELINE_B5,
         "Regular-layered LPA*",
@@ -111,21 +115,22 @@ STRUCTURAL_ABLATION_METHODS = [
         "terrain_aware_layering_ablation",
     ),
     (
+        "M-V",
         "B1",
         BASELINE_B1,
-        "Voxel Search",
+        "Voxel Global Search",
         "Coarse voxel graph with global search",
         "classical_voxel_baseline",
     ),
 ]
 
 DISPLAY_LABELS = {
-    BASELINE_B4: "Terrain-aware LPA*",
-    BASELINE_B2: "Layered A*",
-    BASELINE_B3: "Single-layer LPA*",
+    BASELINE_B4: "Terrain-aware Layered LPA*",
+    BASELINE_B2: "Terrain-aware Layered A*",
+    BASELINE_B3: "Flat-graph LPA*",
     BASELINE_B5: "Regular-layered LPA*",
     BASELINE_B6: "Regular-layered LPA*",
-    BASELINE_B1: "Voxel Search",
+    BASELINE_B1: "Voxel Global Search",
 }
 
 
@@ -785,13 +790,13 @@ def build_single_layer_graph(
     collision_samples: int = 10,
     risk_fields: Optional[Dict[str, object]] = None,
 ) -> WeightedGraph:
-    """构建单层展平图（B3 基线）。
+    """构建单层展平图（M-F / B3 基线）。
 
     【归一化基准差异说明】
-    B3 单层图的边代价通过 compute_edge_costs() 独立计算，其 t_max/e_max/r_max
-    归一化基准与 B4（分层图）不同，因为图结构和边集不同。
+    M-F 单层图的边代价通过 compute_edge_costs() 独立计算，其 t_max/e_max/r_max
+    归一化基准与 M-P（分层图）不同，因为图结构和边集不同。
     因此，跨基线的路径代价（无量纲加权总代价）数值不可直接比较。
-    论文对比表中应当说明此点，或统一使用 B4 的归一化基准对所有基线做标准化。
+    论文对比表中应当说明此点，或统一使用 M-P 的归一化基准对所有基线做标准化。
     """
     nodes = layered_graph.nodes.copy()
     rows, cols = z_grid.shape
@@ -1797,13 +1802,15 @@ def build_structural_ablation_rows(summary_rows: List[dict]) -> List[dict]:
         row_by_baseline[BASELINE_B5] = legacy_row
 
     rows: List[dict] = []
-    for order, (code, baseline, figure_label, full_method_name, role) in enumerate(STRUCTURAL_ABLATION_METHODS, start=1):
+    for order, (method_id, internal_code, baseline, figure_label, full_method_name, role) in enumerate(STRUCTURAL_ABLATION_METHODS, start=1):
         src = row_by_baseline.get(baseline)
         if src is None:
             continue
         row = dict(src)
         row["method_order"] = order
-        row["code"] = code
+        row["code"] = method_id
+        row["method_id"] = method_id
+        row["internal_code"] = internal_code
         row["figure_label"] = figure_label
         row["method"] = figure_label
         row["full_method_name"] = full_method_name
@@ -1884,7 +1891,7 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
         f"area event: `{args.event_type}`, radius `{args.event_radius_km:.2f} km`, severity `{args.event_severity:.2f}`"
     )
     lines.append(
-        f"- B1 voxel config: `xy_step={args.b1_xy_step_m:.0f}m`, "
+        f"- M-V voxel config: `xy_step={args.b1_xy_step_m:.0f}m`, "
         f"`agl_step={args.b1_agl_step_m:.0f}m`, timeout `{args.b1_timeout_s:.1f}s`"
     )
     lines.append("")
@@ -1920,10 +1927,10 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
 
 def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Search",
-        "B2_GlobalAstar_Layered": "Layered A*",
-        "B3_LPA_SingleLayer": "Single-layer LPA*",
-        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
+        "B1_Voxel_Dijkstra": "Voxel Global Search",
+        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
+        "B3_LPA_SingleLayer": "Flat-graph LPA*",
+        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -1982,7 +1989,7 @@ def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict]
         f"area event: `{args.event_type}`, radius `{args.event_radius_km:.2f} km`, severity `{args.event_severity:.2f}`"
     )
     lines.append(
-        f"- B1 voxel config: `xy_step={args.b1_xy_step_m:.0f}m`, "
+        f"- M-V voxel config: `xy_step={args.b1_xy_step_m:.0f}m`, "
         f"`agl_step={args.b1_agl_step_m:.0f}m`, timeout `{args.b1_timeout_s:.1f}s`"
     )
     lines.append("")
@@ -2018,14 +2025,14 @@ def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict]
 
 
 def render_single_event_comparison_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
-    """增强版多基线单事件对比表，纳入 B5 结构性消融。"""
+    """增强版多基线单事件对比表，纳入 M-R 结构性消融。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Search",
-        "B2_GlobalAstar_Layered": "Layered A*",
-        "B3_LPA_SingleLayer": "Single-layer LPA*",
+        "B1_Voxel_Dijkstra": "Voxel Global Search",
+        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
+        "B3_LPA_SingleLayer": "Flat-graph LPA*",
         BASELINE_B5: "Regular-layered LPA*",
-        BASELINE_B6: "B6 RegularLayered LPA* (legacy)",
-        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
+        BASELINE_B6: "Regular-layered LPA* (legacy)",
+        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2071,7 +2078,7 @@ def render_single_event_comparison_markdown(summary_rows: List[dict], args: argp
         )
     lines.append("")
     lines.append(
-        "Note: B5 keeps the same three-layer semantic structure and the same LPA* replanner as B4, "
+        "Note: M-R keeps the same three-layer semantic structure and the same LPA* replanner as M-P, "
         "but replaces terrain-driven node sampling with regular grid sampling. "
         "This isolates the contribution of terrain-aware layered network construction."
     )
@@ -2081,12 +2088,12 @@ def render_single_event_comparison_markdown(summary_rows: List[dict], args: argp
 def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict], args: argparse.Namespace) -> str:
     """中文版单次 benchmark 汇总表，显式给出中位数、P95 和显著性检验信息。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Search",
-        "B2_GlobalAstar_Layered": "Layered A*",
-        "B3_LPA_SingleLayer": "Single-layer LPA*",
-        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
+        "B1_Voxel_Dijkstra": "Voxel Global Search",
+        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
+        "B3_LPA_SingleLayer": "Flat-graph LPA*",
+        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
         BASELINE_B5: "Regular-layered LPA*",
-        BASELINE_B6: "B6 规则三层 LPA*（旧命名）",
+        BASELINE_B6: "Regular-layered LPA*（旧命名）",
     }
     test_label = {
         "wilcoxon": "Wilcoxon",
@@ -2101,7 +2108,7 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
         f"区域事件：`{args.event_type}`，半径 `{args.event_radius_km:.2f} km`，强度 `{args.event_severity:.2f}`"
     )
     lines.append(
-        f"- B1 体素参数：`xy_step={args.b1_xy_step_m:.0f}m`，"
+        f"- M-V 体素参数：`xy_step={args.b1_xy_step_m:.0f}m`，"
         f"`agl_step={args.b1_agl_step_m:.0f}m`，超时 `{args.b1_timeout_s:.1f}s`"
     )
     lines.append("")
@@ -2138,14 +2145,14 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
 
 
 def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: argparse.Namespace) -> str:
-    """中文版多基线单事件对比表，纳入 B5 结构性消融。"""
+    """中文版多基线单事件对比表，纳入 M-R 结构性消融。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Search",
-        "B2_GlobalAstar_Layered": "Layered A*",
-        "B3_LPA_SingleLayer": "Single-layer LPA*",
+        "B1_Voxel_Dijkstra": "Voxel Global Search",
+        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
+        "B3_LPA_SingleLayer": "Flat-graph LPA*",
         BASELINE_B5: "Regular-layered LPA*",
-        BASELINE_B6: "B6 规则三层 LPA*（旧命名）",
-        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
+        BASELINE_B6: "Regular-layered LPA*（旧命名）",
+        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2191,7 +2198,7 @@ def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: a
         )
     lines.append("")
     lines.append(
-        "说明：B5 保持与 B4 相同的三层语义结构和同一套 LPA* 重规划器，"
+        "说明：M-R 保持与 M-P 相同的三层语义结构和同一套 LPA* 重规划器，"
         "仅将地形驱动采样替换为规则网格采样，用来隔离“地形驱动分层航路网络构造”的贡献。"
     )
     return "\n".join(lines) + "\n"
@@ -2235,7 +2242,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     print(f"[build] layered graph: |V|={layered_graph.n_nodes}, |E|={layered_graph.n_edges}")
     layered_task_locator = build_task_node_locator(layered_graph)
 
-    print("[build] building flattened single-layer graph for B3...")
+    print("[build] building M-F / B3 flat graph...")
     b3_graph = build_single_layer_graph(
         layered_graph,
         z_grid,
@@ -2288,7 +2295,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         )
         approx_nodes = voxel_planner.total_states
         print(
-            "[build] B1 voxel states: "
+            "[build] M-V / B1 voxel states: "
             f"{approx_nodes} ({voxel_planner.nx}x{voxel_planner.ny}x{voxel_planner.nz})"
         )
 
@@ -2423,7 +2430,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             }
         )
 
-        # ---------- B3 (Flattened single-layer + LPA*) ----------
+        # ---------- M-F / B3（扁平图 + LPA*） ----------
         area_event_b3 = build_area_event_from_center(
             b3_graph.nodes,
             b3_graph.edge_pairs,
@@ -2767,13 +2774,25 @@ def run_benchmark(args: argparse.Namespace) -> None:
         write_csv(out_dir / "benchmark_summary.csv", summary_rows, summary_fields)
         structural_rows = build_structural_ablation_rows(summary_rows)
         if structural_rows:
-            structural_fields = ["method_order", "code", "figure_label", "method", "full_method_name", "baseline_id", "ablation_role"] + [
+            structural_fields = [
+                "method_order",
+                "code",
+                "method_id",
+                "internal_code",
+                "figure_label",
+                "method",
+                "full_method_name",
+                "baseline_id",
+                "ablation_role",
+            ] + [
                 f
                 for f in summary_fields
                 if f
                 not in {
                     "method_order",
                     "code",
+                    "method_id",
+                    "internal_code",
                     "figure_label",
                     "method",
                     "full_method_name",
@@ -2813,7 +2832,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
 
 def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
-    """Run the matrix-style A/B/C/D benchmark into one output directory."""
+    """将 E3.1-E3.4 矩阵实验统一运行到同一个输出目录。"""
     script = Path(__file__).with_name("benchmark_matrix.py")
     if not script.exists():
         raise RuntimeError("benchmark_matrix.py is missing; cannot run matrix benchmark mode.")
@@ -2892,7 +2911,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
     if args.skip_four_baseline:
         return
 
-    # 同时在相同实验根目录下补充完整的单事件多基线对比表（B1/B2/B3/B4/B5）。
+    # 同时在相同实验根目录下补充完整的单事件多基线对比表（M-P/M-A/M-F/M-R/M-V）。
     baseline_dir = Path(args.out_dir).resolve() / "four_baseline"
     single_args = argparse.Namespace(**vars(args))
     single_args.mode = "single"
@@ -2920,7 +2939,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
             shutil.copyfile(src, dst)
             print(f"[matrix] promoted: {dst}")
 
-    # 确保根目录下的 benchmark_trials.csv 显式包含单事件 B1/B2/B3/B4/B5 结果。
+    # 确保根目录下的 benchmark_trials.csv 显式包含单事件 M-P/M-A/M-F/M-R/M-V 结果。
     matrix_trials = out_dir / "benchmark_trials.csv"
     baseline_trials = baseline_dir / "benchmark_trials.csv"
     if matrix_trials.exists() and baseline_trials.exists():
@@ -2950,7 +2969,7 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
                 writer.writeheader()
                 for row in all_rows:
                     writer.writerow(row)
-            print(f"[matrix] merged trials written: {matrix_trials} (includes B1/B2/B3/B4/B5)")
+            print(f"[matrix] merged trials written: {matrix_trials} (includes M-P/M-A/M-F/M-R/M-V)")
 
     # 在矩阵配置中补充单事件多基线运行元数据。
     cfg_path = out_dir / "benchmark_config.json"
@@ -2976,13 +2995,13 @@ def run_benchmark_matrix_via_subprocess(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Monte Carlo benchmark for B1/B2/B3/B4/B5 baselines.")
+    parser = argparse.ArgumentParser(description="Monte Carlo benchmark for M-P/M-A/M-F/M-R/M-V methods.")
     parser.add_argument(
         "--mode",
         type=str,
         choices=["single", "matrix"],
         default="matrix",
-        help="single: one-shot benchmark; matrix: A/B/C/D final experiment set in one output dir.",
+        help="single: E1/E2 one-shot benchmark; matrix: E3.1-E3.4 final experiment set in one output dir.",
     )
     parser.add_argument("--workdir", type=str, default=".", help="Project root containing *.npy data files.")
     parser.add_argument("--scenario-config", type=str, default="", help="场景配置 JSON。")
@@ -2997,20 +3016,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-every", type=int, default=5, help="Progress print interval for matrix mode.")
     parser.add_argument("--out-dir", type=str, default="benchmark_out_final", help="Output directory.")
 
-    parser.add_argument("--b3-z-offset-m", type=float, default=75.0, help="Flattened single-layer altitude offset.")
-    parser.add_argument("--b3-intra-dist-m", type=float, default=250.0, help="B3 same-layer edge radius.")
-    parser.add_argument("--b3-collision-samples", type=int, default=10, help="Collision samples for B3 edge generation.")
+    parser.add_argument("--b3-z-offset-m", type=float, default=75.0, help="M-F/B3 flattened graph altitude offset.")
+    parser.add_argument("--b3-intra-dist-m", type=float, default=250.0, help="M-F/B3 same-layer edge radius.")
+    parser.add_argument("--b3-collision-samples", type=int, default=10, help="Collision samples for M-F/B3 edge generation.")
 
-    parser.add_argument("--skip-b1", action="store_true", help="Skip B1 voxel baseline.")
-    parser.add_argument("--b1-xy-step-m", type=float, default=125.0, help="B1 voxel XY step in meters.")
-    parser.add_argument("--b1-agl-low-m", type=float, default=30.0, help="B1 min AGL level.")
-    parser.add_argument("--b1-agl-high-m", type=float, default=120.0, help="B1 max AGL level.")
-    parser.add_argument("--b1-agl-step-m", type=float, default=5.0, help="B1 AGL step in meters.")
-    parser.add_argument("--b1-timeout-s", type=float, default=8.0, help="Per-trial timeout for B1 search.")
-    parser.add_argument("--b1-max-expansions", type=int, default=2_000_000, help="Hard cap for B1 expansions.")
-    parser.add_argument("--storm-radius-m", type=float, default=220.0, help="旧兼容参数；B1 当前使用区域事件半径。")
+    parser.add_argument("--skip-b1", action="store_true", help="Skip M-V voxel baseline.")
+    parser.add_argument("--b1-xy-step-m", type=float, default=125.0, help="M-V/B1 voxel XY step in meters.")
+    parser.add_argument("--b1-agl-low-m", type=float, default=30.0, help="M-V/B1 min AGL level.")
+    parser.add_argument("--b1-agl-high-m", type=float, default=120.0, help="M-V/B1 max AGL level.")
+    parser.add_argument("--b1-agl-step-m", type=float, default=5.0, help="M-V/B1 AGL step in meters.")
+    parser.add_argument("--b1-timeout-s", type=float, default=8.0, help="Per-trial timeout for M-V/B1 search.")
+    parser.add_argument("--b1-max-expansions", type=int, default=2_000_000, help="Hard cap for M-V/B1 expansions.")
+    parser.add_argument("--storm-radius-m", type=float, default=220.0, help="旧兼容参数；M-V 当前使用区域事件半径。")
 
-    # Matrix mode defaults aligned with final paper experiment settings.
+    # 矩阵模式默认值与论文最终实验设置保持一致。
     parser.add_argument("--matrix-n-block-grid", type=str, default="2,4,6,8")
     parser.add_argument("--matrix-k-events-grid", type=str, default="1,3,5,7,10")
     parser.add_argument("--matrix-key-trials", type=int, default=0)
@@ -3031,7 +3050,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-four-baseline",
         action="store_true",
-        help="Skip extra single-mode run that outputs the complete B1/B2/B3/B4/B5 table.",
+        help="Skip extra single-mode run that outputs the complete M-P/M-A/M-F/M-R/M-V table.",
     )
     return parser.parse_args()
 

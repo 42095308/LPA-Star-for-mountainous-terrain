@@ -1,9 +1,10 @@
 """
-论文矩阵实验运行器，对应 A/B/C/D 四类实验：
-- 事件强度扫描（n_block 网格）
-- 连续多事件重规划（K 网格）
-- 图规模扫描（small/medium/large）
-- 工作负载指标（queue/update/reopen）
+论文矩阵实验运行器，对应 E3 事件驱动重规划矩阵实验。
+
+E3.1 Event-intensity Sensitivity：事件强度扫描（intensity_index / n_block 网格）
+E3.2 Consecutive-event Replanning：连续多事件重规划（K 网格）
+E3.3 Graph-scale Sensitivity：图规模扫描（small/medium/large）
+E3.4 Workload Mechanism Analysis：工作负载指标（queue/update/reopen）
 """
 
 from __future__ import annotations
@@ -44,6 +45,16 @@ from benchmark import (
 from dynamic_events import build_area_event_from_path
 BASELINE_B4 = "B4_Proposed_LPA_Layered"
 BASELINE_B2 = "B2_GlobalAstar_Layered"
+METHOD_ID_B4 = "M-P"
+METHOD_ID_B2 = "M-A"
+FIGURE_LABELS = {
+    BASELINE_B4: "Terrain-aware Layered LPA* (Proposed)",
+    BASELINE_B2: "Terrain-aware Layered A*",
+}
+AXIS_LABELS = {
+    BASELINE_B4: "Terrain-aware Layered LPA*",
+    BASELINE_B2: "Terrain-aware Layered A*",
+}
 FAILURE_REASON_FIELDS = [
     "scale",
     "n_block",
@@ -261,7 +272,7 @@ def build_key_combo_set(
     k_values: Sequence[int],
     args: argparse.Namespace,
 ) -> Tuple[Set[Tuple[str, int, int]], Dict[str, int | str]]:
-    """按论文 A/B/C/D 的焦点设置收集关键组合，用于追加采样次数。"""
+    """按论文 E3.1-E3.4 的焦点设置收集关键组合，用于追加采样次数。"""
     scale_focus = nearest_scale(args.focus_scale, scales)
     k_intensity = nearest_int(args.focus_k_intensity, k_values)
     n_block_cont = nearest_int(args.focus_n_block_cont, n_blocks)
@@ -1187,16 +1198,16 @@ def render_markdown_matrix(
         f"K-规模=`{resolved['focus_k_scale']}`，n_block-连续=`{resolved['focus_n_block_cont']}`"
     )
     if anomaly_note:
-        lines.append(f"- 实验 A 诊断：{anomaly_note}")
+        lines.append(f"- E3.1 诊断：{anomaly_note}")
     if k_note:
-        lines.append(f"- 实验 B 诊断：{k_note}")
+        lines.append(f"- E3.2 诊断：{k_note}")
     if quality_note:
-        lines.append(f"- 路径质量诊断：{quality_note}")
+        lines.append(f"- E4 路径质量诊断：{quality_note}")
     lines.append("")
 
-    lines.append("## 实验 A：事件强度")
+    lines.append("## E3.1：Event-intensity Sensitivity")
     lines.append("")
-    lines.append("| 强度索引 | B4 事件均时 (ms) | B2 事件均时 (ms) | B4 P50/P95 | B2 P50/P95 | B2/B4 | 检验 | p 值 | B4 事件扩展 | B2 事件扩展 | B4 成功率 | B2 成功率 |")
+    lines.append("| 强度索引 | M-P 事件均时 (ms) | M-A 事件均时 (ms) | M-P P50/P95 | M-A P50/P95 | M-A/M-P | 检验 | p 值 | M-P 事件扩展 | M-A 事件扩展 | M-P 成功率 | M-A 成功率 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|")
     for r in tables["A"]:
         lines.append(
@@ -1207,9 +1218,9 @@ def render_markdown_matrix(
         )
     lines.append("")
 
-    lines.append("## 实验 B：连续重规划")
+    lines.append("## E3.2：Consecutive-event Replanning")
     lines.append("")
-    lines.append("| K 次事件 | B4 累积时间 (ms) | B2 累积时间 (ms) | B4 P50/P95 | B2 P50/P95 | B2/B4 | 检验 | p 值 | B4 累积扩展 | B2 累积扩展 | B4 成功率 | B2 成功率 |")
+    lines.append("| K 次事件 | M-P 累积时间 (ms) | M-A 累积时间 (ms) | M-P P50/P95 | M-A P50/P95 | M-A/M-P | 检验 | p 值 | M-P 累积扩展 | M-A 累积扩展 | M-P 成功率 | M-A 成功率 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|")
     for r in tables["B"]:
         lines.append(
@@ -1220,9 +1231,9 @@ def render_markdown_matrix(
         )
     lines.append("")
 
-    lines.append("## 实验 C：规模扫描")
+    lines.append("## E3.3：Graph-scale Sensitivity")
     lines.append("")
-    lines.append("| 规模 | |V| | |E| | B4 累积时间 (ms) | B2 累积时间 (ms) | B2/B4 | B4 成功率 | B2 成功率 |")
+    lines.append("| 规模 | |V| | |E| | M-P 累积时间 (ms) | M-A 累积时间 (ms) | M-A/M-P | M-P 成功率 | M-A 成功率 |")
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
     for r in tables["C"]:
         lines.append(
@@ -1231,9 +1242,9 @@ def render_markdown_matrix(
         )
     lines.append("")
 
-    lines.append("## 实验 D：工作负载指标")
+    lines.append("## E3.4：Workload Mechanism Analysis")
     lines.append("")
-    lines.append("| n_block | B4 入队 | B2 入队 | B4 更新 | B2 更新 | B4 重新打开 | B2 重新打开 | B4 扩展 | B2 扩展 |")
+    lines.append("| n_block | M-P 入队 | M-A 入队 | M-P 更新 | M-A 更新 | M-P 重新打开 | M-A 重新打开 | M-P 扩展 | M-A 扩展 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in tables["D"]:
         lines.append(
@@ -1278,7 +1289,7 @@ def render_markdown_matrix_paper(
     lines.append(f"- 常规组合 trial 数：`{args.trials}`")
     if key_trials > int(args.trials):
         lines.append(f"- 关键组合 trial 数：`{key_trials}`，关键组合数量：`{resolved.get('key_combo_count', 0)}`")
-    lines.append("- 统计口径：所有 speedup 均为同一 Monte Carlo trial 内先配对计算 `B2/B4`，再对 speedup 分布取中位数。")
+    lines.append("- 统计口径：所有 speedup 均为同一 Monte Carlo trial 内先配对计算 `M-A/M-P`，再对 speedup 分布取中位数。")
     lines.append("- 分布口径：P50/P95 来自成功 trial；显著性检验使用配对 Wilcoxon，必要时退化为配对 t 检验。")
     lines.append("- 变量口径：旧变量 `n_block` 保留用于兼容；论文中使用 `intensity_index` 表示区域扰动强度索引。")
     lines.append(f"- 区域事件强度网格：`{args.n_block_grid}`；连续事件数 K 网格：`{args.k_events_grid}`；图规模：`{args.scales}`")
@@ -1288,16 +1299,16 @@ def render_markdown_matrix_paper(
         f"K-scale=`{resolved['focus_k_scale']}`，n_block-cont=`{resolved['focus_n_block_cont']}`"
     )
     if anomaly_note:
-        lines.append(f"- 实验 A 诊断：{anomaly_note}")
+        lines.append(f"- E3.1 诊断：{anomaly_note}")
     if k_note:
-        lines.append(f"- 实验 B 诊断：{k_note}")
+        lines.append(f"- E3.2 诊断：{k_note}")
     if quality_note:
-        lines.append(f"- 路径质量诊断：{quality_note}")
+        lines.append(f"- E4 路径质量诊断：{quality_note}")
     lines.append("")
 
-    lines.append("## 实验 A：扰动强度敏感性")
+    lines.append("## E3.1：Event-intensity Sensitivity")
     lines.append("")
-    lines.append("| intensity_index | B4 事件时间 mean | B2 事件时间 mean | B4 P50/P95 | B2 P50/P95 | speedup 中位数 | B4 更快比例 | 检验 | p 值 | B4 expanded mean | B2 expanded mean |")
+    lines.append("| intensity_index | M-P 事件时间 mean | M-A 事件时间 mean | M-P P50/P95 | M-A P50/P95 | speedup 中位数 | M-P 更快比例 | 检验 | p 值 | M-P expanded mean | M-A expanded mean |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|")
     for r in tables["A"]:
         lines.append(
@@ -1308,9 +1319,9 @@ def render_markdown_matrix_paper(
         )
     lines.append("")
 
-    lines.append("## 实验 B：连续多事件重规划")
+    lines.append("## E3.2：Consecutive-event Replanning")
     lines.append("")
-    lines.append("| K | B4 累计时间 mean | B2 累计时间 mean | B4 P50/P95 | B2 P50/P95 | speedup 中位数 | speedup P95 | B4 更快比例 | 检验 | p 值 |")
+    lines.append("| K | M-P 累计时间 mean | M-A 累计时间 mean | M-P P50/P95 | M-A P50/P95 | speedup 中位数 | speedup P95 | M-P 更快比例 | 检验 | p 值 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|")
     for r in tables["B"]:
         lines.append(
@@ -1321,9 +1332,9 @@ def render_markdown_matrix_paper(
         )
     lines.append("")
 
-    lines.append("## 实验 C：图规模扫描")
+    lines.append("## E3.3：Graph-scale Sensitivity")
     lines.append("")
-    lines.append("| scale | |V| | |E| | B4 累计时间 mean | B2 累计时间 mean | speedup 中位数 | B4 更快比例 | B4 成功率 | B2 成功率 |")
+    lines.append("| scale | |V| | |E| | M-P 累计时间 mean | M-A 累计时间 mean | speedup 中位数 | M-P 更快比例 | M-P 成功率 | M-A 成功率 |")
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in tables["C"]:
         lines.append(
@@ -1333,9 +1344,9 @@ def render_markdown_matrix_paper(
         )
     lines.append("")
 
-    lines.append("## 实验 D：工作量机制")
+    lines.append("## E3.4：Workload Mechanism Analysis")
     lines.append("")
-    lines.append("| intensity_index | B4 expanded/event mean | B2 expanded/event mean | B4 P50/P95 | B2 P50/P95 | expanded reduction | expanded speedup 中位数 | 检验 | p 值 |")
+    lines.append("| intensity_index | M-P expanded/event mean | M-A expanded/event mean | M-P P50/P95 | M-A P50/P95 | expanded reduction | expanded speedup 中位数 | 检验 | p 值 |")
     lines.append("|---:|---:|---:|---:|---:|---:|---:|---|---:|")
     for r in tables["D"]:
         lines.append(
@@ -1345,7 +1356,7 @@ def render_markdown_matrix_paper(
             f"{f(r['expanded_ratio_p50_b2_over_b4'], 3)} | {r['expanded_test_name']} | {pf(r['expanded_p_value'])} |"
         )
     lines.append("")
-    lines.append("说明：Experiment D 的正文主指标为 expanded nodes；queue push、updated vertices 和 reopened states 仍保留在 `experiment_D.csv` 作为机制补充。")
+    lines.append("说明：E3.4 的正文主指标为 expanded nodes；queue push、updated vertices 和 reopened states 仍保留在 `experiment_D.csv` 作为机制补充。")
     return "\n".join(lines) + "\n"
 
 
@@ -1401,7 +1412,7 @@ def diagnose_event_intensity_anomaly(
     note = (
         f"检测到非单调时间现象：scale={resolved['focus_scale']}，"
         f"K={resolved['focus_k_intensity']}。"
-        f"B4 的单事件平均时间从 {b4_head:.2f}ms（n_block={int(nbs[0])}）"
+        f"M-P 的单事件平均时间从 {b4_head:.2f}ms（n_block={int(nbs[0])}）"
         f"变化到 {b4_tail:.2f}ms（n_block={int(nbs[-1])}），同时扩展节点从 "
         f"{b4_head_e:.1f} 变化到 {b4_tail_e:.1f}。"
         "这说明墙钟时间不仅受 n_block 大小影响，还同时受事件几何位置、局部绕行形态以及 Python 运行时开销影响。"
@@ -1450,14 +1461,14 @@ def diagnose_continuous_replan_k_effect(
     if ratio_k1 < 1.0:
         note = (
             f"在 K=1（scale={resolved['focus_scale']}，n_block={resolved['focus_n_block_cont']}）时，"
-            f"B4 慢于 B2（B2/B4={ratio_k1:.3f}<1）。这在单次轻扰动下是合理的："
+            f"M-P 慢于 M-A（M-A/M-P={ratio_k1:.3f}<1）。这在单次轻扰动下是合理的："
             "增量式 LPA* 仍需承担队列维护和状态维护开销，而全局 A* 在受影响区域很小时可以很快完成。"
             "随着 K 增大，LPA* 对既有搜索状态的复用开始累积，整体优势会逐步显现。"
         )
     else:
         note = (
             f"在 K=1（scale={resolved['focus_scale']}，n_block={resolved['focus_n_block_cont']}）时，"
-            f"B4 并不慢于 B2（B2/B4={ratio_k1:.3f}）。论文中仍应报告随 K 增长的累积趋势。"
+            f"M-P 并不慢于 M-A（M-A/M-P={ratio_k1:.3f}）。论文中仍应报告随 K 增长的累积趋势。"
         )
     return diag_rows, note
 
@@ -1599,14 +1610,14 @@ def diagnose_path_quality_consistency(
     avg_no_worse = float(np.mean(np.asarray(no_worse_rates, dtype=float))) if no_worse_rates else float("nan")
     if avg_eq >= 0.7:
         note = (
-            f"B4/B2 的路径代价经常相同（平均等代价比例={100.0 * avg_eq:.1f}%）。"
+            f"M-P/M-A 的路径代价经常相同（平均等代价比例={100.0 * avg_eq:.1f}%）。"
             "这是合理现象，因为两者都在同一张图上优化同一套加权目标；"
             "增量式 LPA* 主要改善的是重规划工作量和时间，而不是最终最优值。"
         )
     else:
         note = (
-            f"B4/B2 的等代价比例处于中等水平（平均={100.0 * avg_eq:.1f}%），"
-            f"B4 代价不高于 B2 的比例为 {100.0 * avg_no_worse:.1f}%。"
+            f"M-P/M-A 的等代价比例处于中等水平（平均={100.0 * avg_eq:.1f}%），"
+            f"M-P 代价不高于 M-A 的比例为 {100.0 * avg_no_worse:.1f}%。"
             "说明在部分 trial 中，事件流状态复用也可能导致不同的局部可行路径选择。"
         )
     return rows, note
@@ -1637,8 +1648,8 @@ def make_plots_matrix(
 
     fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
-        (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
-        (BASELINE_B2, "B2 global A*", "#1f77b4"),
+        (BASELINE_B4, FIGURE_LABELS[BASELINE_B4], "#d62728"),
+        (BASELINE_B2, FIGURE_LABELS[BASELINE_B2], "#1f77b4"),
     ]:
         xs: List[int] = []
         ys: List[float] = []
@@ -1659,9 +1670,9 @@ def make_plots_matrix(
             y_lo = [y - c for y, c in zip(ys, ci_vals)]
             y_hi = [y + c for y, c in zip(ys, ci_vals)]
             ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
-    ax.set_xlabel("Area-event intensity index (legacy n_block)")
+    ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Mean replanning time per event (ms)")
-    ax.set_title(f"Event Intensity vs Replanning Time (scale={scale_plot}, K={k_intensity})")
+    ax.set_title(f"E3.1 Event-intensity Sensitivity (scale={scale_plot}, K={k_intensity})")
     ax.grid(alpha=0.3)
     ax.legend()
     p1 = out_dir / "fig1_event_intensity_vs_time.png"
@@ -1671,8 +1682,8 @@ def make_plots_matrix(
 
     fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
-        (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
-        (BASELINE_B2, "B2 global A*", "#1f77b4"),
+        (BASELINE_B4, FIGURE_LABELS[BASELINE_B4], "#d62728"),
+        (BASELINE_B2, FIGURE_LABELS[BASELINE_B2], "#1f77b4"),
     ]:
         xs: List[int] = []
         ys: List[float] = []
@@ -1695,7 +1706,7 @@ def make_plots_matrix(
             ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
     ax.set_xlabel("Number of events (K)")
     ax.set_ylabel("Mean cumulative replanning time (ms)")
-    ax.set_title(f"Continuous Events vs Cumulative Time (scale={scale_plot}, n_block={n_block_cont})")
+    ax.set_title(f"E3.2 Consecutive-event Replanning (scale={scale_plot}, intensity={n_block_cont})")
     ax.grid(alpha=0.3)
     ax.legend()
     p2 = out_dir / "fig2_k_vs_cumulative_time.png"
@@ -1724,12 +1735,12 @@ def make_plots_matrix(
         lo_vals.append(float(np.percentile(ratio, 25)))
         hi_vals.append(float(np.percentile(ratio, 75)))
     if xs:
-        ax.plot(xs, ys, marker="o", linewidth=2.0, color="#2ca02c", label="median B2/B4")
+        ax.plot(xs, ys, marker="o", linewidth=2.0, color="#2ca02c", label="median M-A/M-P")
         ax.fill_between(xs, lo_vals, hi_vals, alpha=0.18, color="#2ca02c", label="IQR")
         ax.axhline(1.0, color="0.25", linestyle="--", linewidth=1.2)
     ax.set_xlabel("Number of events (K)")
-    ax.set_ylabel("Paired speedup ratio (B2/B4)")
-    ax.set_title(f"Speedup under Consecutive Events (scale={scale_plot}, n_block={n_block_cont})")
+    ax.set_ylabel("Paired speedup ratio (M-A / M-P)")
+    ax.set_title(f"E3.2 Consecutive-event Replanning Speedup (scale={scale_plot}, intensity={n_block_cont})")
     ax.grid(alpha=0.3)
     ax.legend()
     p_speed = out_dir / "fig3_k_vs_speedup.png"
@@ -1739,8 +1750,8 @@ def make_plots_matrix(
 
     fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=300)
     for baseline, label, color in [
-        (BASELINE_B4, "B4 incremental LPA*", "#d62728"),
-        (BASELINE_B2, "B2 global A*", "#1f77b4"),
+        (BASELINE_B4, FIGURE_LABELS[BASELINE_B4], "#d62728"),
+        (BASELINE_B2, FIGURE_LABELS[BASELINE_B2], "#1f77b4"),
     ]:
         xs: List[int] = []
         ys: List[float] = []
@@ -1761,9 +1772,9 @@ def make_plots_matrix(
             y_lo = [y - c for y, c in zip(ys, ci_vals)]
             y_hi = [y + c for y, c in zip(ys, ci_vals)]
             ax.fill_between(xs, y_lo, y_hi, alpha=0.18, color=color)
-    ax.set_xlabel("Area-event intensity index (legacy n_block)")
+    ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Mean expanded nodes per event")
-    ax.set_title(f"Event Intensity vs Expanded Nodes (scale={scale_plot}, K={k_intensity})")
+    ax.set_title(f"E3.4 Workload Mechanism Analysis (scale={scale_plot}, K={k_intensity})")
     ax.grid(alpha=0.3)
     ax.legend()
     p3 = out_dir / "fig4_event_intensity_vs_expanded.png"
@@ -1798,11 +1809,11 @@ def make_plots_matrix(
     if b4_vals.size > 0 and b2_vals.size > 0:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.4, 4.0), dpi=300)
         try:
-            ax1.boxplot([b4_vals, b2_vals], tick_labels=["B4", "B2"], showmeans=True)
+            ax1.boxplot([b4_vals, b2_vals], tick_labels=[METHOD_ID_B4, METHOD_ID_B2], showmeans=True)
         except TypeError:
-            ax1.boxplot([b4_vals, b2_vals], labels=["B4", "B2"], showmeans=True)
+            ax1.boxplot([b4_vals, b2_vals], labels=[METHOD_ID_B4, METHOD_ID_B2], showmeans=True)
         ax1.set_ylabel("Cumulative replanning time (ms)")
-        ax1.set_title(f"Boxplot (scale={scale_plot}, n_block={n_block_cont}, K={k_dist})")
+        ax1.set_title(f"E3.2 Time Distribution (scale={scale_plot}, intensity={n_block_cont}, K={k_dist})")
         ax1.grid(alpha=0.3)
         b4_med = float(np.percentile(b4_vals, 50))
         b4_p95 = float(np.percentile(b4_vals, 95))
@@ -1811,8 +1822,8 @@ def make_plots_matrix(
         ax1.text(
             0.03,
             0.97,
-            f"B4 median/p95: {b4_med:.2f}/{b4_p95:.2f} ms\n"
-            f"B2 median/p95: {b2_med:.2f}/{b2_p95:.2f} ms",
+            f"{METHOD_ID_B4} median/p95: {b4_med:.2f}/{b4_p95:.2f} ms\n"
+            f"{METHOD_ID_B2} median/p95: {b2_med:.2f}/{b2_p95:.2f} ms",
             transform=ax1.transAxes,
             va="top",
             fontsize=8.3,
@@ -1820,8 +1831,8 @@ def make_plots_matrix(
         )
 
         for arr, label, color in [
-            (b4_vals, "B4", "#d62728"),
-            (b2_vals, "B2", "#1f77b4"),
+            (b4_vals, FIGURE_LABELS[BASELINE_B4], "#d62728"),
+            (b2_vals, FIGURE_LABELS[BASELINE_B2], "#1f77b4"),
         ]:
             s = np.sort(arr)
             y = np.arange(1, s.size + 1, dtype=float) / float(s.size)
@@ -2060,21 +2071,21 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     if anomaly_rows:
         write_csv(out_dir / "experiment_A_diagnostics.csv", anomaly_rows, list(anomaly_rows[0].keys()))
         (out_dir / "experiment_A_diagnostics.md").write_text(
-            "# 实验 A 诊断\n\n"
+            "# E3.1 Event-intensity Sensitivity 诊断\n\n"
             + f"- {anomaly_note}\n",
             encoding="utf-8",
         )
     if k_diag_rows:
         write_csv(out_dir / "experiment_B_diagnostics.csv", k_diag_rows, list(k_diag_rows[0].keys()))
         (out_dir / "experiment_B_diagnostics.md").write_text(
-            "# 实验 B 诊断\n\n"
+            "# E3.2 Consecutive-event Replanning 诊断\n\n"
             + f"- {k_diag_note}\n",
             encoding="utf-8",
         )
     if quality_rows:
         write_csv(out_dir / "experiment_path_quality.csv", quality_rows, list(quality_rows[0].keys()))
         (out_dir / "experiment_path_quality.md").write_text(
-            "# 路径质量诊断（B4 vs B2）\n\n"
+            "# E4 Path-quality Consistency 诊断（M-P vs M-A）\n\n"
             + f"- {quality_note}\n",
             encoding="utf-8",
         )
@@ -2083,15 +2094,15 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
     discussion_lines = [
         "# 基准实验讨论要点",
         "",
-        f"- 实验 A：{anomaly_note}" if anomaly_note else "- 实验 A：未生成异常说明。",
-        f"- 实验 B：{k_diag_note}" if k_diag_note else "- 实验 B：未生成 K 效应说明。",
-        f"- 路径质量：{quality_note}" if quality_note else "- 路径质量：未生成说明。",
+        f"- E3.1：{anomaly_note}" if anomaly_note else "- E3.1：未生成异常说明。",
+        f"- E3.2：{k_diag_note}" if k_diag_note else "- E3.2：未生成 K 效应说明。",
+        f"- E4：{quality_note}" if quality_note else "- E4：未生成说明。",
         "",
         "建议论文表述：",
         "1. 在 K=1 且扰动较轻时，增量式 LPA* 可能因为队列维护和状态维护开销而慢于全局 A*。",
-        "2. 随着 K 增大，状态复用效果会逐步累积，B4 的累计优势会更清晰。",
+        "2. 随着 K 增大，状态复用效果会逐步累积，M-P 的累计优势会更清晰。",
         "3. 时间随 n_block 非单调并不反常，因为事件几何位置可能把绕行更早推入干净子图，反而减少被更新状态。",
-        "4. B4 与 B2 在很多 trial 中路径代价相同是预期现象，因为两者优化的是同一套加权目标；真正拉开差距的是重规划时间和工作负载。",
+        "4. M-P 与 M-A 在很多 trial 中路径代价相同是预期现象，因为两者优化的是同一套加权目标；真正拉开差距的是重规划时间和工作负载。",
         "5. small scale 的低成功率优先按图规模敏感性解释：`benchmark_failure_reasons.csv` 区分最小距离失败、起终点不连通、事件后路径断裂和小图任务不可达。",
     ]
     (out_dir / "benchmark_discussion.md").write_text("\n".join(discussion_lines) + "\n", encoding="utf-8")
@@ -2150,7 +2161,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Benchmark matrix for B2/B4 event-stream analysis.")
+    parser = argparse.ArgumentParser(description="E3 benchmark matrix for M-P/M-A event-stream analysis.")
     parser.add_argument("--scenario-config", type=str, default="")
     parser.add_argument("--workdir", type=str, default=".")
     parser.add_argument("--trials", type=int, default=50)
@@ -2186,8 +2197,8 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    # 提示：如需完整四基线对比（含 B1/B3），请使用 python benchmark.py --mode matrix
-    print("[提示] 本脚本仅运行 B4 vs B2 事件流实验。如需完整四基线对比，请用: python benchmark.py --mode matrix")
+    # 提示：如需完整结构性消融对比（含 M-F/M-R/M-V），请使用 python benchmark.py --mode matrix。
+    print("[提示] 本脚本仅运行 M-P vs M-A 事件流实验。如需完整结构性消融对比，请用: python benchmark.py --mode matrix")
     args = parse_args()
     run_benchmark_matrix(args)
 
