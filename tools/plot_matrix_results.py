@@ -23,7 +23,24 @@ B4 = "B4_Proposed_LPA_Layered"
 B2 = "B2_GlobalAstar_Layered"
 B3 = "B3_LPA_SingleLayer"
 B5 = "B5_RegularLayered_LPA"
+B1 = "B1_Voxel_Dijkstra"
 B6_LEGACY = "B6_RegularLayered_LPA"
+
+FIGURE_LABELS = {
+    B4: "Terrain-aware LPA* (Proposed)",
+    B2: "Layered A*",
+    B3: "Single-layer LPA*",
+    B5: "Regular-layered LPA*",
+    B1: "Voxel Search",
+}
+
+AXIS_LABELS = {
+    B4: "Terrain-aware LPA*",
+    B2: "Layered A*",
+    B3: "Single-layer LPA*",
+    B5: "Regular-layered LPA*",
+    B1: "Voxel Search",
+}
 
 
 def read_csv_rows(path: Path, required: bool = True) -> List[dict]:
@@ -100,8 +117,8 @@ def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Pat
     ratio = np.asarray([to_float(r.get("b2_over_b4_time_ratio")) for r in rows], dtype=float)
 
     fig, ax = plt.subplots(figsize=(5.3, 3.4))
-    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label="B4 terrain-aware LPA*")
-    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label="B2 global A*")
+    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label=FIGURE_LABELS[B4])
+    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label=FIGURE_LABELS[B2])
     if np.isfinite(b4_p50).any() and np.isfinite(b4_p95).any():
         ax.fill_between(x, b4_p50, b4_p95, color="#d95f02", alpha=0.16, linewidth=0)
     if np.isfinite(b2_p50).any() and np.isfinite(b2_p95).any():
@@ -112,8 +129,8 @@ def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Pat
     style_axes(ax)
     ax2 = ax.twinx()
     ax2.axhline(1.0, color="#555555", linestyle="--", linewidth=0.9, alpha=0.55)
-    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label="B2/B4 speedup")
-    ax2.set_ylabel("Speedup ratio (B2 / B4)")
+    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label="Layered A* / Terrain-aware LPA*")
+    ax2.set_ylabel("Speedup ratio (Layered A* / Terrain-aware LPA*)")
     ax2.spines["top"].set_visible(False)
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -133,8 +150,8 @@ def plot_exp_b_cumulative_time(rows: List[dict], out_dir: Path, dpi: int) -> Pat
     b2_p95 = np.asarray([to_float(r.get("b2_p95_cumulative_ms")) for r in rows], dtype=float)
 
     fig, ax = plt.subplots(figsize=(5.2, 3.4))
-    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label="B4 terrain-aware LPA*")
-    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label="B2 global A*")
+    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label=FIGURE_LABELS[B4])
+    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label=FIGURE_LABELS[B2])
     if np.isfinite(b4_p50).any() and np.isfinite(b4_p95).any():
         ax.fill_between(x, b4_p50, b4_p95, color="#d95f02", alpha=0.16, linewidth=0)
     if np.isfinite(b2_p50).any() and np.isfinite(b2_p95).any():
@@ -164,7 +181,7 @@ def plot_exp_b_speedup(rows: List[dict], out_dir: Path, dpi: int) -> Path:
         if math.isfinite(yi) and math.isfinite(fr):
             ax.annotate(f"{100.0 * fr:.0f}%", (xi, yi), textcoords="offset points", xytext=(0, 7), ha="center", fontsize=7)
     ax.set_xlabel("Number of sequential events K")
-    ax.set_ylabel("Speedup ratio (B2 / B4)")
+    ax.set_ylabel("Speedup ratio (Layered A* / Terrain-aware LPA*)")
     ax.set_title("Experiment B: state-reuse speedup")
     ax.legend(frameon=False, fontsize=8)
     style_axes(ax)
@@ -181,15 +198,15 @@ def plot_exp_d_workload(rows: List[dict], out_dir: Path, dpi: int) -> Path:
 
     fig, ax = plt.subplots(figsize=(5.4, 3.5))
     width = 0.34
-    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label="B4 terrain-aware LPA*")
-    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label="B2 global A*")
+    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label=FIGURE_LABELS[B4])
+    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label=FIGURE_LABELS[B2])
     ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Expanded nodes per event")
     ax.set_title("Experiment D: workload reduction")
     style_axes(ax)
     ax2 = ax.twinx()
     ax2.plot(x, 100.0 * reduction, color="#238b45", marker="D", linewidth=1.8, label="Reduction")
-    ax2.set_ylabel("B4 workload reduction (%)")
+    ax2.set_ylabel("Terrain-aware LPA* workload reduction (%)")
     ax2.spines["top"].set_visible(False)
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -209,8 +226,8 @@ def plot_exp_c_scale_success(rows: List[dict], out_dir: Path, dpi: int) -> Path:
 
     fig, ax = plt.subplots(figsize=(5.2, 3.4))
     width = 0.34
-    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label="B4 terrain-aware LPA*")
-    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label="B2 global A*")
+    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label=FIGURE_LABELS[B4])
+    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label=FIGURE_LABELS[B2])
     ax.set_ylim(0, 105)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{s}\n|V|={n}" for s, n in zip(scales, nodes)])
@@ -267,8 +284,8 @@ def plot_path_quality_scatter(trial_rows: List[dict], quality_rows: List[dict], 
         ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], linestyle="--", color="#d95f02", linewidth=1.3)
         ax.set_xlim(lo - pad, hi + pad)
         ax.set_ylim(lo - pad, hi + pad)
-        ax.set_xlabel("B2 final path cost")
-        ax.set_ylabel("B4 final path cost")
+        ax.set_xlabel("Layered A* final path cost")
+        ax.set_ylabel("Terrain-aware LPA* final path cost")
         ax.set_title("Path quality consistency")
     else:
         x = np.arange(len(quality_rows), dtype=float)
@@ -292,16 +309,17 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
     if B5 not in by_baseline:
         return None
     ordered = [
+        ("B1\nVoxel Search", B1, "#8c510a"),
         ("B2\nLayered A*", B2, "#1f78b4"),
-        ("B3\nFlat LPA*", B3, "#7570b3"),
-        ("B5\nRegular LPA*", B5, "#66a61e"),
-        ("B4\nTerrain LPA*", B4, "#d95f02"),
+        ("B3\nSingle-layer LPA*", B3, "#7570b3"),
+        ("B5\nRegular-layered LPA*", B5, "#66a61e"),
+        ("B4\nProposed", B4, "#d95f02"),
     ]
     present = [(label, key, color) for label, key, color in ordered if key in by_baseline]
     if len(present) < 2:
         return None
 
-    labels = [str(by_baseline[p[1]].get("method", p[0])).replace(" ", "\n", 1) for p in present]
+    labels = [p[0] for p in present]
     colors = [p[2] for p in present]
     times = [to_float(by_baseline[p[1]].get("mean_replan_ms")) for p in present]
     costs = [to_float(by_baseline[p[1]].get("mean_cost")) for p in present]
@@ -323,7 +341,7 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
         ax.set_xticks(x)
         ax.set_xticklabels(labels, fontsize=8)
         style_axes(ax)
-    fig.suptitle("Structural ablation: terrain-aware layering vs regular layering", y=1.03, fontsize=11)
+    fig.suptitle("Structural ablation of terrain-aware LPA*", y=1.03, fontsize=11)
     return save_figure(fig, out_dir, "fig_structural_ablation.pdf", dpi)
 
 

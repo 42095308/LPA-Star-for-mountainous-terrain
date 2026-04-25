@@ -81,11 +81,41 @@ BASELINE_B3 = "B3_LPA_SingleLayer"
 BASELINE_B1 = "B1_Voxel_Dijkstra"
 
 STRUCTURAL_ABLATION_METHODS = [
-    (BASELINE_B4, "Terrain-aware Layered LPA*", "proposed_full_method"),
-    (BASELINE_B2, "Terrain-aware Layered A*", "incremental_replanning_ablation"),
-    (BASELINE_B3, "Single-layer LPA*", "layered_network_ablation"),
-    (BASELINE_B5, "Regular-layered LPA*", "terrain_aware_layering_ablation"),
-    (BASELINE_B1, "Voxel Global Search", "classical_voxel_baseline"),
+    (
+        "B4",
+        BASELINE_B4,
+        "Terrain-aware LPA*",
+        "Terrain-aware three-layer airway network with LPA*-based incremental replanning",
+        "proposed_full_method",
+    ),
+    (
+        "B2",
+        BASELINE_B2,
+        "Layered A*",
+        "Terrain-aware three-layer airway network with global A* recomputation",
+        "incremental_replanning_ablation",
+    ),
+    (
+        "B3",
+        BASELINE_B3,
+        "Single-layer LPA*",
+        "Single-layer graph with LPA*-based replanning",
+        "layered_network_ablation",
+    ),
+    (
+        "B5",
+        BASELINE_B5,
+        "Regular-layered LPA*",
+        "Regular three-layer graph with LPA*-based replanning",
+        "terrain_aware_layering_ablation",
+    ),
+    (
+        "B1",
+        BASELINE_B1,
+        "Voxel Search",
+        "Coarse voxel graph with global search",
+        "classical_voxel_baseline",
+    ),
 ]
 
 REGULAR_INTRA_EDGE_DIST_M = 250.0
@@ -1749,13 +1779,16 @@ def build_structural_ablation_rows(summary_rows: List[dict]) -> List[dict]:
         row_by_baseline[BASELINE_B5] = legacy_row
 
     rows: List[dict] = []
-    for order, (baseline, method, role) in enumerate(STRUCTURAL_ABLATION_METHODS, start=1):
+    for order, (code, baseline, figure_label, full_method_name, role) in enumerate(STRUCTURAL_ABLATION_METHODS, start=1):
         src = row_by_baseline.get(baseline)
         if src is None:
             continue
         row = dict(src)
         row["method_order"] = order
-        row["method"] = method
+        row["code"] = code
+        row["figure_label"] = figure_label
+        row["method"] = figure_label
+        row["full_method_name"] = full_method_name
         row["baseline_id"] = baseline
         row["ablation_role"] = role
         rows.append(row)
@@ -1868,10 +1901,10 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
 
 def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
     label_map = {
-        "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
-        "B2_GlobalAstar_Layered": "B2 分层全局 A*",
-        "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
-        "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
+        "B1_Voxel_Dijkstra": "Voxel Search",
+        "B2_GlobalAstar_Layered": "Layered A*",
+        "B3_LPA_SingleLayer": "Single-layer LPA*",
+        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -1967,12 +2000,12 @@ def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict]
 def render_single_event_comparison_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
     """增强版多基线单事件对比表，纳入 B5 结构性消融。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "B1 Voxel",
-        "B2_GlobalAstar_Layered": "B2 GlobalA*",
-        "B3_LPA_SingleLayer": "B3 FlatLPA*",
-        BASELINE_B5: "B5 RegularLayered LPA*",
+        "B1_Voxel_Dijkstra": "Voxel Search",
+        "B2_GlobalAstar_Layered": "Layered A*",
+        "B3_LPA_SingleLayer": "Single-layer LPA*",
+        BASELINE_B5: "Regular-layered LPA*",
         BASELINE_B6: "B6 RegularLayered LPA* (legacy)",
-        "B4_Proposed_LPA_Layered": "B4 Proposed",
+        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2028,11 +2061,11 @@ def render_single_event_comparison_markdown(summary_rows: List[dict], args: argp
 def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict], args: argparse.Namespace) -> str:
     """中文版单次 benchmark 汇总表，显式给出中位数、P95 和显著性检验信息。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
-        "B2_GlobalAstar_Layered": "B2 分层全局 A*",
-        "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
-        "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
-        BASELINE_B5: "B5 规则三层 LPA*",
+        "B1_Voxel_Dijkstra": "Voxel Search",
+        "B2_GlobalAstar_Layered": "Layered A*",
+        "B3_LPA_SingleLayer": "Single-layer LPA*",
+        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
+        BASELINE_B5: "Regular-layered LPA*",
         BASELINE_B6: "B6 规则三层 LPA*（旧命名）",
     }
     test_label = {
@@ -2087,12 +2120,12 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
 def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: argparse.Namespace) -> str:
     """中文版多基线单事件对比表，纳入 B5 结构性消融。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "B1 体素 Dijkstra",
-        "B2_GlobalAstar_Layered": "B2 分层全局 A*",
-        "B3_LPA_SingleLayer": "B3 单层展平 LPA*",
-        BASELINE_B5: "B5 规则三层 LPA*",
+        "B1_Voxel_Dijkstra": "Voxel Search",
+        "B2_GlobalAstar_Layered": "Layered A*",
+        "B3_LPA_SingleLayer": "Single-layer LPA*",
+        BASELINE_B5: "Regular-layered LPA*",
         BASELINE_B6: "B6 规则三层 LPA*（旧命名）",
-        "B4_Proposed_LPA_Layered": "B4 地形驱动三层 LPA*",
+        "B4_Proposed_LPA_Layered": "Terrain-aware LPA* (Proposed)",
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2709,8 +2742,19 @@ def run_benchmark(args: argparse.Namespace) -> None:
         write_csv(out_dir / "benchmark_summary.csv", summary_rows, summary_fields)
         structural_rows = build_structural_ablation_rows(summary_rows)
         if structural_rows:
-            structural_fields = ["method_order", "method", "baseline_id", "ablation_role"] + [
-                f for f in summary_fields if f not in {"method_order", "method", "baseline_id", "ablation_role"}
+            structural_fields = ["method_order", "code", "figure_label", "method", "full_method_name", "baseline_id", "ablation_role"] + [
+                f
+                for f in summary_fields
+                if f
+                not in {
+                    "method_order",
+                    "code",
+                    "figure_label",
+                    "method",
+                    "full_method_name",
+                    "baseline_id",
+                    "ablation_role",
+                }
             ]
             write_csv(out_dir / "benchmark_structural_ablation.csv", structural_rows, structural_fields)
 

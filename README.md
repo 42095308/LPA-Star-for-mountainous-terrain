@@ -156,6 +156,16 @@ python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode s
 
 ## Benchmark 流
 
+论文正文和结果图统一使用下表标签，CSV 仍保留 `baseline` 代号便于检索：
+
+| Code | Figure label | Full method name |
+|---|---|---|
+| B4 | Terrain-aware LPA* | Terrain-aware three-layer airway network with LPA*-based incremental replanning |
+| B2 | Layered A* | Terrain-aware three-layer airway network with global A* recomputation |
+| B3 | Single-layer LPA* | Single-layer graph with LPA*-based replanning |
+| B5 | Regular-layered LPA* | Regular three-layer graph with LPA*-based replanning |
+| B1 | Voxel Search | Coarse voxel graph with global search |
+
 `benchmark.py --mode single` 输出一次多基线统计表（含 B5 结构性消融）：
 
 ```powershell
@@ -258,7 +268,7 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_table.md` | 可直接放入论文草稿的结果表。 |
 | `benchmark_table_four_baselines.md` | 四基线对比表。 |
 | `benchmark_table_structural_ablation.md` | 含 B5 的结构性消融对比表。 |
-| `benchmark_structural_ablation.csv` | B2/B3/B4/B5 结构性消融 CSV。 |
+| `benchmark_structural_ablation.csv` | B1/B2/B3/B4/B5 结构性消融 CSV，含 `code`、`figure_label` 和 `full_method_name`。 |
 | `fig_expA_event_intensity_time.pdf` | Experiment A 事件强度时间图。 |
 | `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的其他论文图。 |
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
