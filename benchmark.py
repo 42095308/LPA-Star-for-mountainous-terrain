@@ -1,13 +1,13 @@
 """
-面向场景配置的 Monte Carlo benchmark，比较五类规划基线。
+面向场景配置的 Monte Carlo benchmark，比较五类规划方法。
 
-Baselines
----------
-M-P / B4 / Terrain-aware Layered LPA*: proposed method
-M-A / B2 / Terrain-aware Layered A*: terrain-aware layered graph with global A* recomputation
-M-F / B3 / Flat-graph LPA*: flat graph with LPA*-based replanning
-M-R / B5 / Regular-layered LPA*: regular three-layer graph with LPA*-based replanning
-M-V / B1 / Voxel Global Search: coarse voxel graph with global search
+Methods
+-------
+M-P / Terrain-aware Layered LPA*: proposed method.
+M-A / Terrain-aware Layered A*: ablation without incremental replanning.
+M-F / Flat-graph LPA*: ablation without the three-layer airway structure.
+M-R / Regular-layered LPA*: ablation without terrain-aware layering.
+M-V / Voxel Global Search: traditional voxel-based global search baseline.
 """
 
 from __future__ import annotations
@@ -124,6 +124,15 @@ STRUCTURAL_ABLATION_METHODS = [
     ),
 ]
 
+METHOD_IDS = {
+    BASELINE_B4: "M-P",
+    BASELINE_B2: "M-A",
+    BASELINE_B3: "M-F",
+    BASELINE_B5: "M-R",
+    BASELINE_B6: "M-R",
+    BASELINE_B1: "M-V",
+}
+
 DISPLAY_LABELS = {
     BASELINE_B4: "Terrain-aware Layered LPA*",
     BASELINE_B2: "Terrain-aware Layered A*",
@@ -133,10 +142,15 @@ DISPLAY_LABELS = {
     BASELINE_B1: "Voxel Global Search",
 }
 
+METHOD_DISPLAY = {
+    baseline: f"{METHOD_IDS[baseline]} / {label}"
+    for baseline, label in DISPLAY_LABELS.items()
+}
+
 
 def display_baseline_name(baseline: str, proposed: bool = False) -> str:
-    """把内部 baseline ID 转成论文图表使用的语义化方法名。"""
-    name = DISPLAY_LABELS.get(str(baseline), str(baseline))
+    """把内部 baseline ID 转成论文表格使用的 M 系列语义化方法名。"""
+    name = METHOD_DISPLAY.get(str(baseline), str(baseline))
     if proposed and str(baseline) == BASELINE_B4:
         return f"{name} (Proposed)"
     return name
@@ -1739,6 +1753,8 @@ def summarise_baseline(records: List[dict], baseline: str) -> dict:
     failure_counts = Counter(str(r.get("failure_reason", "") or str(r.get("note", "")) or "unknown_failure") for r in failed)
     out = {
         "baseline": baseline,
+        "method_id": METHOD_IDS.get(baseline, ""),
+        "method_display": display_baseline_name(baseline, proposed=True),
         "n_trials": len(subset),
         "n_success": len(ok),
         "n_failed": len(failed),
@@ -1927,10 +1943,10 @@ def render_markdown(summary_rows: List[dict], pair_rows: List[dict], args: argpa
 
 def render_four_baseline_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Global Search",
-        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
-        "B3_LPA_SingleLayer": "Flat-graph LPA*",
-        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
+        "B1_Voxel_Dijkstra": display_baseline_name("B1_Voxel_Dijkstra"),
+        "B2_GlobalAstar_Layered": display_baseline_name("B2_GlobalAstar_Layered"),
+        "B3_LPA_SingleLayer": display_baseline_name("B3_LPA_SingleLayer"),
+        "B4_Proposed_LPA_Layered": display_baseline_name("B4_Proposed_LPA_Layered", proposed=True),
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2027,12 +2043,12 @@ def render_benchmark_markdown_v2(summary_rows: List[dict], pair_rows: List[dict]
 def render_single_event_comparison_markdown(summary_rows: List[dict], args: argparse.Namespace) -> str:
     """增强版多基线单事件对比表，纳入 M-R 结构性消融。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Global Search",
-        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
-        "B3_LPA_SingleLayer": "Flat-graph LPA*",
-        BASELINE_B5: "Regular-layered LPA*",
-        BASELINE_B6: "Regular-layered LPA* (legacy)",
-        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
+        "B1_Voxel_Dijkstra": display_baseline_name("B1_Voxel_Dijkstra"),
+        "B2_GlobalAstar_Layered": display_baseline_name("B2_GlobalAstar_Layered"),
+        "B3_LPA_SingleLayer": display_baseline_name("B3_LPA_SingleLayer"),
+        BASELINE_B5: display_baseline_name(BASELINE_B5),
+        BASELINE_B6: f"{display_baseline_name(BASELINE_B6)} (legacy)",
+        "B4_Proposed_LPA_Layered": display_baseline_name("B4_Proposed_LPA_Layered", proposed=True),
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2088,12 +2104,12 @@ def render_single_event_comparison_markdown(summary_rows: List[dict], args: argp
 def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict], args: argparse.Namespace) -> str:
     """中文版单次 benchmark 汇总表，显式给出中位数、P95 和显著性检验信息。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Global Search",
-        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
-        "B3_LPA_SingleLayer": "Flat-graph LPA*",
-        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
-        BASELINE_B5: "Regular-layered LPA*",
-        BASELINE_B6: "Regular-layered LPA*（旧命名）",
+        "B1_Voxel_Dijkstra": display_baseline_name("B1_Voxel_Dijkstra"),
+        "B2_GlobalAstar_Layered": display_baseline_name("B2_GlobalAstar_Layered"),
+        "B3_LPA_SingleLayer": display_baseline_name("B3_LPA_SingleLayer"),
+        "B4_Proposed_LPA_Layered": display_baseline_name("B4_Proposed_LPA_Layered", proposed=True),
+        BASELINE_B5: display_baseline_name(BASELINE_B5),
+        BASELINE_B6: f"{display_baseline_name(BASELINE_B6)}（旧命名）",
     }
     test_label = {
         "wilcoxon": "Wilcoxon",
@@ -2147,12 +2163,12 @@ def render_benchmark_markdown_cn(summary_rows: List[dict], pair_rows: List[dict]
 def render_single_event_comparison_markdown_cn(summary_rows: List[dict], args: argparse.Namespace) -> str:
     """中文版多基线单事件对比表，纳入 M-R 结构性消融。"""
     label_map = {
-        "B1_Voxel_Dijkstra": "Voxel Global Search",
-        "B2_GlobalAstar_Layered": "Terrain-aware Layered A*",
-        "B3_LPA_SingleLayer": "Flat-graph LPA*",
-        BASELINE_B5: "Regular-layered LPA*",
-        BASELINE_B6: "Regular-layered LPA*（旧命名）",
-        "B4_Proposed_LPA_Layered": "Terrain-aware Layered LPA* (Proposed)",
+        "B1_Voxel_Dijkstra": display_baseline_name("B1_Voxel_Dijkstra"),
+        "B2_GlobalAstar_Layered": display_baseline_name("B2_GlobalAstar_Layered"),
+        "B3_LPA_SingleLayer": display_baseline_name("B3_LPA_SingleLayer"),
+        BASELINE_B5: display_baseline_name(BASELINE_B5),
+        BASELINE_B6: f"{display_baseline_name(BASELINE_B6)}（旧命名）",
+        "B4_Proposed_LPA_Layered": display_baseline_name("B4_Proposed_LPA_Layered", proposed=True),
     }
     ordered = [
         "B1_Voxel_Dijkstra",
@@ -2285,7 +2301,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
     voxel_planner = None
     if not args.skip_b1:
-        print("[build] building coarse voxel planner for B1...")
+        print("[build] building M-V / B1 coarse voxel planner...")
         voxel_planner = TraditionalVoxelDijkstra(
             z_grid,
             xy_step_m=args.b1_xy_step_m,
@@ -2595,7 +2611,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 }
             records.append(rec_b6)
 
-        # ---------- B1 (Traditional voxel + Dijkstra) ----------
+        # ---------- M-V / B1（传统体素全局搜索） ----------
         if voxel_planner is not None:
             start_xyz = (
                 float(layered_graph.nodes[start, 0]),
@@ -2696,7 +2712,10 @@ def run_benchmark(args: argparse.Namespace) -> None:
     for a, b, metric in pair_cfg:
         xa, xb = paired_arrays(records, a, b, metric)
         sig = paired_significance(xa, xb)
-        pair_label = f"{display_baseline_name(a)} vs {display_baseline_name(b)}"
+        pair_label = (
+            f"{display_baseline_name(a, proposed=(a == BASELINE_B4))} "
+            f"vs {display_baseline_name(b, proposed=(b == BASELINE_B4))}"
+        )
         if xa.size == 0:
             pair_rows.append(
                 {

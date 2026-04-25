@@ -1,7 +1,7 @@
 """绘制论文矩阵实验结果图。
 
 该脚本只读取 benchmark_matrix.py / benchmark.py 已生成的 CSV，不重新建图、不重新规划。
-默认输出 PDF，便于论文排版；若存在结构性消融 CSV，会额外生成 B5 消融图。
+默认输出 PDF，便于论文排版；若存在结构性消融 CSV，会额外生成 E2 消融图。
 """
 
 from __future__ import annotations
@@ -26,6 +26,14 @@ B5 = "B5_RegularLayered_LPA"
 B1 = "B1_Voxel_Dijkstra"
 B6_LEGACY = "B6_RegularLayered_LPA"
 
+METHOD_IDS = {
+    B4: "M-P",
+    B2: "M-A",
+    B3: "M-F",
+    B5: "M-R",
+    B1: "M-V",
+}
+
 FIGURE_LABELS = {
     B4: "Terrain-aware Layered LPA* (Proposed)",
     B2: "Terrain-aware Layered A*",
@@ -41,6 +49,9 @@ AXIS_LABELS = {
     B5: "Regular-layered LPA*",
     B1: "Voxel Global Search",
 }
+
+SPEEDUP_AXIS_LABEL = "Speedup ratio (M-A / M-P)"
+SPEEDUP_NOTE = "A value > 1 indicates that M-P is faster."
 
 
 def read_csv_rows(path: Path, required: bool = True) -> List[dict]:
@@ -129,9 +140,10 @@ def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Pat
     style_axes(ax)
     ax2 = ax.twinx()
     ax2.axhline(1.0, color="#555555", linestyle="--", linewidth=0.9, alpha=0.55)
-    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label=f"{AXIS_LABELS[B2]} / {AXIS_LABELS[B4]}")
-    ax2.set_ylabel(f"Speedup ratio ({AXIS_LABELS[B2]} / {AXIS_LABELS[B4]})")
+    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label="M-A / M-P")
+    ax2.set_ylabel(SPEEDUP_AXIS_LABEL)
     ax2.spines["top"].set_visible(False)
+    ax2.text(0.02, 0.04, SPEEDUP_NOTE, transform=ax2.transAxes, fontsize=7.2, color="#444444")
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax.legend(lines + lines2, labels + labels2, frameon=False, fontsize=8, loc="best")
@@ -181,8 +193,9 @@ def plot_exp_b_speedup(rows: List[dict], out_dir: Path, dpi: int) -> Path:
         if math.isfinite(yi) and math.isfinite(fr):
             ax.annotate(f"{100.0 * fr:.0f}%", (xi, yi), textcoords="offset points", xytext=(0, 7), ha="center", fontsize=7)
     ax.set_xlabel("Number of sequential events K")
-    ax.set_ylabel(f"Speedup ratio ({AXIS_LABELS[B2]} / {AXIS_LABELS[B4]})")
+    ax.set_ylabel(SPEEDUP_AXIS_LABEL)
     ax.set_title("E3.2 Consecutive-event Replanning Speedup")
+    ax.text(0.02, 0.04, SPEEDUP_NOTE, transform=ax.transAxes, fontsize=7.2, color="#444444")
     ax.legend(frameon=False, fontsize=8)
     style_axes(ax)
     return save_figure(fig, out_dir, "fig_expB_speedup.pdf", dpi)
@@ -299,7 +312,12 @@ def plot_path_quality_scatter(trial_rows: List[dict], quality_rows: List[dict], 
     return save_figure(fig, out_dir, "fig_path_quality_scatter.pdf", dpi)
 
 
-def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path | None:
+def plot_structural_ablation(
+    rows: List[dict],
+    out_dir: Path,
+    dpi: int,
+    filename: str = "fig_structural_ablation.pdf",
+) -> Path | None:
     """E2 结构性消融图：M-P/M-A/M-F/M-R/M-V 同图比较。"""
     if not rows:
         return None
@@ -324,25 +342,31 @@ def plot_structural_ablation(rows: List[dict], out_dir: Path, dpi: int) -> Path 
     times = [to_float(by_baseline[p[1]].get("mean_replan_ms")) for p in present]
     costs = [to_float(by_baseline[p[1]].get("mean_cost")) for p in present]
     success = [100.0 * to_float(by_baseline[p[1]].get("success_rate")) for p in present]
+    comm = [100.0 * to_float(by_baseline[p[1]].get("mean_comm_coverage_ratio")) for p in present]
     x = np.arange(len(present), dtype=float)
 
-    fig, axes = plt.subplots(1, 3, figsize=(8.2, 3.0))
-    axes[0].bar(x, times, color=colors, alpha=0.85)
-    axes[0].set_ylabel("Replanning time (ms)")
-    axes[0].set_title("Time")
-    axes[1].bar(x, costs, color=colors, alpha=0.85)
-    axes[1].set_ylabel("Path cost")
-    axes[1].set_title("Quality")
-    axes[2].bar(x, success, color=colors, alpha=0.85)
-    axes[2].set_ylabel("Success rate (%)")
-    axes[2].set_ylim(0, 105)
-    axes[2].set_title("Robustness")
-    for ax in axes:
+    fig, axes = plt.subplots(2, 2, figsize=(8.6, 5.6))
+    axes_flat = list(axes.ravel())
+    axes_flat[0].bar(x, times, color=colors, alpha=0.85)
+    axes_flat[0].set_ylabel("Replanning time (ms)")
+    axes_flat[0].set_title("(a) Replanning time")
+    axes_flat[1].bar(x, costs, color=colors, alpha=0.85)
+    axes_flat[1].set_ylabel("Path cost")
+    axes_flat[1].set_title("(b) Path quality")
+    axes_flat[2].bar(x, success, color=colors, alpha=0.85)
+    axes_flat[2].set_ylabel("Success rate (%)")
+    axes_flat[2].set_ylim(0, 105)
+    axes_flat[2].set_title("(c) Success rate")
+    axes_flat[3].bar(x, comm, color=colors, alpha=0.85)
+    axes_flat[3].set_ylabel("Communication coverage (%)")
+    axes_flat[3].set_ylim(0, 105)
+    axes_flat[3].set_title("(d) Communication coverage")
+    for ax in axes_flat:
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, fontsize=8)
+        ax.set_xticklabels(labels, fontsize=7.2)
         style_axes(ax)
     fig.suptitle("E2 Structural Ablation Study", y=1.03, fontsize=11)
-    return save_figure(fig, out_dir, "fig_structural_ablation.pdf", dpi)
+    return save_figure(fig, out_dir, filename, dpi)
 
 
 def configure_matplotlib() -> None:

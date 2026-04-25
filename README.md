@@ -21,6 +21,8 @@
 | `benchmark.py` | 兼容入口：运行 single 或 matrix benchmark。 |
 | `benchmark_matrix.py` | matrix benchmark 的 M-P/M-A 事件流实验实现。 |
 | `tools/plot_matrix_results.py` | 读取 matrix CSV 并输出论文 PDF 图。 |
+| `tools/plot_generalization_results.py` | 读取多场景汇总 CSV 并输出 E1 跨地形泛化论文图。 |
+| `tools/plot_ablation_results.py` | 读取 single benchmark 结构性消融 CSV 并输出 E2 消融论文图。 |
 | `run_multi_scene.py` | 多场景流水线执行器。 |
 | `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
 | `data/raw/huashan/map.osm` | 华山本地 OSM 输入。 |
@@ -209,8 +211,18 @@ python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmar
 python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/matrix_final
 ```
 
-若需要同时生成 `fig_structural_ablation.pdf`，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
-单独给 single 输出目录画 M-R 消融图可运行：
+E1 跨地形泛化图从 `run_multi_scene.py` 的汇总 CSV 生成：
+```powershell
+python tools/plot_generalization_results.py --summary-csv outputs/_summaries/E1_E2_three_mountain_single_final.csv --workdir .
+```
+
+E2 结构性消融图从 single benchmark 输出目录生成：
+```powershell
+python tools/plot_ablation_results.py --result-dir outputs/huangshan/tests/E1_E2_single_final
+```
+
+若需要继续使用矩阵绘图脚本的兼容入口，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
+单独给 single 输出目录画 M-R 消融图也可运行：
 ```powershell
 python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/benchmark_single --ablation-only
 ```
@@ -279,6 +291,11 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_table_structural_ablation.md` | 含 M-R 的结构性消融对比表。 |
 | `benchmark_structural_ablation.csv` | M-P/M-A/M-F/M-R/M-V 结构性消融 CSV，含 `method_id`、`internal_code`、`figure_label` 和 `full_method_name`。 |
 | `fig_expA_event_intensity_time.pdf` | E3.1 事件强度时间图。 |
+| `fig_E1_cross_terrain_success.pdf` | E1 跨地形成功率图。 |
+| `fig_E1_cross_terrain_replan_time.pdf` | E1 跨地形重规划时间图。 |
+| `fig_E1_cross_terrain_comm_coverage.pdf` | E1 跨地形通信覆盖图。 |
+| `fig_E1_cross_terrain_risk_exposure.pdf` | E1 跨地形风险暴露图。 |
+| `fig_E2_structural_ablation.pdf` | E2 结构性消融图。 |
 | `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的其他论文图。 |
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
 | `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |
@@ -308,6 +325,8 @@ python benchmark_matrix.py --help
 python run_multi_scene.py --help
 python tools/locate_targets.py --help
 python tools/plot_matrix_results.py --help
+python tools/plot_generalization_results.py --help
+python tools/plot_ablation_results.py --help
 ```
 
 单场景 smoke：
