@@ -44,11 +44,10 @@ Thumbs.db
 
 ### 场景运行输出 ###
 outputs/
-final_results/
-intermediate_artifacts/
 # 最终输出结果可以上传（用来进行检查）
 # final_results/
 # 中间产物的图片数据可以上传（用来进行检查）
+intermediate_artifacts/data/
 benchmark_out*/
 
 ### 根目录可再生运行产物 ###
