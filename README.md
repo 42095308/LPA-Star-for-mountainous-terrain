@@ -24,7 +24,7 @@
 | `tools/plot_generalization_results.py` | 读取多场景汇总 CSV 并输出 E1 跨地形泛化论文图。 |
 | `tools/plot_ablation_results.py` | 读取 single benchmark 结构性消融 CSV 并输出 E2 消融论文图。 |
 | `tools/enrich_final_summary_metrics.py` | 从 trial 级记录回填 E1/E2 summary 中的风险、通信和 95% CI 字段。 |
-| `tools/organize_result_artifacts.py` | 按 `final_results/`、`final_results/logs/` 和 `intermediate_artifacts/` 归档正式结果、日志和中间产物。 |
+| `tools/normalize_final_summary_paths.py` | 将最终 summary 中的路径规范为相对路径，并清理正文级 summary 的本机命令日志。 |
 | `run_multi_scene.py` | 多场景流水线执行器。 |
 | `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
 | `data/raw/huashan/map.osm` | 华山本地 OSM 输入。 |
@@ -226,12 +226,12 @@ E2 结构性消融图从 single benchmark 输出目录生成：
 python tools/plot_ablation_results.py --result-dir final_results/huangshan/E1_E2_single_final
 ```
 
-正式结果整理到论文归档目录：
+正式 summary 提交前建议规范路径字段：
 ```powershell
-python tools/organize_result_artifacts.py --workdir .
+python tools/normalize_final_summary_paths.py --summary-dir final_results/_summaries
 ```
 
-整理后的目录口径为：`final_results/` 保存 E1-E4 核心结果，`final_results/logs/` 保存 smoke、precheck 和事件明细日志，`intermediate_artifacts/data/` 保存 DEM 裁剪、风险场、走廊、节点和边等中间数据，`intermediate_artifacts/figures/` 保存中间步骤生成的图片。
+目录口径为：`final_results/` 保存 E1-E4 核心结果，`final_results/logs/` 保存 smoke、precheck 和事件明细日志，`intermediate_artifacts/data/` 保存 DEM 裁剪、风险场、走廊、节点和边等中间数据，`intermediate_artifacts/figures/` 保存中间步骤生成的图片。
 
 若需要继续使用矩阵绘图脚本的兼容入口，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
 单独给 single 输出目录画 M-R 消融图也可运行：
@@ -341,7 +341,7 @@ python tools/plot_matrix_results.py --help
 python tools/plot_generalization_results.py --help
 python tools/plot_ablation_results.py --help
 python tools/enrich_final_summary_metrics.py --help
-python tools/organize_result_artifacts.py --help
+python tools/normalize_final_summary_paths.py --help
 ```
 
 单场景 smoke：
