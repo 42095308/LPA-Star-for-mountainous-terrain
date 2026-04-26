@@ -16,6 +16,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 
 
@@ -51,7 +52,7 @@ AXIS_LABELS = {
 }
 
 SPEEDUP_AXIS_LABEL = "Speedup ratio (M-A / M-P)"
-SPEEDUP_NOTE = "A value > 1 indicates that M-P is faster."
+SPEEDUP_NOTE = "A value > 1 indicates that M-P is faster; percent labels denote M-P faster rate."
 
 
 def read_csv_rows(path: Path, required: bool = True) -> List[dict]:
@@ -127,26 +128,48 @@ def plot_exp_a_event_intensity(rows: List[dict], out_dir: Path, dpi: int) -> Pat
     b2_p95 = np.asarray([to_float(r.get("b2_p95_event_ms")) for r in rows], dtype=float)
     ratio = np.asarray([to_float(r.get("b2_over_b4_time_ratio")) for r in rows], dtype=float)
 
-    fig, ax = plt.subplots(figsize=(5.3, 3.4))
-    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label=FIGURE_LABELS[B4])
-    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label=FIGURE_LABELS[B2])
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4))
+    ax = axes[0]
+    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label="M-P")
+    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label="M-A")
     if np.isfinite(b4_p50).any() and np.isfinite(b4_p95).any():
         ax.fill_between(x, b4_p50, b4_p95, color="#d95f02", alpha=0.16, linewidth=0)
     if np.isfinite(b2_p50).any() and np.isfinite(b2_p95).any():
         ax.fill_between(x, b2_p50, b2_p95, color="#1f78b4", alpha=0.14, linewidth=0)
     ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Mean replanning time per event (ms)")
-    ax.set_title("E3.1 Event-intensity Sensitivity")
+    ax.set_title("(a) Replanning time")
     style_axes(ax)
-    ax2 = ax.twinx()
-    ax2.axhline(1.0, color="#555555", linestyle="--", linewidth=0.9, alpha=0.55)
-    ax2.plot(x, ratio, marker="D", linewidth=1.5, color="#238b45", label="M-A / M-P")
-    ax2.set_ylabel(SPEEDUP_AXIS_LABEL)
-    ax2.spines["top"].set_visible(False)
-    ax2.text(0.02, 0.04, SPEEDUP_NOTE, transform=ax2.transAxes, fontsize=7.2, color="#444444")
-    lines, labels = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + lines2, labels + labels2, frameon=False, fontsize=8, loc="best")
+
+    ax_speed = axes[1]
+    ax_speed.axhline(1.0, color="#555555", linestyle="--", linewidth=0.9, alpha=0.65)
+    ax_speed.plot(x, ratio, marker="D", linewidth=1.8, color="#238b45", label="M-A / M-P")
+    ax_speed.set_xlabel("Event intensity index")
+    ax_speed.set_ylabel(SPEEDUP_AXIS_LABEL)
+    ax_speed.set_title("(b) Speedup")
+    style_axes(ax_speed)
+
+    notes = ["A value > 1 indicates that M-P is faster."]
+    missing = [
+        int(xi)
+        for xi, r4, r2, rr in zip(x, b4_mean, b2_mean, ratio)
+        if not (math.isfinite(r4) and math.isfinite(r2) and math.isfinite(rr))
+    ]
+    if missing:
+        notes.append(
+            f"Missing intensity indices ({', '.join(map(str, missing))}) indicate unavailable successful paired trials."
+        )
+    fig.text(0.5, -0.02, "\n".join(notes), ha="center", fontsize=7.2, color="#555555")
+
+    handles, labels = [], []
+    for one_ax in axes:
+        one_handles, one_labels = one_ax.get_legend_handles_labels()
+        handles.extend(one_handles)
+        labels.extend(one_labels)
+    dedup = dict(zip(labels, handles))
+    fig.legend(dedup.values(), dedup.keys(), frameon=False, fontsize=8, ncol=len(dedup), loc="upper center", bbox_to_anchor=(0.5, 1.08))
+    fig.suptitle("E3.1 Event-intensity Sensitivity", y=1.02, fontsize=10.5)
+    fig.subplots_adjust(wspace=0.32, top=0.80, bottom=0.22)
     return save_figure(fig, out_dir, "fig_expA_event_intensity_time.pdf", dpi)
 
 
@@ -162,8 +185,8 @@ def plot_exp_b_cumulative_time(rows: List[dict], out_dir: Path, dpi: int) -> Pat
     b2_p95 = np.asarray([to_float(r.get("b2_p95_cumulative_ms")) for r in rows], dtype=float)
 
     fig, ax = plt.subplots(figsize=(5.2, 3.4))
-    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label=FIGURE_LABELS[B4])
-    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label=FIGURE_LABELS[B2])
+    ax.plot(x, b4_mean, marker="o", linewidth=2.0, color="#d95f02", label="M-P")
+    ax.plot(x, b2_mean, marker="s", linewidth=2.0, color="#1f78b4", label="M-A")
     if np.isfinite(b4_p50).any() and np.isfinite(b4_p95).any():
         ax.fill_between(x, b4_p50, b4_p95, color="#d95f02", alpha=0.16, linewidth=0)
     if np.isfinite(b2_p50).any() and np.isfinite(b2_p95).any():
@@ -195,9 +218,10 @@ def plot_exp_b_speedup(rows: List[dict], out_dir: Path, dpi: int) -> Path:
     ax.set_xlabel("Number of sequential events K")
     ax.set_ylabel(SPEEDUP_AXIS_LABEL)
     ax.set_title("E3.2 Consecutive-event Replanning Speedup")
-    ax.text(0.02, 0.04, SPEEDUP_NOTE, transform=ax.transAxes, fontsize=7.2, color="#444444")
+    fig.text(0.5, 0.01, SPEEDUP_NOTE, ha="center", fontsize=7.2, color="#555555")
     ax.legend(frameon=False, fontsize=8)
     style_axes(ax)
+    fig.subplots_adjust(bottom=0.18)
     return save_figure(fig, out_dir, "fig_expB_speedup.pdf", dpi)
 
 
@@ -211,19 +235,27 @@ def plot_exp_d_workload(rows: List[dict], out_dir: Path, dpi: int) -> Path:
 
     fig, ax = plt.subplots(figsize=(5.4, 3.5))
     width = 0.34
-    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label=FIGURE_LABELS[B4])
-    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label=FIGURE_LABELS[B2])
+    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label="M-P")
+    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label="M-A")
     ax.set_xlabel("Event intensity index")
     ax.set_ylabel("Expanded nodes per event")
     ax.set_title("E3.4 Workload Mechanism Analysis")
     style_axes(ax)
     ax2 = ax.twinx()
     ax2.plot(x, 100.0 * reduction, color="#238b45", marker="D", linewidth=1.8, label="Reduction")
-    ax2.set_ylabel(f"{AXIS_LABELS[B4]} workload reduction (%)")
+    ax2.set_ylabel("Workload reduction (%)")
     ax2.spines["top"].set_visible(False)
     lines, labels = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + lines2, labels + labels2, frameon=False, fontsize=8, loc="upper left")
+    ax.legend(
+        lines + lines2,
+        labels + labels2,
+        frameon=False,
+        fontsize=8,
+        ncol=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.20),
+    )
     return save_figure(fig, out_dir, "fig_expD_workload_expanded.pdf", dpi)
 
 
@@ -239,15 +271,15 @@ def plot_exp_c_scale_success(rows: List[dict], out_dir: Path, dpi: int) -> Path:
 
     fig, ax = plt.subplots(figsize=(5.2, 3.4))
     width = 0.34
-    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label=FIGURE_LABELS[B4])
-    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label=FIGURE_LABELS[B2])
+    ax.bar(x - width / 2.0, b4, width=width, color="#d95f02", alpha=0.88, label="M-P")
+    ax.bar(x + width / 2.0, b2, width=width, color="#1f78b4", alpha=0.82, label="M-A")
     ax.set_ylim(0, 105)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{s}\n|V|={n}" for s, n in zip(scales, nodes)])
     ax.set_ylabel("Success rate (%)")
     ax.set_xlabel("Graph scale")
-    ax.set_title("E3.3 Graph-scale Sensitivity")
-    ax.legend(frameon=False, fontsize=8, loc="lower right")
+    ax.set_title("E3.3 Graph-scale Feasibility Analysis")
+    ax.legend(frameon=False, fontsize=8, ncol=2, loc="upper center", bbox_to_anchor=(0.5, 1.18))
     style_axes(ax)
     return save_figure(fig, out_dir, "fig_expC_scale_success.pdf", dpi)
 
@@ -300,6 +332,21 @@ def plot_path_quality_scatter(trial_rows: List[dict], quality_rows: List[dict], 
         ax.set_xlabel(f"{AXIS_LABELS[B2]} final path cost")
         ax.set_ylabel(f"{AXIS_LABELS[B4]} final path cost")
         ax.set_title("E4 Path-quality Consistency")
+        rel_gap = np.abs(b4_cost - b2_cost) / np.maximum(np.abs(b2_cost), 1e-9)
+        median_gap = float(np.nanmedian(rel_gap)) if rel_gap.size else float("nan")
+        note = "Final path costs are nearly identical.\nM-P efficiency is not obtained by sacrificing path quality."
+        if math.isfinite(median_gap):
+            note = f"{note}\nMedian relative gap = {100.0 * median_gap:.2f}%."
+        ax.text(
+            0.03,
+            0.96,
+            note,
+            transform=ax.transAxes,
+            fontsize=7.1,
+            color="#444444",
+            va="top",
+            bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "#dddddd", "alpha": 0.86},
+        )
     else:
         x = np.arange(len(quality_rows), dtype=float)
         gap = np.asarray([to_float(r.get("median_abs_cost_gap")) for r in quality_rows], dtype=float)
@@ -327,11 +374,11 @@ def plot_structural_ablation(
     if B5 not in by_baseline:
         return None
     ordered = [
-        ("M-A\nTerrain-aware\nLayered A*", B2, "#1f78b4"),
-        ("M-F\nFlat-graph\nLPA*", B3, "#7570b3"),
-        ("M-R\nRegular-layered\nLPA*", B5, "#66a61e"),
-        ("M-V\nVoxel Global\nSearch", B1, "#8c510a"),
-        ("M-P\nProposed", B4, "#d95f02"),
+        ("M-P", B4, "#d95f02"),
+        ("M-A", B2, "#1f78b4"),
+        ("M-F", B3, "#7570b3"),
+        ("M-R", B5, "#66a61e"),
+        ("M-V", B1, "#8c510a"),
     ]
     present = [(label, key, color) for label, key, color in ordered if key in by_baseline]
     if len(present) < 2:
@@ -339,33 +386,52 @@ def plot_structural_ablation(
 
     labels = [p[0] for p in present]
     colors = [p[2] for p in present]
-    times = [to_float(by_baseline[p[1]].get("mean_replan_ms")) for p in present]
-    costs = [to_float(by_baseline[p[1]].get("mean_cost")) for p in present]
-    success = [100.0 * to_float(by_baseline[p[1]].get("success_rate")) for p in present]
-    comm = [100.0 * to_float(by_baseline[p[1]].get("mean_comm_coverage_ratio")) for p in present]
+    rows_by_method = [by_baseline[p[1]] for p in present]
+
+    def metric(row: dict, *names: str) -> float:
+        for name in names:
+            val = to_float(row.get(name))
+            if math.isfinite(val):
+                return val
+        return float("nan")
+
+    def yerr_arg(values: Sequence[float]) -> Sequence[float] | None:
+        return values if any(math.isfinite(v) and v > 0 for v in values) else None
+
+    times = [metric(r, "mean_replan_ms") for r in rows_by_method]
+    times_ci = [metric(r, "ci95_replan_ms") for r in rows_by_method]
+    costs = [metric(r, "mean_path_cost", "mean_cost") for r in rows_by_method]
+    costs_ci = [metric(r, "ci95_path_cost", "ci95_cost") for r in rows_by_method]
+    comm = [100.0 * metric(r, "mean_comm_coverage", "mean_comm_coverage_ratio") for r in rows_by_method]
+    comm_ci = [100.0 * metric(r, "ci95_comm_coverage", "ci95_comm_coverage_ratio") for r in rows_by_method]
+    risk = [metric(r, "mean_risk_exposure", "mean_risk_exposure_integral") for r in rows_by_method]
+    risk_ci = [metric(r, "ci95_risk_exposure", "ci95_risk_exposure_integral") for r in rows_by_method]
     x = np.arange(len(present), dtype=float)
 
-    fig, axes = plt.subplots(2, 2, figsize=(8.6, 5.6))
+    fig, axes = plt.subplots(2, 2, figsize=(8.6, 5.8))
     axes_flat = list(axes.ravel())
-    axes_flat[0].bar(x, times, color=colors, alpha=0.85)
+    err_kw = {"linewidth": 0.8, "capthick": 0.8}
+    axes_flat[0].bar(x, times, color=colors, alpha=0.85, yerr=yerr_arg(times_ci), capsize=2.0, error_kw=err_kw)
     axes_flat[0].set_ylabel("Replanning time (ms)")
     axes_flat[0].set_title("(a) Replanning time")
-    axes_flat[1].bar(x, costs, color=colors, alpha=0.85)
+    axes_flat[1].bar(x, costs, color=colors, alpha=0.85, yerr=yerr_arg(costs_ci), capsize=2.0, error_kw=err_kw)
     axes_flat[1].set_ylabel("Path cost")
-    axes_flat[1].set_title("(b) Path quality")
-    axes_flat[2].bar(x, success, color=colors, alpha=0.85)
-    axes_flat[2].set_ylabel("Success rate (%)")
+    axes_flat[1].set_title("(b) Path cost")
+    axes_flat[2].bar(x, comm, color=colors, alpha=0.85, yerr=yerr_arg(comm_ci), capsize=2.0, error_kw=err_kw)
+    axes_flat[2].set_ylabel("Communication coverage (%)")
     axes_flat[2].set_ylim(0, 105)
-    axes_flat[2].set_title("(c) Success rate")
-    axes_flat[3].bar(x, comm, color=colors, alpha=0.85)
-    axes_flat[3].set_ylabel("Communication coverage (%)")
-    axes_flat[3].set_ylim(0, 105)
-    axes_flat[3].set_title("(d) Communication coverage")
+    axes_flat[2].set_title("(c) Communication coverage")
+    axes_flat[3].bar(x, risk, color=colors, alpha=0.85, yerr=yerr_arg(risk_ci), capsize=2.0, error_kw=err_kw)
+    axes_flat[3].set_ylabel("Risk exposure integral")
+    axes_flat[3].set_title("(d) Risk exposure")
     for ax in axes_flat:
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, fontsize=7.2)
+        ax.set_xticklabels(labels, fontsize=8.2)
         style_axes(ax)
     fig.suptitle("E2 Structural Ablation Study", y=1.03, fontsize=11)
+    legend_handles = [Patch(facecolor=color, alpha=0.85, label=label) for label, _, color in present]
+    fig.legend(legend_handles, labels, frameon=False, ncol=len(labels), loc="lower center", bbox_to_anchor=(0.5, -0.01))
+    fig.subplots_adjust(hspace=0.42, wspace=0.30, bottom=0.12)
     return save_figure(fig, out_dir, filename, dpi)
 
 

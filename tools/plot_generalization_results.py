@@ -63,13 +63,19 @@ SCENE_LABELS = {
 METRIC_CANDIDATES = {
     "success_rate": ["success_rate"],
     "mean_replan_ms": ["mean_replan_ms", "mean_cumulative_replan_ms"],
-    "mean_comm_coverage_ratio": ["mean_comm_coverage_ratio", "mean_final_comm_coverage_ratio"],
-    "mean_risk_exposure_integral": [
-        "mean_risk_exposure_integral",
+    "mean_comm_coverage": ["mean_comm_coverage", "mean_comm_coverage_ratio", "mean_final_comm_coverage_ratio"],
+    "mean_risk_exposure": [
         "mean_risk_exposure",
+        "mean_risk_exposure_integral",
         "mean_final_risk_exposure_integral",
         "risk_exposure_integral",
     ],
+}
+
+CI95_CANDIDATES = {
+    "mean_replan_ms": ["ci95_replan_ms", "ci95_cumulative_replan_ms"],
+    "mean_comm_coverage": ["ci95_comm_coverage", "ci95_comm_coverage_ratio"],
+    "mean_risk_exposure": ["ci95_risk_exposure", "ci95_risk_exposure_integral"],
 }
 
 
@@ -130,6 +136,16 @@ def first_metric(row: dict, metric: str) -> float:
     return float("nan")
 
 
+def first_ci95(row: dict, metric: str) -> float:
+    """读取指标对应的 95% CI 字段。"""
+    for key in CI95_CANDIDATES.get(metric, []):
+        if key in row:
+            val = to_float(row.get(key))
+            if math.isfinite(val):
+                return val
+    return float("nan")
+
+
 def pretty_scene(scene: str) -> str:
     """将场景内部名转成论文图上的英文场景名。"""
     s = str(scene or "").strip()
@@ -140,11 +156,9 @@ def pretty_scene(scene: str) -> str:
 
 
 def method_label(baseline: str) -> str:
-    """生成带 Method ID 的图例标签。"""
+    """生成图中使用的短 Method ID 标签。"""
     bid = normalize_baseline(baseline)
-    mid = METHOD_IDS.get(bid, bid)
-    label = METHOD_LABELS.get(bid, bid)
-    return f"{mid} / {label}"
+    return METHOD_IDS.get(bid, bid)
 
 
 def load_benchmark_summary_cache(rows: Sequence[dict]) -> Dict[Path, List[dict]]:
@@ -215,8 +229,11 @@ def aggregate_rows(rows: Sequence[dict]) -> List[dict]:
                 "baseline": baseline,
                 "success_rate": success_rate,
                 "mean_replan_ms": finite_mean(first_metric(r, "mean_replan_ms") for r in items),
-                "mean_comm_coverage_ratio": finite_mean(first_metric(r, "mean_comm_coverage_ratio") for r in items),
-                "mean_risk_exposure_integral": finite_mean(first_metric(r, "mean_risk_exposure_integral") for r in items),
+                "ci95_replan_ms": finite_mean(first_ci95(r, "mean_replan_ms") for r in items),
+                "mean_comm_coverage": finite_mean(first_metric(r, "mean_comm_coverage") for r in items),
+                "ci95_comm_coverage": finite_mean(first_ci95(r, "mean_comm_coverage") for r in items),
+                "mean_risk_exposure": finite_mean(first_metric(r, "mean_risk_exposure") for r in items),
+                "ci95_risk_exposure": finite_mean(first_ci95(r, "mean_risk_exposure") for r in items),
             }
         )
     return out
@@ -248,6 +265,7 @@ def plot_grouped_metric(
     out_dir: Path,
     dpi: int,
     percent: bool = False,
+    ci_metric: str | None = None,
 ) -> Path:
     """按场景分组、按方法着色绘制 E1 泛化柱状图。"""
     scenes = ordered_scenes(rows)
@@ -266,12 +284,22 @@ def plot_grouped_metric(
     has_finite = False
     for i, method in enumerate(methods):
         values = []
+        yerr = []
         for scene in scenes:
             value = data.get((scene, method), float("nan"))
+            ci_value = float("nan")
+            if ci_metric:
+                row = next((r for r in rows if r["scene_name"] == scene and r["baseline"] == method), None)
+                if row is not None:
+                    ci_value = to_float(row.get(ci_metric))
             if percent and math.isfinite(value):
                 value *= 100.0
+            if percent and math.isfinite(ci_value):
+                ci_value *= 100.0
             values.append(value)
+            yerr.append(ci_value)
         has_finite = has_finite or any(math.isfinite(v) for v in values)
+        finite_yerr = any(math.isfinite(v) and v > 0 for v in yerr)
         ax.bar(
             x + offset0 + i * width,
             values,
@@ -279,6 +307,9 @@ def plot_grouped_metric(
             color=METHOD_COLORS.get(method, "#777777"),
             alpha=0.86,
             label=method_label(method),
+            yerr=yerr if finite_yerr else None,
+            capsize=2.0 if finite_yerr else 0.0,
+            error_kw={"linewidth": 0.8, "capthick": 0.8},
         )
 
     ax.set_xticks(x)
@@ -292,8 +323,117 @@ def plot_grouped_metric(
     ax.grid(axis="y", alpha=0.25)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(frameon=False, fontsize=7.2, ncol=1, loc="best")
+    ax.legend(frameon=False, fontsize=7.2, ncol=len(methods), loc="upper center", bbox_to_anchor=(0.5, 1.20))
     return save_figure(fig, out_dir, filename, dpi)
+
+
+def draw_grouped_metric(
+    ax: plt.Axes,
+    rows: Sequence[dict],
+    metric: str,
+    ylabel: str,
+    title: str,
+    percent: bool = False,
+    ci_metric: str | None = None,
+) -> None:
+    """在指定子图上绘制分组柱状指标，用于 E1 综合图。"""
+    scenes = ordered_scenes(rows)
+    methods = [m for m in METHOD_ORDER if any(r["baseline"] == m for r in rows)]
+    data = {(r["scene_name"], r["baseline"]): float(r.get(metric, float("nan"))) for r in rows}
+    if not scenes or not methods:
+        ax.text(0.5, 0.5, "No valid E1 rows found", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        return
+
+    x = np.arange(len(scenes), dtype=float)
+    width = min(0.16, 0.82 / max(1, len(methods)))
+    offset0 = -0.5 * width * (len(methods) - 1)
+    has_finite = False
+    for i, method in enumerate(methods):
+        values = []
+        yerr = []
+        for scene in scenes:
+            value = data.get((scene, method), float("nan"))
+            ci_value = float("nan")
+            if ci_metric:
+                row = next((r for r in rows if r["scene_name"] == scene and r["baseline"] == method), None)
+                if row is not None:
+                    ci_value = to_float(row.get(ci_metric))
+            if percent and math.isfinite(value):
+                value *= 100.0
+            if percent and math.isfinite(ci_value):
+                ci_value *= 100.0
+            values.append(value)
+            yerr.append(ci_value)
+        has_finite = has_finite or any(math.isfinite(v) for v in values)
+        finite_yerr = any(math.isfinite(v) and v > 0 for v in yerr)
+        ax.bar(
+            x + offset0 + i * width,
+            values,
+            width=width,
+            color=METHOD_COLORS.get(method, "#777777"),
+            alpha=0.86,
+            label=method_label(method),
+            yerr=yerr if finite_yerr else None,
+            capsize=2.0 if finite_yerr else 0.0,
+            error_kw={"linewidth": 0.8, "capthick": 0.8},
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([pretty_scene(s) for s in scenes])
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if percent:
+        ax.set_ylim(0, 105)
+    if not has_finite:
+        ax.text(0.5, 0.86, "Metric not found in summary CSV", ha="center", transform=ax.transAxes, fontsize=8)
+    ax.grid(axis="y", alpha=0.25)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def plot_overall_dashboard(rows: Sequence[dict], out_dir: Path, dpi: int) -> Path:
+    """绘制 E1 跨地形泛化综合 2x2 图。"""
+    fig, axes = plt.subplots(2, 2, figsize=(9.0, 5.8))
+    axes_flat = list(axes.ravel())
+    draw_grouped_metric(
+        axes_flat[0],
+        rows,
+        "success_rate",
+        "Success rate (%)",
+        "(a) Success rate",
+        percent=True,
+    )
+    draw_grouped_metric(
+        axes_flat[1],
+        rows,
+        "mean_replan_ms",
+        "Mean replanning time (ms)",
+        "(b) Replanning time",
+        ci_metric="ci95_replan_ms",
+    )
+    draw_grouped_metric(
+        axes_flat[2],
+        rows,
+        "mean_comm_coverage",
+        "Communication coverage (%)",
+        "(c) Communication coverage",
+        percent=True,
+        ci_metric="ci95_comm_coverage",
+    )
+    draw_grouped_metric(
+        axes_flat[3],
+        rows,
+        "mean_risk_exposure",
+        "Risk exposure integral",
+        "(d) Risk exposure",
+        ci_metric="ci95_risk_exposure",
+    )
+    fig.suptitle("E1 Cross-terrain Generalization", y=1.02, fontsize=11)
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, ncol=len(labels), loc="lower center", bbox_to_anchor=(0.5, -0.02))
+    fig.subplots_adjust(hspace=0.42, wspace=0.28, bottom=0.13)
+    return save_figure(fig, out_dir, "fig_E1_cross_terrain_overall.pdf", dpi)
 
 
 def resolve_summary_path(raw: str, workdir: Path) -> Path:
@@ -335,6 +475,7 @@ def main() -> None:
     out_dir = Path(args.out_dir).resolve() if args.out_dir else summary_path.parent
 
     produced = [
+        plot_overall_dashboard(aggregated, out_dir, args.dpi),
         plot_grouped_metric(
             aggregated,
             "success_rate",
@@ -353,25 +494,28 @@ def main() -> None:
             "fig_E1_cross_terrain_replan_time.pdf",
             out_dir,
             args.dpi,
+            ci_metric="ci95_replan_ms",
         ),
         plot_grouped_metric(
             aggregated,
-            "mean_comm_coverage_ratio",
+            "mean_comm_coverage",
             "Communication coverage (%)",
             "E1 Cross-terrain Communication Coverage",
             "fig_E1_cross_terrain_comm_coverage.pdf",
             out_dir,
             args.dpi,
             percent=True,
+            ci_metric="ci95_comm_coverage",
         ),
         plot_grouped_metric(
             aggregated,
-            "mean_risk_exposure_integral",
+            "mean_risk_exposure",
             "Risk exposure integral",
             "E1 Cross-terrain Risk Exposure",
             "fig_E1_cross_terrain_risk_exposure.pdf",
             out_dir,
             args.dpi,
+            ci_metric="ci95_risk_exposure",
         ),
     ]
 

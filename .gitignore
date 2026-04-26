@@ -44,6 +44,8 @@ Thumbs.db
 
 ### 场景运行输出 ###
 outputs/
+final_results/
+intermediate_artifacts/
 benchmark_out*/
 
 ### 根目录可再生运行产物 ###

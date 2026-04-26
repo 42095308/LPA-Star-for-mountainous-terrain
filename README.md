@@ -23,6 +23,8 @@
 | `tools/plot_matrix_results.py` | 读取 matrix CSV 并输出论文 PDF 图。 |
 | `tools/plot_generalization_results.py` | 读取多场景汇总 CSV 并输出 E1 跨地形泛化论文图。 |
 | `tools/plot_ablation_results.py` | 读取 single benchmark 结构性消融 CSV 并输出 E2 消融论文图。 |
+| `tools/enrich_final_summary_metrics.py` | 从 trial 级记录回填 E1/E2 summary 中的风险、通信和 95% CI 字段。 |
+| `tools/organize_result_artifacts.py` | 按 `final_results/`、`final_results/logs/` 和 `intermediate_artifacts/` 归档正式结果、日志和中间产物。 |
 | `run_multi_scene.py` | 多场景流水线执行器。 |
 | `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
 | `data/raw/huashan/map.osm` | 华山本地 OSM 输入。 |
@@ -213,13 +215,21 @@ python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/matrix_
 
 E1 跨地形泛化图从 `run_multi_scene.py` 的汇总 CSV 生成：
 ```powershell
-python tools/plot_generalization_results.py --summary-csv outputs/_summaries/E1_E2_three_mountain_single_final.csv --workdir .
+python tools/enrich_final_summary_metrics.py --final-dir final_results
+python tools/plot_generalization_results.py --summary-csv final_results/_summaries/E1_E2_three_mountain_single_final.csv --workdir . --out-dir final_results/_summaries
 ```
 
 E2 结构性消融图从 single benchmark 输出目录生成：
 ```powershell
 python tools/plot_ablation_results.py --result-dir outputs/huangshan/tests/E1_E2_single_final
 ```
+
+正式结果整理到论文归档目录：
+```powershell
+python tools/organize_result_artifacts.py --workdir .
+```
+
+整理后的目录口径为：`final_results/` 保存 E1-E4 核心结果，`final_results/logs/` 保存 smoke、precheck 和事件明细日志，`intermediate_artifacts/data/` 保存 DEM 裁剪、风险场、走廊、节点和边等中间数据，`intermediate_artifacts/figures/` 保存中间步骤生成的图片。
 
 若需要继续使用矩阵绘图脚本的兼容入口，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
 单独给 single 输出目录画 M-R 消融图也可运行：
@@ -292,6 +302,7 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_structural_ablation.csv` | M-P/M-A/M-F/M-R/M-V 结构性消融 CSV，含 `method_id`、`internal_code`、`figure_label` 和 `full_method_name`。 |
 | `fig_expA_event_intensity_time.pdf` | E3.1 事件强度时间图。 |
 | `fig_E1_cross_terrain_success.pdf` | E1 跨地形成功率图。 |
+| `fig_E1_cross_terrain_overall.pdf` | E1 跨地形 2×2 综合图。 |
 | `fig_E1_cross_terrain_replan_time.pdf` | E1 跨地形重规划时间图。 |
 | `fig_E1_cross_terrain_comm_coverage.pdf` | E1 跨地形通信覆盖图。 |
 | `fig_E1_cross_terrain_risk_exposure.pdf` | E1 跨地形风险暴露图。 |
@@ -327,6 +338,8 @@ python tools/locate_targets.py --help
 python tools/plot_matrix_results.py --help
 python tools/plot_generalization_results.py --help
 python tools/plot_ablation_results.py --help
+python tools/enrich_final_summary_metrics.py --help
+python tools/organize_result_artifacts.py --help
 ```
 
 单场景 smoke：
