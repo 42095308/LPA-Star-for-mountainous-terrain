@@ -46,6 +46,7 @@ Thumbs.db
 outputs/
 # 最终输出结果可以上传（用来进行检查）
 # final_results/
+final_results/logs/
 # 中间产物的图片数据可以上传（用来进行检查）
 intermediate_artifacts/data/
 benchmark_out*/
