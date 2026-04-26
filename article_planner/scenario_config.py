@@ -14,6 +14,8 @@ from typing import Any, Dict
 
 DEFAULT_SCENE_CONFIG = Path("scenarios") / "huashan.json"
 CROP_META_FILE = "Z_crop_meta.json"
+DEFAULT_INTERMEDIATE_TEMPLATE = "intermediate_artifacts/data/{scene_name}"
+DEFAULT_RESULTS_ROOT = "final_results"
 
 
 def _deep_update(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
@@ -36,7 +38,7 @@ def default_config() -> Dict[str, Any]:
         "default_start": "",
         "default_goal": "",
         "display_names": {},
-        "output_dir": "outputs/{scene_name}",
+        "output_dir": DEFAULT_INTERMEDIATE_TEMPLATE,
         "virtual_depots": {
             "count": 2,
             "slope_max_deg": 12.0,
@@ -134,15 +136,70 @@ def load_scenario_config(config_path: str | Path | None = None, workdir: str | P
 
 
 def scenario_output_dir(config: Dict[str, Any], workdir: str | Path = ".") -> Path:
-    """返回当前场景主输出目录。"""
+    """返回当前场景缓存目录。
+
+    目录职责约定：
+    - 场景缓存和中间数据写入 intermediate_artifacts/data/<scene>；
+    - benchmark、绘图和论文结果写入 final_results/<scene>。
+    """
     root = Path(workdir).resolve()
     scene_name = str(config.get("scene_name") or "default")
-    raw = str(config.get("output_dir") or "outputs/{scene_name}")
+    raw = str(config.get("output_dir") or DEFAULT_INTERMEDIATE_TEMPLATE)
     raw = raw.format(scene_name=scene_name)
     out = Path(raw)
     if not out.is_absolute():
         out = root / out
     return out
+
+
+def scenario_results_dir(config: Dict[str, Any], workdir: str | Path = ".") -> Path:
+    """返回当前场景正式实验结果目录。"""
+    root = Path(workdir).resolve()
+    scene_name = str(config.get("scene_name") or "default")
+    return root / DEFAULT_RESULTS_ROOT / scene_name
+
+
+def _strip_legacy_tests_prefix(parts: list[str]) -> list[str]:
+    """兼容旧 tests/<name> 结果目录，正式结果目录下不再保留 tests 层。"""
+    if parts and parts[0] == "tests":
+        return parts[1:]
+    return parts
+
+
+def resolve_scene_result_dir(raw_out_dir: str | Path, scene_name: str, workdir: str | Path = ".") -> Path:
+    """解析场景实验输出目录，统一写入 final_results。
+
+    兼容旧路径：
+    - outputs/<scene>/tests/<name> -> final_results/<scene>/<name>
+    - outputs/<scene>/<name> -> final_results/<scene>/<name>
+    - tests/<name> -> final_results/<scene>/<name>
+    """
+    root = Path(workdir).resolve()
+    p = Path(raw_out_dir)
+    if p.is_absolute():
+        norm_abs = str(p).replace("\\", "/")
+        root_norm = str(root).replace("\\", "/").rstrip("/")
+        legacy_prefix = f"{root_norm}/outputs/"
+        if norm_abs.startswith(legacy_prefix):
+            legacy_rel = norm_abs[len(root_norm) + 1 :]
+            return resolve_scene_result_dir(legacy_rel, scene_name, root)
+        return p
+
+    norm = str(p).replace("\\", "/")
+    parts = [part for part in norm.split("/") if part not in {"", "."}]
+    if not parts:
+        return root / DEFAULT_RESULTS_ROOT / scene_name
+
+    if parts[0] == DEFAULT_RESULTS_ROOT:
+        return (root / Path(*parts)).resolve()
+
+    if parts[0] == "outputs" and len(parts) >= 2:
+        legacy_scene = parts[1]
+        rest = _strip_legacy_tests_prefix(parts[2:])
+        return (root / DEFAULT_RESULTS_ROOT / legacy_scene / Path(*rest)).resolve() if rest else (root / DEFAULT_RESULTS_ROOT / legacy_scene).resolve()
+
+    rest = _strip_legacy_tests_prefix(parts)
+    return (root / DEFAULT_RESULTS_ROOT / scene_name / Path(*rest)).resolve() if rest else (root / DEFAULT_RESULTS_ROOT / scene_name).resolve()
 
 
 def read_crop_metadata(output_dir: str | Path) -> Dict[str, Any]:

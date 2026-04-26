@@ -65,6 +65,29 @@ def read_csv_rows(path: Path, required: bool = True) -> List[dict]:
         return list(csv.DictReader(f))
 
 
+def resolve_result_dir(raw: str) -> Path:
+    """解析结果目录；旧 outputs 路径自动映射到 final_results。"""
+    p = Path(raw)
+    root = Path(".").resolve()
+    norm = str(p).replace("\\", "/")
+    root_norm = str(root).replace("\\", "/").rstrip("/")
+    if p.is_absolute() and norm.startswith(f"{root_norm}/outputs/"):
+        norm = norm[len(root_norm) + 1 :]
+        p = Path(norm)
+    parts = [part for part in norm.split("/") if part not in {"", "."}]
+    if len(parts) >= 2 and parts[0] == "outputs":
+        scene = parts[1]
+        rest = parts[2:]
+        if rest and rest[0] == "tests":
+            rest = rest[1:]
+        mapped = root / "final_results" / scene
+        if rest:
+            mapped = mapped / Path(*rest)
+        if mapped.exists():
+            return mapped.resolve()
+    return p.resolve()
+
+
 def to_float(value: object, default: float = float("nan")) -> float:
     """宽松转换数值字段，兼容空字符串和 nan。"""
     if value is None:
@@ -476,7 +499,7 @@ def load_structural_rows(result_dir: Path, summary_rows: List[dict] | None = Non
 def main() -> None:
     args = parse_args()
     configure_matplotlib()
-    result_dir = Path(args.result_dir).resolve()
+    result_dir = resolve_result_dir(args.result_dir)
     out_dir = Path(args.out_dir).resolve() if args.out_dir else result_dir
 
     if args.ablation_only:

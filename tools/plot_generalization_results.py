@@ -437,13 +437,19 @@ def plot_overall_dashboard(rows: Sequence[dict], out_dir: Path, dpi: int) -> Pat
 
 
 def resolve_summary_path(raw: str, workdir: Path) -> Path:
-    """解析输入汇总 CSV；默认正式文件不存在时回退到 multi_scene_summary.csv。"""
+    """解析输入汇总 CSV；旧 outputs 路径自动映射到 final_results。"""
     path = Path(raw)
-    if not path.is_absolute():
+    norm = str(path).replace("\\", "/")
+    root_norm = str(workdir).replace("\\", "/").rstrip("/")
+    if path.is_absolute() and norm.startswith(f"{root_norm}/outputs/_summaries/"):
+        path = Path("final_results/_summaries") / path.name
+    elif not path.is_absolute():
+        if norm.startswith("outputs/_summaries/"):
+            path = Path("final_results/_summaries") / path.name
         path = workdir / path
     if path.exists():
         return path
-    fallback = workdir / "outputs" / "_summaries" / "multi_scene_summary.csv"
+    fallback = workdir / "final_results" / "_summaries" / "multi_scene_summary.csv"
     if path.name == "E1_E2_three_mountain_single_final.csv" and fallback.exists():
         print(f"[warn] 未找到 {path}，回退读取 {fallback}")
         return fallback
@@ -455,7 +461,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--summary-csv",
         type=str,
-        default="outputs/_summaries/E1_E2_three_mountain_single_final.csv",
+        default="final_results/_summaries/E1_E2_three_mountain_single_final.csv",
         help="run_multi_scene.py 汇总 CSV。",
     )
     parser.add_argument("--workdir", type=str, default=".", help="项目根目录。")

@@ -28,7 +28,9 @@
 | `run_multi_scene.py` | 多场景流水线执行器。 |
 | `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
 | `data/raw/huashan/map.osm` | 华山本地 OSM 输入。 |
-| `outputs/` | 运行输出根目录，按 `outputs/<scene_name>/` 归类；测试结果统一放在 `outputs/<scene_name>/tests/`。 |
+| `intermediate_artifacts/data/<scene_name>/` | 场景缓存和中间数据目录，保存 DEM 裁剪、风险场、安全走廊、分层图节点边和任务文件。 |
+| `intermediate_artifacts/figures/<scene_name>/` | 中间步骤图片归档目录。 |
+| `final_results/` | 正式实验结果目录，保存 E1-E4 CSV、PDF 图和日志归档；新实验结果不再写入 `outputs/`。 |
 
 ## 环境准备
 
@@ -71,7 +73,7 @@ pip install -e ".[dev]" -c constraints.txt
 |---|---|
 | `scene_name` | 场景名称，也用于默认输出目录占位符。 |
 | `dem_path` | 原始 DEM 文件路径，相对路径以项目根目录为基准，建议放在 `data/raw/<scene_name>/`。 |
-| `output_dir` | 场景输出目录，通常使用 `outputs/{scene_name}`。 |
+| `output_dir` | 场景缓存目录，默认使用 `intermediate_artifacts/data/{scene_name}`；正式实验结果由 benchmark 输出到 `final_results/<scene_name>/`。 |
 | `crop` | DEM 裁剪参数：中心经纬度和裁剪边长。实际像元分辨率由 `init_graph.py` 从 GeoTIFF 像元尺度读取并写入 `Z_crop_meta.json`。 |
 | `source_crs` | 可选字段；仅当 GeoTIFF 缺少 CRS 元数据时填写，例如 `EPSG:xxxx`。正常情况下不需要配置。 |
 | `targets` | 任务目标点列表；每个目标可包含 `lon`、`lat`、`elev`、`display_name`。华山五峰只是这里的一组配置。 |
@@ -86,7 +88,7 @@ pip install -e ".[dev]" -c constraints.txt
 
 ## 单场景完整执行流
 
-以下命令按单步执行华山场景，场景中间缓存写入 `outputs/huashan/`，测试或 benchmark 结果写入 `outputs/huashan/tests/`：
+以下命令按单步执行华山场景，场景中间缓存写入 `intermediate_artifacts/data/huashan/`，测试或 benchmark 结果写入 `final_results/huashan/`：
 
 ```powershell
 python init_graph.py --scenario-config scenarios/huashan.json --workdir .
@@ -95,7 +97,7 @@ python safe_corridor.py --scenario-config scenarios/huashan.json --workdir .
 python communication_risk.py --scenario-config scenarios/huashan.json --workdir .
 python layered_graph.py --scenario-config scenarios/huashan.json --workdir .
 python task_generator.py --scenario-config scenarios/huashan.json --workdir .
-python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 5 --skip-b1 --out-dir tests/benchmark_single
+python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 5 --skip-b1 --out-dir benchmark_single
 ```
 
 执行含义：
@@ -111,7 +113,7 @@ python benchmark.py --mode single --scenario-config scenarios/huashan.json --wor
 也可以使用总入口一次跑完：
 
 ```powershell
-python run_multi_scene.py --scenario-configs scenarios/huashan.json --benchmark-mode single --trials 5 --skip-b1 --disable-plots --skip-layered-plot --benchmark-out-name tests/benchmark_single
+python run_multi_scene.py --scenario-configs scenarios/huashan.json --benchmark-mode single --trials 5 --skip-b1 --disable-plots --skip-layered-plot --benchmark-out-name benchmark_single
 ```
 
 ## 目标定位流
@@ -126,7 +128,7 @@ python tools/locate_targets.py --scenario-config scenarios/huashan.json --workdi
 
 | 文件 | 含义 |
 |---|---|
-| `outputs/<scene_name>/target_locations.json` | 每个目标点的像元坐标、吸附后经纬度、DEM 高程、声明高程和高程误差。 |
+| `intermediate_artifacts/data/<scene_name>/target_locations.json` | 每个目标点的像元坐标、吸附后经纬度、DEM 高程、声明高程和高程误差。 |
 
 当新场景目标不是“五峰”时，只需要在场景 JSON 中声明目标名称和经纬度即可。
 
@@ -156,7 +158,7 @@ python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode s
 
 `run_multi_scene.py` 会自动跳过 `*.example.json` 示例模板，避免 `scenarios/template.example.json` 被通配符纳入正式多场景实验。
 
-所有场景输出进入 `outputs/<scene_name>/`。benchmark 测试结果默认进入 `outputs/<scene_name>/tests/benchmark_multi_scene/`，总汇总写入 `outputs/_summaries/multi_scene_summary.csv`。
+所有场景缓存进入 `intermediate_artifacts/data/<scene_name>/`。benchmark 测试结果默认进入 `final_results/<scene_name>/benchmark_multi_scene/`，总汇总写入 `final_results/_summaries/multi_scene_summary.csv`。
 
 ## Benchmark 流
 
@@ -182,35 +184,35 @@ python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode s
 `benchmark.py --mode single` 输出一次多基线统计表（含 M-R 结构性消融）：
 
 ```powershell
-python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --out-dir tests/benchmark_single
+python benchmark.py --mode single --scenario-config scenarios/huashan.json --workdir . --trials 10 --skip-b1 --out-dir benchmark_single
 ```
 
 `benchmark.py --mode matrix` 输出论文式 E3.1-E3.4 事件驱动矩阵实验：
 
 ```powershell
-python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 10 --matrix-key-trials 30 --skip-b1 --disable-plots --out-dir tests/benchmark_matrix
+python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 10 --matrix-key-trials 30 --skip-b1 --disable-plots --out-dir benchmark_matrix
 ```
 
 如果想保持 full matrix 的广度，同时把论文主分析涉及的关键组合提升到约 30 次，可直接运行：
 ```powershell
-python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . --trials 10 --key-trials 30 --disable-plots --out-dir tests/benchmark_matrix_paper
+python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . --trials 10 --key-trials 30 --disable-plots --out-dir benchmark_matrix_paper
 ```
 
 该脚本会自动把 E3.1-E3.4 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 配对 speedup / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
 
 完整场景流水线也可以直接调用新版矩阵实验，不需要先生成场景再手动运行 `benchmark_matrix.py`：
 ```powershell
-python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --benchmark-out-name tests/matrix_final
+python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --benchmark-out-name E3_E4_matrix_final
 ```
 
 `run_multi_scene.py` 已直接支持矩阵参数，不需要全部塞进 `--benchmark-extra-args`，例如：
 ```powershell
-python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --n-block-grid 2,4,6,8 --k-events-grid 1,3,5,7,10 --scales small,medium,large --scale-fractions small:0.55,medium:0.78,large:1.0 --focus-scale large --focus-k-intensity 5 --focus-n-block-cont 4 --benchmark-out-name tests/matrix_final
+python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --n-block-grid 2,4,6,8 --k-events-grid 1,3,5,7,10 --scales small,medium,large --scale-fractions small:0.55,medium:0.78,large:1.0 --focus-scale large --focus-k-intensity 5 --focus-n-block-cont 4 --benchmark-out-name E3_E4_matrix_final
 ```
 
 矩阵结果生成后，可直接输出论文 PDF 图：
 ```powershell
-python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/matrix_final
+python tools/plot_matrix_results.py --result-dir final_results/huangshan/E3_E4_matrix_final
 ```
 
 E1 跨地形泛化图从 `run_multi_scene.py` 的汇总 CSV 生成：
@@ -221,7 +223,7 @@ python tools/plot_generalization_results.py --summary-csv final_results/_summari
 
 E2 结构性消融图从 single benchmark 输出目录生成：
 ```powershell
-python tools/plot_ablation_results.py --result-dir outputs/huangshan/tests/E1_E2_single_final
+python tools/plot_ablation_results.py --result-dir final_results/huangshan/E1_E2_single_final
 ```
 
 正式结果整理到论文归档目录：
@@ -234,7 +236,7 @@ python tools/organize_result_artifacts.py --workdir .
 若需要继续使用矩阵绘图脚本的兼容入口，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
 单独给 single 输出目录画 M-R 消融图也可运行：
 ```powershell
-python tools/plot_matrix_results.py --result-dir outputs/huangshan/tests/benchmark_single --ablation-only
+python tools/plot_matrix_results.py --result-dir final_results/huangshan/E1_E2_single_final --ablation-only
 ```
 
 E3 子实验含义：
@@ -248,7 +250,7 @@ E3 子实验含义：
 
 ## 输出结果说明
 
-场景主目录 `outputs/<scene_name>/` 的关键输出：
+场景缓存目录 `intermediate_artifacts/data/<scene_name>/` 的关键输出：
 
 | 文件 | 生成步骤 | 含义 |
 |---|---|---|
@@ -311,7 +313,7 @@ Benchmark 输出目录中的关键文件：
 | `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
 | `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |
 | `benchmark_config.json` | 本次实验参数快照。 |
-| `outputs/_summaries/multi_scene_summary.csv` | `run_multi_scene.py` 汇总所有场景的 benchmark 摘要。 |
+| `final_results/_summaries/multi_scene_summary.csv` | `run_multi_scene.py` 汇总所有场景的 benchmark 摘要。 |
 
 ## 测试流
 
@@ -345,32 +347,32 @@ python tools/organize_result_artifacts.py --help
 单场景 smoke：
 
 ```powershell
-python run_multi_scene.py --scenario-configs scenarios/huashan.json --benchmark-mode single --trials 1 --skip-b1 --disable-plots --skip-layered-plot --benchmark-out-name tests/benchmark_smoke_refactor
+python run_multi_scene.py --scenario-configs scenarios/huashan.json --benchmark-mode single --trials 1 --skip-b1 --disable-plots --skip-layered-plot --benchmark-out-name benchmark_smoke_refactor
 ```
 
 Matrix smoke：
 
 ```powershell
-python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 1 --skip-b1 --skip-four-baseline --disable-plots --out-dir tests/benchmark_matrix_smoke --matrix-n-block-grid 2 --matrix-k-events-grid 1 --matrix-scales small --matrix-scale-fractions small:0.55
+python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --workdir . --trials 1 --skip-b1 --skip-four-baseline --disable-plots --out-dir benchmark_matrix_smoke --matrix-n-block-grid 2 --matrix-k-events-grid 1 --matrix-scales small --matrix-scale-fractions small:0.55
 ```
 
 流水线运行后、清理中间结果前，可检查关键中间产物和测试结果：
 
 ```powershell
-Test-Path outputs/huashan/Z_crop.npy
-Test-Path outputs/huashan/risk_human.npy
-Test-Path outputs/huashan/layer_mid.npy
-Test-Path outputs/huashan/graph_nodes.npy
-Test-Path outputs/huashan/generated_tasks.json
-Test-Path outputs/huashan/tests/benchmark_smoke_refactor/benchmark_summary.csv
+Test-Path intermediate_artifacts/data/huashan/Z_crop.npy
+Test-Path intermediate_artifacts/data/huashan/risk_human.npy
+Test-Path intermediate_artifacts/data/huashan/layer_mid.npy
+Test-Path intermediate_artifacts/data/huashan/graph_nodes.npy
+Test-Path intermediate_artifacts/data/huashan/generated_tasks.json
+Test-Path final_results/huashan/benchmark_smoke_refactor/benchmark_summary.csv
 ```
 
-执行 `python tools/clean_outputs.py --outputs-dir outputs` 后，中间产物会被删除，此时应检查测试结果是否仍保留：
+如需清理临时 smoke 结果，应只删除对应的 `final_results/<scene>/<run_name>/` 目录，正式 E1-E4 结果和场景缓存不要混放：
 
 ```powershell
-Test-Path outputs/huashan/tests/benchmark_smoke_refactor/benchmark_summary.csv
-Test-Path outputs/huashan/tests/benchmark_matrix_smoke/experiment_A.csv
-Test-Path outputs/_summaries/multi_scene_summary.csv
+Test-Path final_results/huashan/benchmark_smoke_refactor/benchmark_summary.csv
+Test-Path final_results/huashan/benchmark_matrix_smoke/experiment_A.csv
+Test-Path final_results/_summaries/multi_scene_summary.csv
 ```
 
 根目录清洁检查：
@@ -379,28 +381,30 @@ Test-Path outputs/_summaries/multi_scene_summary.csv
 Get-ChildItem -File Z_crop*,risk_*,floor.npy,ceiling.npy,layer_mid.npy,layer_allowed.npy,graph_*,*.csv,*.png -ErrorAction SilentlyContinue
 ```
 
-正常情况下，运行产物应位于 `outputs/<scene_name>/`，根目录不应再出现新的 `.npy/.png/.csv` 实验结果。
+正常情况下，场景缓存应位于 `intermediate_artifacts/data/<scene_name>/`，正式结果应位于 `final_results/<scene_name>/`，根目录不应再出现新的 `.npy/.png/.csv` 实验结果。
 
 ## 清理策略
 
-根目录历史运行产物和 `benchmark_out_final/` 属于可再生输出，已从版本库清理；`outputs/` 和 `benchmark_out*/` 已加入 `.gitignore`。原始 DEM、OSM 已按场景归档到 `data/raw/<scene_name>/`，根目录不再直接放数据文件。
+根目录历史运行产物和 `benchmark_out_final/` 属于可再生输出，已从版本库清理；`final_results/`、`intermediate_artifacts/` 和 `benchmark_out*/` 已加入 `.gitignore`。原始 DEM、OSM 已按场景归档到 `data/raw/<scene_name>/`，根目录不再直接放数据文件。
 
-如果只想保留测试结果并删除场景中间缓存，运行：
-
-```powershell
-python tools/clean_outputs.py --outputs-dir outputs
-```
-
-清理后的结构为：
+推荐保留的目录结构为：
 
 ```text
-outputs/
+intermediate_artifacts/
+  data/
+    huashan/
+      Z_crop.npy
+      graph_nodes.npy
+      graph_edges.npy
+  figures/
+    huashan/
+final_results/
   _summaries/
     multi_scene_summary.csv
   huashan/
-    tests/
-      benchmark_smoke_refactor/
-      benchmark_matrix_smoke/
+    E1_E2_single_final/
+    E3_E4_matrix_final/
+    benchmark_smoke_refactor/
 ```
 
 如需复现已删除的历史结果，按 README 中的单场景或 benchmark 命令重新运行即可。

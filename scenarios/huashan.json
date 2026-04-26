@@ -1,7 +1,7 @@
 {
   "scene_name": "huashan",
   "dem_path": "data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif",
-  "output_dir": "outputs/{scene_name}",
+  "output_dir": "intermediate_artifacts/data/{scene_name}",
   "crop": {
     "center_lon": 110.0798,
     "center_lat": 34.4829,

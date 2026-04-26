@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from plot_matrix_results import configure_matplotlib, load_structural_rows, plot_structural_ablation
+from plot_matrix_results import configure_matplotlib, load_structural_rows, plot_structural_ablation, resolve_result_dir
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     configure_matplotlib()
-    result_dir = Path(args.result_dir).resolve()
+    result_dir = resolve_result_dir(args.result_dir)
     out_dir = Path(args.out_dir).resolve() if args.out_dir else result_dir
     structural_rows = load_structural_rows(result_dir)
     out_path = plot_structural_ablation(

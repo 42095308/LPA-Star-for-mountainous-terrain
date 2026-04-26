@@ -40,7 +40,8 @@ ROOT_GENERATED_FILES = [
 ]
 
 GENERATED_DIRECTORIES = [
-    "outputs",
+    "intermediate_artifacts",
+    "final_results",
     "benchmark_out_final",
     "benchmark_out_matrix",
 ]

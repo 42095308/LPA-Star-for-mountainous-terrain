@@ -34,6 +34,7 @@ from article_planner.scenario_config import (
     DEFAULT_SCENE_CONFIG,
     communication_params,
     load_scenario_config,
+    resolve_scene_result_dir,
     resolve_resolution_m,
     scenario_output_dir,
 )
@@ -1655,13 +1656,9 @@ def resolve_benchmark_data_context(args: argparse.Namespace, root: Path) -> Tupl
 
 
 def resolve_scene_out_dir(raw_out_dir: str, scene_out: Path, workdir: Path) -> Path:
-    """统一解析场景实验输出目录，避免 outputs/<scene> 被重复拼接。"""
-    p = Path(raw_out_dir)
-    if p.is_absolute():
-        return p
-    if str(p).replace("\\", "/").startswith("outputs/"):
-        return (workdir / p).resolve()
-    return (scene_out / p).resolve()
+    """统一解析场景实验输出目录，正式结果写入 final_results。"""
+    scene_name = scene_out.name or "default"
+    return resolve_scene_result_dir(raw_out_dir, scene_name, workdir)
 
 
 def resolve_output_dir(root: Path, out_dir_arg: str) -> Path:
@@ -2839,7 +2836,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
 
-    print("[done] outputs:")
+    print("[done] final_results:")
     print(f"  - {out_dir / 'benchmark_trials.csv'}")
     print(f"  - {out_dir / 'benchmark_summary.csv'}")
     print(f"  - {out_dir / 'benchmark_structural_ablation.csv'}")

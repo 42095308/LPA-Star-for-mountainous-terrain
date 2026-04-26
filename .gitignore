@@ -46,6 +46,9 @@ Thumbs.db
 outputs/
 final_results/
 intermediate_artifacts/
+# 最终输出结果可以上传（用来进行检查）
+# final_results/
+# 中间产物的图片数据可以上传（用来进行检查）
 benchmark_out*/
 
 ### 根目录可再生运行产物 ###

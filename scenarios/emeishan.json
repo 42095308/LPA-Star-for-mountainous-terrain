@@ -1,7 +1,7 @@
 {
   "scene_name": "emeishan",
   "dem_path": "data/raw/emeishan/AP_26513_FBS_F0580_RT1.dem.tif",
-  "output_dir": "outputs/{scene_name}",
+  "output_dir": "intermediate_artifacts/data/{scene_name}",
   "crop": {
     "center_lon": 103.336,
     "center_lat": 29.525,

@@ -2132,7 +2132,7 @@ def run_benchmark_matrix(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
 
-    print("[done] outputs:")
+    print("[done] final_results:")
     print(f"  - {out_dir / 'benchmark_events.csv'}")
     print(f"  - {out_dir / 'benchmark_trials.csv'}")
     print(f"  - {out_dir / 'benchmark_summary.csv'}")

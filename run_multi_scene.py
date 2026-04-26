@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence
 
-from article_planner.scenario_config import load_scenario_config, scenario_output_dir
+from article_planner.scenario_config import load_scenario_config, resolve_scene_result_dir, scenario_output_dir
 
 
 EXAMPLE_SCENARIO_SUFFIX = ".example.json"
@@ -75,15 +75,6 @@ def resolve_optional_path(raw: str, workdir: Path) -> Path:
     if p.is_absolute():
         return p
     return workdir / p
-
-
-def resolve_scene_out_dir(raw_out_dir: str, scene_out: Path, workdir: Path) -> Path:
-    p = Path(raw_out_dir)
-    if p.is_absolute():
-        return p
-    if str(p).replace("\\", "/").startswith("outputs/"):
-        return (workdir / p).resolve()
-    return (scene_out / p).resolve()
 
 
 def run_step(name: str, cmd: List[str], cwd: Path, dry_run: bool = False, note: str = "") -> StepResult:
@@ -326,7 +317,7 @@ def run_scene(
     cfg = load_scenario_config(scenario_path, workdir)
     scene_name = str(cfg.get("scene_name") or scenario_path.stem)
     scene_out = scenario_output_dir(cfg, workdir)
-    benchmark_out = resolve_scene_out_dir(args.benchmark_out_name, scene_out, workdir)
+    benchmark_out = resolve_scene_result_dir(args.benchmark_out_name, scene_name, workdir)
     benchmark_runner = "benchmark_matrix" if args.use_benchmark_matrix else args.benchmark_runner
     steps: List[StepResult] = []
     status = "ok"
@@ -495,8 +486,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-runner", choices=["benchmark", "benchmark_matrix"], default="benchmark")
     parser.add_argument("--use-benchmark-matrix", action="store_true", help="等价于 --benchmark-runner benchmark_matrix。")
     parser.add_argument("--benchmark-mode", choices=["single", "matrix"], default="single")
-    parser.add_argument("--benchmark-out-name", type=str, default="tests/benchmark_multi_scene")
-    parser.add_argument("--summary-csv", type=str, default="outputs/_summaries/multi_scene_summary.csv")
+    parser.add_argument("--benchmark-out-name", type=str, default="benchmark_multi_scene")
+    parser.add_argument("--summary-csv", type=str, default="final_results/_summaries/multi_scene_summary.csv")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--key-trials", type=int, default=0)
     parser.add_argument("--seed", type=int, default=20260309)

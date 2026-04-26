@@ -1,7 +1,7 @@
 {
   "scene_name": "huangshan",
   "dem_path": "data/raw/huangshan/AP_07491_FBD_F0590_RT1.dem.tif",
-  "output_dir": "outputs/{scene_name}",
+  "output_dir": "intermediate_artifacts/data/{scene_name}",
   "crop": {
     "center_lon": 118.172,
     "center_lat": 30.131,

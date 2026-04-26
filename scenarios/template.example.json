@@ -1,7 +1,7 @@
 {
   "scene_name": "example_mountain",
   "dem_path": "data/example_dem.tif",
-  "output_dir": "outputs/{scene_name}",
+  "output_dir": "intermediate_artifacts/data/{scene_name}",
   "crop": {
     "center_lon": 110.0000,
     "center_lat": 34.0000,
