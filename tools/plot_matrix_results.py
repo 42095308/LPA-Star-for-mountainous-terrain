@@ -423,6 +423,7 @@ def plot_structural_ablation(
 
     times = [metric(r, "mean_replan_ms") for r in rows_by_method]
     times_ci = [metric(r, "ci95_replan_ms") for r in rows_by_method]
+    expanded = [metric(r, "mean_expanded") for r in rows_by_method]
     costs = [metric(r, "mean_path_cost", "mean_cost") for r in rows_by_method]
     costs_ci = [metric(r, "ci95_path_cost", "ci95_cost") for r in rows_by_method]
     comm = [100.0 * metric(r, "mean_comm_coverage", "mean_comm_coverage_ratio") for r in rows_by_method]
@@ -431,23 +432,31 @@ def plot_structural_ablation(
     risk_ci = [metric(r, "ci95_risk_exposure", "ci95_risk_exposure_integral") for r in rows_by_method]
     x = np.arange(len(present), dtype=float)
 
-    fig, axes = plt.subplots(2, 2, figsize=(8.6, 5.8))
+    fig, axes = plt.subplots(2, 3, figsize=(10.8, 5.8))
     axes_flat = list(axes.ravel())
     err_kw = {"linewidth": 0.8, "capthick": 0.8}
     axes_flat[0].bar(x, times, color=colors, alpha=0.85, yerr=yerr_arg(times_ci), capsize=2.0, error_kw=err_kw)
     axes_flat[0].set_ylabel("Replanning time (ms)")
     axes_flat[0].set_title("(a) Replanning time")
-    axes_flat[1].bar(x, costs, color=colors, alpha=0.85, yerr=yerr_arg(costs_ci), capsize=2.0, error_kw=err_kw)
-    axes_flat[1].set_ylabel("Path cost")
-    axes_flat[1].set_title("(b) Path cost")
-    axes_flat[2].bar(x, comm, color=colors, alpha=0.85, yerr=yerr_arg(comm_ci), capsize=2.0, error_kw=err_kw)
-    axes_flat[2].set_ylabel("Communication coverage (%)")
-    axes_flat[2].set_ylim(0, 105)
-    axes_flat[2].set_title("(c) Communication coverage")
-    axes_flat[3].bar(x, risk, color=colors, alpha=0.85, yerr=yerr_arg(risk_ci), capsize=2.0, error_kw=err_kw)
-    axes_flat[3].set_ylabel("Risk exposure integral")
-    axes_flat[3].set_title("(d) Risk exposure")
+    axes_flat[1].bar(x, expanded, color=colors, alpha=0.85)
+    axes_flat[1].set_ylabel("Expanded nodes")
+    if any(math.isfinite(v) and v > 0 for v in expanded):
+        axes_flat[1].set_yscale("log")
+    axes_flat[1].set_title("(b) Search workload")
+    axes_flat[2].bar(x, costs, color=colors, alpha=0.85, yerr=yerr_arg(costs_ci), capsize=2.0, error_kw=err_kw)
+    axes_flat[2].set_ylabel("Path cost")
+    axes_flat[2].set_title("(c) Path cost")
+    axes_flat[3].bar(x, comm, color=colors, alpha=0.85, yerr=yerr_arg(comm_ci), capsize=2.0, error_kw=err_kw)
+    axes_flat[3].set_ylabel("Communication coverage (%)")
+    axes_flat[3].set_ylim(0, 105)
+    axes_flat[3].set_title("(d) Communication coverage")
+    axes_flat[4].bar(x, risk, color=colors, alpha=0.85, yerr=yerr_arg(risk_ci), capsize=2.0, error_kw=err_kw)
+    axes_flat[4].set_ylabel("Risk exposure integral")
+    axes_flat[4].set_title("(e) Risk exposure")
+    axes_flat[5].axis("off")
     for ax in axes_flat:
+        if not ax.axison:
+            continue
         ax.set_xticks(x)
         ax.set_xticklabels(labels, fontsize=8.2)
         style_axes(ax)

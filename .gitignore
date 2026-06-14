@@ -50,6 +50,9 @@ final_results/logs/
 # 中间产物的图片数据可以上传（用来进行检查）
 intermediate_artifacts/data/
 # benchmark_out*/
+# 忽略运行生成的结果图表和中间产物
+final_results/
+intermediate_artifacts/figures/
 
 ### 根目录可再生运行产物 ###
 # Z_crop.npy
@@ -79,3 +82,12 @@ intermediate_artifacts/data/
 # osm_human_risk_preview.png
 # lpa_seed_sweep.csv
 # lpa_seed_sweep_summary.json
+
+# 忽略论文的高清原图
+*.tiff
+final_results/paper_revision/figures/
+
+tmp/
+output/
+outputs/
+intermediate_artifacts/
