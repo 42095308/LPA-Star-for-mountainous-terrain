@@ -43,16 +43,14 @@ wheels/
 Thumbs.db
 
 ### 场景运行输出 ###
-# outputs/
-# 最终输出结果可以上传（用来进行检查）
-# final_results/
-final_results/logs/
-# 中间产物的图片数据可以上传（用来进行检查）
-intermediate_artifacts/data/
-# benchmark_out*/
-# 忽略运行生成的结果图表和中间产物
 final_results/
-intermediate_artifacts/figures/
+tmp/
+output/
+outputs/
+intermediate_artifacts/
+# 忽略论文的高清原图
+*.tiff
+
 
 ### 根目录可再生运行产物 ###
 # Z_crop.npy
@@ -83,11 +81,6 @@ intermediate_artifacts/figures/
 # lpa_seed_sweep.csv
 # lpa_seed_sweep_summary.json
 
-# 忽略论文的高清原图
-*.tiff
-final_results/paper_revision/figures/
 
-tmp/
-output/
-outputs/
-intermediate_artifacts/
+
+
