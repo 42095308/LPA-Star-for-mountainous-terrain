@@ -918,12 +918,12 @@ def main() -> None:
         default=89.0,
         help="连续线段爬升角审计阈值。默认 89° 用于对齐现有主实验图边口径；若所有主方法按 30° 重跑，可改为 30。",
     )
-    parser.add_argument("--rrt-iterations", type=int, default=900)
+    parser.add_argument("--rrt-iterations", type=int, default=250)
     parser.add_argument("--rrt-time-limit-ms", type=float, default=3000.0, help="BI-APF-RRT* 单个 trial 的搜索时间预算。")
     parser.add_argument("--rrt-step-km", type=float, default=0.35)
     parser.add_argument("--rrt-goal-bias", type=float, default=0.25)
-    parser.add_argument("--gwo-population", type=int, default=34)
-    parser.add_argument("--gwo-iterations", type=int, default=70)
+    parser.add_argument("--gwo-population", type=int, default=8)
+    parser.add_argument("--gwo-iterations", type=int, default=6)
     parser.add_argument("--gwo-waypoints", type=int, default=5)
     parser.add_argument("--progress", action="store_true")
     args = parser.parse_args()

@@ -1,0 +1,254 @@
+[
+  {
+    "idx": 1,
+    "paragraph": 100,
+    "text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image121.wmf"
+  },
+  {
+    "idx": 2,
+    "paragraph": 100,
+    "text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image122.wmf"
+  },
+  {
+    "idx": 3,
+    "paragraph": 100,
+    "text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image123.wmf"
+  },
+  {
+    "idx": 4,
+    "paragraph": 100,
+    "text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image124.wmf"
+  },
+  {
+    "idx": 5,
+    "paragraph": 100,
+    "text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image125.wmf"
+  },
+  {
+    "idx": 6,
+    "paragraph": 101,
+    "text": "",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image126.wmf"
+  },
+  {
+    "idx": 7,
+    "paragraph": 103,
+    "text": "",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image127.wmf"
+  },
+  {
+    "idx": 8,
+    "paragraph": 104,
+    "text": "其中，表示事件强度，表示事件发生前的基础风险。该式将通信退化的影响限制在[0, 1]范围内，并使原本风险较低的边获得更明显的风险增量。随后，经归一化得到，并进入事件后的边代价计算：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image128.wmf"
+  },
+  {
+    "idx": 9,
+    "paragraph": 104,
+    "text": "其中，表示事件强度，表示事件发生前的基础风险。该式将通信退化的影响限制在[0, 1]范围内，并使原本风险较低的边获得更明显的风险增量。随后，经归一化得到，并进入事件后的边代价计算：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image129.wmf"
+  },
+  {
+    "idx": 10,
+    "paragraph": 104,
+    "text": "其中，表示事件强度，表示事件发生前的基础风险。该式将通信退化的影响限制在[0, 1]范围内，并使原本风险较低的边获得更明显的风险增量。随后，经归一化得到，并进入事件后的边代价计算：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image130.wmf"
+  },
+  {
+    "idx": 11,
+    "paragraph": 104,
+    "text": "其中，表示事件强度，表示事件发生前的基础风险。该式将通信退化的影响限制在[0, 1]范围内，并使原本风险较低的边获得更明显的风险增量。随后，经归一化得到，并进入事件后的边代价计算：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image131.wmf"
+  },
+  {
+    "idx": 12,
+    "paragraph": 105,
+    "text": "",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image132.wmf"
+  },
+  {
+    "idx": 13,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image133.wmf"
+  },
+  {
+    "idx": 14,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image134.wmf"
+  },
+  {
+    "idx": 15,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image135.wmf"
+  },
+  {
+    "idx": 16,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image136.wmf"
+  },
+  {
+    "idx": 17,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image137.wmf"
+  },
+  {
+    "idx": 18,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image138.wmf"
+  },
+  {
+    "idx": 19,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image139.wmf"
+  },
+  {
+    "idx": 20,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image140.wmf"
+  },
+  {
+    "idx": 21,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image141.wmf"
+  },
+  {
+    "idx": 22,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image142.wmf"
+  },
+  {
+    "idx": 23,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image143.wmf"
+  },
+  {
+    "idx": 24,
+    "paragraph": 106,
+    "text": "其中，为第次事件影响的边集合，为事件类型，为事件强度，表示事件发生前的基础边代价。、、和分别表示归一化后的飞行时间、能耗、基础风险和通信退化后的风险，、和为时间、能耗和风险权重。未受事件影响的边保持基础代价，受影响边则根据事件类型更新为阻断代价、风扰代价或通信风险代价。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image144.wmf"
+  },
+  {
+    "idx": 25,
+    "paragraph": 108,
+    "text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。其中，表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。除起点节点外，其一步前瞻代价定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image145.wmf"
+  },
+  {
+    "idx": 26,
+    "paragraph": 108,
+    "text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。其中，表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。除起点节点外，其一步前瞻代价定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image146.wmf"
+  },
+  {
+    "idx": 27,
+    "paragraph": 108,
+    "text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。其中，表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。除起点节点外，其一步前瞻代价定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image147.wmf"
+  },
+  {
+    "idx": 28,
+    "paragraph": 108,
+    "text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。其中，表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。除起点节点外，其一步前瞻代价定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image148.wmf"
+  },
+  {
+    "idx": 29,
+    "paragraph": 108,
+    "text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。其中，表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。除起点节点外，其一步前瞻代价定义为：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image149.wmf"
+  },
+  {
+    "idx": 30,
+    "paragraph": 109,
+    "text": "",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image150.wmf"
+  },
+  {
+    "idx": 31,
+    "paragraph": 110,
+    "text": "其中，表示节点的前驱节点集合，表示边的当前代价。当时，节点在当前图状态下是一致的。当时，节点处于不一致状态，需要进入优先队列重新处理。LPA*使用键值函数确定不一致节点的处理顺序：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image151.wmf"
+  },
+  {
+    "idx": 32,
+    "paragraph": 110,
+    "text": "其中，表示节点的前驱节点集合，表示边的当前代价。当时，节点在当前图状态下是一致的。当时，节点处于不一致状态，需要进入优先队列重新处理。LPA*使用键值函数确定不一致节点的处理顺序：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image152.wmf"
+  },
+  {
+    "idx": 33,
+    "paragraph": 110,
+    "text": "其中，表示节点的前驱节点集合，表示边的当前代价。当时，节点在当前图状态下是一致的。当时，节点处于不一致状态，需要进入优先队列重新处理。LPA*使用键值函数确定不一致节点的处理顺序：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image153.wmf"
+  },
+  {
+    "idx": 34,
+    "paragraph": 110,
+    "text": "其中，表示节点的前驱节点集合，表示边的当前代价。当时，节点在当前图状态下是一致的。当时，节点处于不一致状态，需要进入优先队列重新处理。LPA*使用键值函数确定不一致节点的处理顺序：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image154.wmf"
+  },
+  {
+    "idx": 35,
+    "paragraph": 110,
+    "text": "其中，表示节点的前驱节点集合，表示边的当前代价。当时，节点在当前图状态下是一致的。当时，节点处于不一致状态，需要进入优先队列重新处理。LPA*使用键值函数确定不一致节点的处理顺序：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image155.wmf"
+  },
+  {
+    "idx": 36,
+    "paragraph": 110,
+    "text": "其中，表示节点的前驱节点集合，表示边的当前代价。当时，节点在当前图状态下是一致的。当时，节点处于不一致状态，需要进入优先队列重新处理。LPA*使用键值函数确定不一致节点的处理顺序：",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image156.wmf"
+  },
+  {
+    "idx": 37,
+    "paragraph": 111,
+    "text": "",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image157.wmf"
+  },
+  {
+    "idx": 38,
+    "paragraph": 112,
+    "text": "其中，为从节点到目标节点的启发式估计。本文仅将该启发项用于确定节点处理顺序，不再展开三维直线距离、时间下界和能耗下界的计算细节，以避免方法部分偏离本文的核心贡献。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image158.wmf"
+  },
+  {
+    "idx": 39,
+    "paragraph": 112,
+    "text": "其中，为从节点到目标节点的启发式估计。本文仅将该启发项用于确定节点处理顺序，不再展开三维直线距离、时间下界和能耗下界的计算细节，以避免方法部分偏离本文的核心贡献。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image159.wmf"
+  },
+  {
+    "idx": 40,
+    "paragraph": 112,
+    "text": "其中，为从节点到目标节点的启发式估计。本文仅将该启发项用于确定节点处理顺序，不再展开三维直线距离、时间下界和能耗下界的计算细节，以避免方法部分偏离本文的核心贡献。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image160.wmf"
+  },
+  {
+    "idx": 41,
+    "paragraph": 114,
+    "text": "该机制使重规划计算量不再完全由完整图规模决定，而是更直接受到受影响边数量、局部传播范围和路径变化程度影响。当扰动范围较小，或连续事件集中在局部区域时，历史值、值和优先队列状态能够被大量复用，从而减少重复搜索。单次事件规模较小且图规模不大时，LPA*维护增量状态本身会带来固定开销，因此其优势主要体现在连续扰动、多事件累积和较大规模图搜索场景中。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image161.wmf"
+  },
+  {
+    "idx": 42,
+    "paragraph": 114,
+    "text": "该机制使重规划计算量不再完全由完整图规模决定，而是更直接受到受影响边数量、局部传播范围和路径变化程度影响。当扰动范围较小，或连续事件集中在局部区域时，历史值、值和优先队列状态能够被大量复用，从而减少重复搜索。单次事件规模较小且图规模不大时，LPA*维护增量状态本身会带来固定开销，因此其优势主要体现在连续扰动、多事件累积和较大规模图搜索场景中。",
+    "image_path": "C:\\programming\\code\\article_python\\tmp_check_3_5_latest\\media\\image162.wmf"
+  }
+]

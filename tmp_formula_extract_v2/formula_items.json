@@ -1,0 +1,1073 @@
+[
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 1,
+    "paragraph": 62,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject63.bin",
+    "media": "media/image66.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image66.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 2,
+    "paragraph": 63,
+    "paragraph_text": "其中，表示候选航路节点集合，表示满足安全约束的候选航段集合。每个航路节点表示一个可用于路径搜索的三维航路点：",
+    "embed": "embeddings/oleObject64.bin",
+    "media": "media/image67.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image67.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 3,
+    "paragraph": 63,
+    "paragraph_text": "其中，表示候选航路节点集合，表示满足安全约束的候选航段集合。每个航路节点表示一个可用于路径搜索的三维航路点：",
+    "embed": "embeddings/oleObject65.bin",
+    "media": "media/image68.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image68.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 4,
+    "paragraph": 63,
+    "paragraph_text": "其中，表示候选航路节点集合，表示满足安全约束的候选航段集合。每个航路节点表示一个可用于路径搜索的三维航路点：",
+    "embed": "embeddings/oleObject66.bin",
+    "media": "media/image69.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image69.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 5,
+    "paragraph": 64,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject67.bin",
+    "media": "media/image70.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image70.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 6,
+    "paragraph": 65,
+    "paragraph_text": "其中，表示节点水平位置，表示节点高度，表示节点所属层级。当节点位于第层时，其高度由对应飞行中面确定：",
+    "embed": "embeddings/oleObject68.bin",
+    "media": "media/image71.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image71.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 7,
+    "paragraph": 65,
+    "paragraph_text": "其中，表示节点水平位置，表示节点高度，表示节点所属层级。当节点位于第层时，其高度由对应飞行中面确定：",
+    "embed": "embeddings/oleObject69.bin",
+    "media": "media/image72.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image72.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 8,
+    "paragraph": 65,
+    "paragraph_text": "其中，表示节点水平位置，表示节点高度，表示节点所属层级。当节点位于第层时，其高度由对应飞行中面确定：",
+    "embed": "embeddings/oleObject70.bin",
+    "media": "media/image73.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image73.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 9,
+    "paragraph": 65,
+    "paragraph_text": "其中，表示节点水平位置，表示节点高度，表示节点所属层级。当节点位于第层时，其高度由对应飞行中面确定：",
+    "embed": "embeddings/oleObject71.bin",
+    "media": "media/image74.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image74.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 10,
+    "paragraph": 66,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject72.bin",
+    "media": "media/image75.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image75.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 11,
+    "paragraph": 69,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject73.bin",
+    "media": "media/image76.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image76.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 12,
+    "paragraph": 70,
+    "paragraph_text": "其中，表示任务端点层节点集合，表示区域支路过渡层节点集合，表示骨干通行层节点集合。",
+    "embed": "embeddings/oleObject74.bin",
+    "media": "media/image77.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image77.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 13,
+    "paragraph": 70,
+    "paragraph_text": "其中，表示任务端点层节点集合，表示区域支路过渡层节点集合，表示骨干通行层节点集合。",
+    "embed": "embeddings/oleObject75.bin",
+    "media": "media/image78.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image78.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 14,
+    "paragraph": 70,
+    "paragraph_text": "其中，表示任务端点层节点集合，表示区域支路过渡层节点集合，表示骨干通行层节点集合。",
+    "embed": "embeddings/oleObject76.bin",
+    "media": "media/image79.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image79.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 15,
+    "paragraph": 71,
+    "paragraph_text": "基于配送站、补给点和候选目标点构成的任务端点集合，本文在三层飞行中面上为每个任务端点生成对应的层级节点。不同层级节点在水平位置上保持一致，高度由对应飞行中面确定。任务端点层节点用于描述配送站、补给点和目标点附近的起降接入与高度转换，使任务端点能够稳定接入三层航线网络。垂直高度转换主要限制在任务端点邻域内进行，避免路径在非端点区域出现过多不自然的高度切换。",
+    "embed": "embeddings/oleObject77.bin",
+    "media": "media/image80.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image80.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 16,
+    "paragraph": 75,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject78.bin",
+    "media": "media/image81.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image81.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 17,
+    "paragraph": 76,
+    "paragraph_text": "则二者可以构成同层候选边。其中，为同层最大连接距离。该约束用于限制单条边的空间跨度，避免生成过长且难以通过安全校验的航段。",
+    "embed": "embeddings/oleObject79.bin",
+    "media": "media/image82.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image82.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 18,
+    "paragraph": 77,
+    "paragraph_text": "端点层间接驳边用于连接同一任务端点在不同层上的节点。对于同一任务端点，若存在两个节点和，则可构造端点层间接驳边：，该类边表示无人机在任务端点附近允许进行高度转换。由于物流无人机在配送站、补给点和目标点附近需要完成起降接入与层间高度转换，保留端点层间接驳边是必要的。但在非端点区域，如果允许任意垂直连接，会破坏三层航线结构的分工，也可能产生能耗较高、形态突兀的路径。",
+    "embed": "embeddings/oleObject80.bin",
+    "media": "media/image83.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image83.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 19,
+    "paragraph": 77,
+    "paragraph_text": "端点层间接驳边用于连接同一任务端点在不同层上的节点。对于同一任务端点，若存在两个节点和，则可构造端点层间接驳边：，该类边表示无人机在任务端点附近允许进行高度转换。由于物流无人机在配送站、补给点和目标点附近需要完成起降接入与层间高度转换，保留端点层间接驳边是必要的。但在非端点区域，如果允许任意垂直连接，会破坏三层航线结构的分工，也可能产生能耗较高、形态突兀的路径。",
+    "embed": "embeddings/oleObject81.bin",
+    "media": "media/image84.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image84.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 20,
+    "paragraph": 77,
+    "paragraph_text": "端点层间接驳边用于连接同一任务端点在不同层上的节点。对于同一任务端点，若存在两个节点和，则可构造端点层间接驳边：，该类边表示无人机在任务端点附近允许进行高度转换。由于物流无人机在配送站、补给点和目标点附近需要完成起降接入与层间高度转换，保留端点层间接驳边是必要的。但在非端点区域，如果允许任意垂直连接，会破坏三层航线结构的分工，也可能产生能耗较高、形态突兀的路径。",
+    "embed": "embeddings/oleObject82.bin",
+    "media": "media/image85.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image85.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 21,
+    "paragraph": 77,
+    "paragraph_text": "端点层间接驳边用于连接同一任务端点在不同层上的节点。对于同一任务端点，若存在两个节点和，则可构造端点层间接驳边：，该类边表示无人机在任务端点附近允许进行高度转换。由于物流无人机在配送站、补给点和目标点附近需要完成起降接入与层间高度转换，保留端点层间接驳边是必要的。但在非端点区域，如果允许任意垂直连接，会破坏三层航线结构的分工，也可能产生能耗较高、形态突兀的路径。",
+    "embed": "embeddings/oleObject83.bin",
+    "media": "media/image86.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image86.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 22,
+    "paragraph": 78,
+    "paragraph_text": "跨层斜向过渡边用于连接区域支路过渡层与骨干通行层，使无人机能够从端点附近的支路区域逐步进入长距离通行的骨干航路。对于不同层的两个节点和，若二者不属于同一任务端点在不同层级上的节点，则需要满足最大爬升角约束：",
+    "embed": "embeddings/oleObject84.bin",
+    "media": "media/image87.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image87.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 23,
+    "paragraph": 78,
+    "paragraph_text": "跨层斜向过渡边用于连接区域支路过渡层与骨干通行层，使无人机能够从端点附近的支路区域逐步进入长距离通行的骨干航路。对于不同层的两个节点和，若二者不属于同一任务端点在不同层级上的节点，则需要满足最大爬升角约束：",
+    "embed": "embeddings/oleObject85.bin",
+    "media": "media/image88.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image88.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 24,
+    "paragraph": 79,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject86.bin",
+    "media": "media/image89.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image89.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 25,
+    "paragraph": 80,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject87.bin",
+    "media": "media/image90.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image90.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 26,
+    "paragraph": 81,
+    "paragraph_text": "其中，表示边的爬升角，表示允许的最大爬升角，用于避免水平距离过小时分母为零。该约束用于避免生成近似垂直的跨层边，使路径在高度变化上更加平滑，也更符合无人机实际飞行需求。",
+    "embed": "embeddings/oleObject88.bin",
+    "media": "media/image91.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image91.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 27,
+    "paragraph": 81,
+    "paragraph_text": "其中，表示边的爬升角，表示允许的最大爬升角，用于避免水平距离过小时分母为零。该约束用于避免生成近似垂直的跨层边，使路径在高度变化上更加平滑，也更符合无人机实际飞行需求。",
+    "embed": "embeddings/oleObject89.bin",
+    "media": "media/image92.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image92.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 28,
+    "paragraph": 81,
+    "paragraph_text": "其中，表示边的爬升角，表示允许的最大爬升角，用于避免水平距离过小时分母为零。该约束用于避免生成近似垂直的跨层边，使路径在高度变化上更加平滑，也更符合无人机实际飞行需求。",
+    "embed": "embeddings/oleObject90.bin",
+    "media": "media/image93.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image93.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 29,
+    "paragraph": 81,
+    "paragraph_text": "其中，表示边的爬升角，表示允许的最大爬升角，用于避免水平距离过小时分母为零。该约束用于避免生成近似垂直的跨层边，使路径在高度变化上更加平滑，也更符合无人机实际飞行需求。",
+    "embed": "embeddings/oleObject91.bin",
+    "media": "media/image94.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image94.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 30,
+    "paragraph": 82,
+    "paragraph_text": "所有候选边在加入最终边集合前都需要进行安全校验。对于候选边，在线段上采样若干点：，其中：，，，若所有采样点均满足以下条件，则该候选边被保留：",
+    "embed": "embeddings/oleObject92.bin",
+    "media": "media/image95.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image95.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 31,
+    "paragraph": 82,
+    "paragraph_text": "所有候选边在加入最终边集合前都需要进行安全校验。对于候选边，在线段上采样若干点：，其中：，，，若所有采样点均满足以下条件，则该候选边被保留：",
+    "embed": "embeddings/oleObject93.bin",
+    "media": "media/image96.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image96.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 32,
+    "paragraph": 82,
+    "paragraph_text": "所有候选边在加入最终边集合前都需要进行安全校验。对于候选边，在线段上采样若干点：，其中：，，，若所有采样点均满足以下条件，则该候选边被保留：",
+    "embed": "embeddings/oleObject94.bin",
+    "media": "media/image97.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image97.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 33,
+    "paragraph": 82,
+    "paragraph_text": "所有候选边在加入最终边集合前都需要进行安全校验。对于候选边，在线段上采样若干点：，其中：，，，若所有采样点均满足以下条件，则该候选边被保留：",
+    "embed": "embeddings/oleObject95.bin",
+    "media": "media/image98.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image98.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 34,
+    "paragraph": 82,
+    "paragraph_text": "所有候选边在加入最终边集合前都需要进行安全校验。对于候选边，在线段上采样若干点：，其中：，，，若所有采样点均满足以下条件，则该候选边被保留：",
+    "embed": "embeddings/oleObject96.bin",
+    "media": "media/image99.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image99.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 35,
+    "paragraph": 83,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject97.bin",
+    "media": "media/image100.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image100.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 36,
+    "paragraph": 84,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject98.bin",
+    "media": "media/image101.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image101.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 37,
+    "paragraph": 85,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject99.bin",
+    "media": "media/image102.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image102.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 38,
+    "paragraph": 86,
+    "paragraph_text": "其中，表示最小地形净空。若任一采样点不满足上述条件，则该候选边被删除。这样可以保证最终航线图中的每条边都对应一段满足走廊约束、地形净空约束和层可通行掩码的可飞行航段。",
+    "embed": "embeddings/oleObject100.bin",
+    "media": "media/image103.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image103.wmf"
+  },
+  {
+    "section": "地形感知三层航线信息模型",
+    "local_index": 39,
+    "paragraph": 87,
+    "paragraph_text": "通过上述节点生成和边筛选过程，本文得到地形感知三层航线图。与传统体素图相比，该图不在完整三维空间中均匀布设节点，而是将候选节点集中在任务端点、区域支路过渡区域和骨干通行区域。该压缩不是简单降低搜索分辨率，而是利用DEM地形、风险分布和任务端点信息对可飞行空间进行结构化表达，从而在保留任务连通能力的同时减少搜索规模。",
+    "embed": "embeddings/oleObject101.bin",
+    "media": "media/image104.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image104.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 1,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject102.bin",
+    "media": "media/image105.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image105.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 2,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject103.bin",
+    "media": "media/image106.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image106.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 3,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject104.bin",
+    "media": "media/image107.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image107.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 4,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject105.bin",
+    "media": "media/image108.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image108.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 5,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject106.bin",
+    "media": "media/image109.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image109.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 6,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject107.bin",
+    "media": "media/image110.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image110.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 7,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject108.bin",
+    "media": "media/image111.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image111.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 8,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject109.bin",
+    "media": "media/image112.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image112.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 9,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject110.bin",
+    "media": "media/image113.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image113.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 10,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject111.bin",
+    "media": "media/image114.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image114.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 11,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject112.bin",
+    "media": "media/image115.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image115.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 12,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject113.bin",
+    "media": "media/image116.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image116.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 13,
+    "paragraph": 90,
+    "paragraph_text": "设三层航线图为。对于任意可行边，其起点和终点分别为和。由于工程中水平坐标以km记录，高程以m记录，距离计算时需进行单位转换。边的水平距离、三维距离和高度变化定义为：，，，飞行时间代价由三维距离和参考巡航速度确定。设无人机规划层参考速度为，则边的飞行时间为：，能耗代价采用简化形式，由巡航功耗和正向爬升势能共同构成。设无人机参考功率为，质量为m，重力加速度为g，则边的能耗为：，该式只对爬升高度引入额外能耗，不考虑下降阶段的能量回收，也不引入额外的跨层转换惩罚。端点层间接驳边、同层连接边和跨层斜向过渡边均使用同一套时间和能耗计算方式。",
+    "embed": "embeddings/oleObject114.bin",
+    "media": "media/image117.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image117.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 14,
+    "paragraph": 91,
+    "paragraph_text": "风险代价用于刻画航段沿线的地形邻近风险、人员暴露风险和通信风险。对边按固定数量采样，得到采样点集合，其中：",
+    "embed": "embeddings/oleObject115.bin",
+    "media": "media/image118.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image118.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 15,
+    "paragraph": 91,
+    "paragraph_text": "风险代价用于刻画航段沿线的地形邻近风险、人员暴露风险和通信风险。对边按固定数量采样，得到采样点集合，其中：",
+    "embed": "embeddings/oleObject116.bin",
+    "media": "media/image119.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image119.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 16,
+    "paragraph": 92,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject117.bin",
+    "media": "media/image120.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image120.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 17,
+    "paragraph": 93,
+    "paragraph_text": "在采样点处，地形邻近风险由飞行高度与地形高程之间的相对净空计算：，其中，为地形邻近风险的归一化高度尺度。设表示人员暴露风险，表示通信风险，则采样点综合风险为：",
+    "embed": "embeddings/oleObject118.bin",
+    "media": "media/image121.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image121.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 18,
+    "paragraph": 93,
+    "paragraph_text": "在采样点处，地形邻近风险由飞行高度与地形高程之间的相对净空计算：，其中，为地形邻近风险的归一化高度尺度。设表示人员暴露风险，表示通信风险，则采样点综合风险为：",
+    "embed": "embeddings/oleObject119.bin",
+    "media": "media/image122.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image122.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 19,
+    "paragraph": 93,
+    "paragraph_text": "在采样点处，地形邻近风险由飞行高度与地形高程之间的相对净空计算：，其中，为地形邻近风险的归一化高度尺度。设表示人员暴露风险，表示通信风险，则采样点综合风险为：",
+    "embed": "embeddings/oleObject120.bin",
+    "media": "media/image123.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image123.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 20,
+    "paragraph": 93,
+    "paragraph_text": "在采样点处，地形邻近风险由飞行高度与地形高程之间的相对净空计算：，其中，为地形邻近风险的归一化高度尺度。设表示人员暴露风险，表示通信风险，则采样点综合风险为：",
+    "embed": "embeddings/oleObject121.bin",
+    "media": "media/image124.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image124.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 21,
+    "paragraph": 94,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject122.bin",
+    "media": "media/image125.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image125.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 22,
+    "paragraph": 95,
+    "paragraph_text": "边的风险代价取采样点风险的平均值：",
+    "embed": "embeddings/oleObject123.bin",
+    "media": "media/image126.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image126.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 23,
+    "paragraph": 96,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject124.bin",
+    "media": "media/image127.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image127.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 24,
+    "paragraph": 97,
+    "paragraph_text": "其中，用于将风险值限制在[0, 1]范围内。地形邻近风险、人员暴露风险和通信风险只作用于已经通过硬安全校验的航段，用于区分可行航段之间的通行质量，而不替代安全约束。",
+    "embed": "embeddings/oleObject125.bin",
+    "media": "media/image128.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image128.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 25,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject126.bin",
+    "media": "media/image129.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image129.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 26,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject127.bin",
+    "media": "media/image130.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image130.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 27,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject128.bin",
+    "media": "media/image131.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image131.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 28,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject129.bin",
+    "media": "media/image132.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image132.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 29,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject130.bin",
+    "media": "media/image133.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image133.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 30,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject131.bin",
+    "media": "media/image134.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image134.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 31,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject132.bin",
+    "media": "media/image135.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image135.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 32,
+    "paragraph": 98,
+    "paragraph_text": "由于时间、能耗和风险的量纲不同，本文在加权前对三类指标进行归一化。设、和分别为当前航线图中所有边对应指标的最大值，则：，，，其中，为避免分母为零的极小常数。边的基础规划层代价定义为：",
+    "embed": "embeddings/oleObject133.bin",
+    "media": "media/image136.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image136.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 33,
+    "paragraph": 99,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject134.bin",
+    "media": "media/image137.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image137.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 34,
+    "paragraph": 100,
+    "paragraph_text": "给定路径，其基础路径代价为：",
+    "embed": "embeddings/oleObject135.bin",
+    "media": "media/image138.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image138.wmf"
+  },
+  {
+    "section": "规划层边代价与事件更新机制",
+    "local_index": 35,
+    "paragraph": 101,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject136.bin",
+    "media": "media/image139.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image139.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 1,
+    "paragraph": 105,
+    "paragraph_text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "embed": "embeddings/oleObject137.bin",
+    "media": "media/image140.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image140.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 2,
+    "paragraph": 105,
+    "paragraph_text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "embed": "embeddings/oleObject138.bin",
+    "media": "media/image141.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image141.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 3,
+    "paragraph": 105,
+    "paragraph_text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "embed": "embeddings/oleObject139.bin",
+    "media": "media/image142.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image142.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 4,
+    "paragraph": 105,
+    "paragraph_text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "embed": "embeddings/oleObject140.bin",
+    "media": "media/image143.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image143.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 5,
+    "paragraph": 105,
+    "paragraph_text": "对于临时禁飞、风场扰动和通信退化等区域事件，本文将其映射为航线图中受影响的边集合。工程实现中，以边中点判断边是否位于事件影响范围内。设边的中点为，事件中心为，影响半径为，则受影响边集合定义为：",
+    "embed": "embeddings/oleObject141.bin",
+    "media": "media/image144.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image144.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 6,
+    "paragraph": 106,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject142.bin",
+    "media": "media/image145.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image145.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 7,
+    "paragraph": 108,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject143.bin",
+    "media": "media/image146.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image146.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 8,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject144.bin",
+    "media": "media/image147.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image147.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 9,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject145.bin",
+    "media": "media/image148.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image148.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 10,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject146.bin",
+    "media": "media/image149.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image149.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 11,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject147.bin",
+    "media": "media/image150.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image150.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 12,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject148.bin",
+    "media": "media/image151.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image151.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 13,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject149.bin",
+    "media": "media/image152.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image152.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 14,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject150.bin",
+    "media": "media/image153.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image153.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 15,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject151.bin",
+    "media": "media/image154.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image154.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 16,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject152.bin",
+    "media": "media/image155.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image155.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 17,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject153.bin",
+    "media": "media/image156.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image156.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 18,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject154.bin",
+    "media": "media/image157.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image157.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 19,
+    "paragraph": 109,
+    "paragraph_text": "其中，表示事件强度，、和分别表示边的基础飞行时间、基础能耗和基础风险，、和为对应归一化尺度，、和为时间、能耗和风险权重，表示事件发生前的基础边代价。",
+    "embed": "embeddings/oleObject155.bin",
+    "media": "media/image158.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image158.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 20,
+    "paragraph": 110,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject156.bin",
+    "media": "media/image159.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image159.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 21,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject157.bin",
+    "media": "media/image160.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image160.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 22,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject158.bin",
+    "media": "media/image161.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image161.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 23,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject159.bin",
+    "media": "media/image162.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image162.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 24,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject160.bin",
+    "media": "media/image163.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image163.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 25,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject161.bin",
+    "media": "media/image164.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image164.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 26,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject162.bin",
+    "media": "media/image165.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image165.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 27,
+    "paragraph": 112,
+    "paragraph_text": "LPA*为每个节点维护两个值，即当前路径代价估计和一步前瞻代价。表示从起点到节点的当前最优代价估计，表示由前驱节点更新得到的局部一致性估计。对于起点节点，有：，对于其他节点，其一步前瞻代价定义为：",
+    "embed": "embeddings/oleObject163.bin",
+    "media": "media/image166.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image166.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 28,
+    "paragraph": 113,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject164.bin",
+    "media": "media/image167.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image167.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 29,
+    "paragraph": 114,
+    "paragraph_text": "其中，表示节点的前驱节点集合，表示边的当前代价。当节点满足：，该节点在当前图状态下是一致的。当节点满足：，该节点处于不一致状态，需要重新处理。LPA*使用优先队列维护不一致节点，其键值定义为：",
+    "embed": "embeddings/oleObject165.bin",
+    "media": "media/image168.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image168.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 30,
+    "paragraph": 114,
+    "paragraph_text": "其中，表示节点的前驱节点集合，表示边的当前代价。当节点满足：，该节点在当前图状态下是一致的。当节点满足：，该节点处于不一致状态，需要重新处理。LPA*使用优先队列维护不一致节点，其键值定义为：",
+    "embed": "embeddings/oleObject166.bin",
+    "media": "media/image169.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image169.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 31,
+    "paragraph": 114,
+    "paragraph_text": "其中，表示节点的前驱节点集合，表示边的当前代价。当节点满足：，该节点在当前图状态下是一致的。当节点满足：，该节点处于不一致状态，需要重新处理。LPA*使用优先队列维护不一致节点，其键值定义为：",
+    "embed": "embeddings/oleObject167.bin",
+    "media": "media/image170.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image170.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 32,
+    "paragraph": 114,
+    "paragraph_text": "其中，表示节点的前驱节点集合，表示边的当前代价。当节点满足：，该节点在当前图状态下是一致的。当节点满足：，该节点处于不一致状态，需要重新处理。LPA*使用优先队列维护不一致节点，其键值定义为：",
+    "embed": "embeddings/oleObject168.bin",
+    "media": "media/image171.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image171.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 33,
+    "paragraph": 115,
+    "paragraph_text": "",
+    "embed": "embeddings/oleObject169.bin",
+    "media": "media/image172.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image172.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 34,
+    "paragraph": 116,
+    "paragraph_text": "其中，为从节点到目标节点的启发式估计。本文采用基于三维直线距离的时间、能耗下界作为启发项。设,，平面坐标以km记录，高程以m记录，则两节点之间的三维直线距离为：",
+    "embed": "embeddings/oleObject170.bin",
+    "media": "media/image173.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image173.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 35,
+    "paragraph": 116,
+    "paragraph_text": "其中，为从节点到目标节点的启发式估计。本文采用基于三维直线距离的时间、能耗下界作为启发项。设,，平面坐标以km记录，高程以m记录，则两节点之间的三维直线距离为：",
+    "embed": "embeddings/oleObject171.bin",
+    "media": "media/image174.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image174.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 36,
+    "paragraph": 116,
+    "paragraph_text": "其中，为从节点到目标节点的启发式估计。本文采用基于三维直线距离的时间、能耗下界作为启发项。设,，平面坐标以km记录，高程以m记录，则两节点之间的三维直线距离为：",
+    "embed": "embeddings/oleObject172.bin",
+    "media": "media/image175.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image175.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 37,
+    "paragraph": 116,
+    "paragraph_text": "其中，为从节点到目标节点的启发式估计。本文采用基于三维直线距离的时间、能耗下界作为启发项。设,，平面坐标以km记录，高程以m记录，则两节点之间的三维直线距离为：",
+    "embed": "embeddings/oleObject173.bin",
+    "media": "media/image176.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image176.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 38,
+    "paragraph": 116,
+    "paragraph_text": "其中，为从节点到目标节点的启发式估计。本文采用基于三维直线距离的时间、能耗下界作为启发项。设,，平面坐标以km记录，高程以m记录，则两节点之间的三维直线距离为：",
+    "embed": "embeddings/oleObject174.bin",
+    "media": "media/image177.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image177.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 39,
+    "paragraph": 120,
+    "paragraph_text": "当事件到达时，算法先识别受影响边集合，并更新这些边的通行状态或代价。对于每条受影响边，算法更新其两端节点的局部一致性状态，并将由一致状态变为不一致状态的节点插入或更新到优先队列中。随后，算法不断弹出键值最小的不一致节点并传播更新，直到目标节点满足一致性条件，且队列中不存在可能进一步改进目标路径的节点。终止条件可表示为：",
+    "embed": "embeddings/oleObject175.bin",
+    "media": "media/image178.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image178.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 40,
+    "paragraph": 120,
+    "paragraph_text": "当事件到达时，算法先识别受影响边集合，并更新这些边的通行状态或代价。对于每条受影响边，算法更新其两端节点的局部一致性状态，并将由一致状态变为不一致状态的节点插入或更新到优先队列中。随后，算法不断弹出键值最小的不一致节点并传播更新，直到目标节点满足一致性条件，且队列中不存在可能进一步改进目标路径的节点。终止条件可表示为：",
+    "embed": "embeddings/oleObject176.bin",
+    "media": "media/image179.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image179.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 41,
+    "paragraph": 121,
+    "paragraph_text": "其中，表示当前优先队列中键值最小的节点。满足终止条件后，根据更新后的前驱关系从目标节点回溯，得到新的可行路径。",
+    "embed": "embeddings/oleObject177.bin",
+    "media": "media/image180.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image180.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 42,
+    "paragraph": 122,
+    "paragraph_text": "该机制使重规划计算量不再完全由完整图规模决定，而是更直接受到受影响边数量、局部传播范围和路径变化程度影响。设完整图的边集合为，受事件影响的边集合为，通常有：",
+    "embed": "embeddings/oleObject178.bin",
+    "media": "media/image181.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image181.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 43,
+    "paragraph": 122,
+    "paragraph_text": "该机制使重规划计算量不再完全由完整图规模决定，而是更直接受到受影响边数量、局部传播范围和路径变化程度影响。设完整图的边集合为，受事件影响的边集合为，通常有：",
+    "embed": "embeddings/oleObject179.bin",
+    "media": "media/image182.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image182.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 44,
+    "paragraph": 123,
+    "paragraph_text": "当扰动范围较小，或连续事件集中在局部区域时，历史值、值和优先队列状态能够被大量复用，从而减少重复搜索。单次事件规模较小且图规模不大时，LPA*维护增量状态本身会带来固定开销，因此其优势主要体现在连续扰动、多事件累积和较大规模图搜索场景中。",
+    "embed": "embeddings/oleObject180.bin",
+    "media": "media/image183.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image183.wmf"
+  },
+  {
+    "section": "更新航线图上的增量重规划",
+    "local_index": 45,
+    "paragraph": 123,
+    "paragraph_text": "当扰动范围较小，或连续事件集中在局部区域时，历史值、值和优先队列状态能够被大量复用，从而减少重复搜索。单次事件规模较小且图规模不大时，LPA*维护增量状态本身会带来固定开销，因此其优势主要体现在连续扰动、多事件累积和较大规模图搜索场景中。",
+    "embed": "embeddings/oleObject181.bin",
+    "media": "media/image184.wmf",
+    "wmf": "C:\\programming\\code\\article_python\\tmp_formula_extract_v2\\media\\image184.wmf"
+  }
+]
