@@ -1,36 +1,88 @@
-# 山地无人机动态航路规划实验工程
+# LPA-Star for Mountainous Terrain
+
+## 山地无人机动态航路规划实验工程
+
+> A reproducible research framework for terrain-aware UAV path planning and incremental replanning in mountainous environments.
+
+This repository provides a research-oriented implementation for evaluating UAV path planning and incremental replanning under dynamic disturbances. The pipeline integrates DEM-based terrain information, OSM-derived population exposure risk, safe-flight corridors, communication-risk modeling, terrain-aware layered airway networks, and LPA*-based incremental replanning.
+
+The implementation is scenario-driven through `scenarios/*.json`. The default example uses Huashan, while scene-specific parameters such as crop center, target locations, virtual depots, risk keywords, communication settings, and benchmark tasks are separated from the core algorithms. This makes it possible to extend the experimental pipeline to additional mountainous environments without modifying the main source code.
 
 本工程用于基于 DEM、OSM 人群暴露风险、安全飞行走廊和分层航路网络，评估动态扰动下的无人机路径规划与增量重规划方法。当前默认场景是华山，但流程已经按 `scenarios/*.json` 泛化：裁剪中心、目标点、虚拟配送站、风险关键词、通信参数和实验任务均来自场景配置，后续新增山体场景不需要改源码。
 
+## Key Features
+
+* **Terrain-aware modeling**: preprocesses DEM data and constructs terrain-aligned spatial representations.
+* **Population exposure risk**: derives multi-level human-risk fields from local OSM data and scene-specific risk keywords.
+* **Safe-flight corridor generation**: combines terrain, slope, ridges, risk regions, and terminal constraints to generate flight envelopes.
+* **Communication-risk modeling**: estimates layered communication risk using terrain line-of-sight and ground communication sources.
+* **Layered airway network**: constructs a terrain-aware three-layer graph with terminal, regional, and backbone structures.
+* **Incremental replanning**: evaluates LPA*-based replanning under dynamic no-fly or disturbance events.
+* **Baseline and ablation experiments**: compares the proposed method with layered A*, flat-graph LPA*, regular-layered LPA*, and voxel global search.
+* **Multi-scene evaluation**: supports scenario-driven cross-terrain experiments and generalized benchmark execution.
+* **Reproducible research outputs**: produces trial-level CSV files, aggregated statistics, ablation results, event-matrix results, and paper-ready PDF figures.
+
+## Research and Reproducibility
+
+This repository is structured as a reusable research pipeline rather than a single-scene demonstration. Reproducibility is supported through:
+
+* `requirements.txt` and `pyproject.toml` for minimum compatible dependencies;
+* `constraints.txt` for the currently verified environment;
+* scenario configuration files under `scenarios/`;
+* single-scene and multi-scene execution entry points;
+* smoke-test commands for core pipeline validation;
+* trial-level and summary-level benchmark outputs;
+* scripts for generating cross-terrain, ablation, and event-driven analysis figures.
+
+The current workflow covers the complete path from raw terrain/OSM inputs to graph construction, path planning, dynamic replanning, statistical evaluation, and publication-oriented visualization.
+
+## Quick Start
+
+Create an isolated environment and install the required dependencies:
+
+```powershell
+python -m venv env
+.\env\Scripts\Activate.ps1
+pip install -r requirements.txt -c constraints.txt
+```
+
+Run the complete Huashan single-scene pipeline:
+
+```powershell
+python run_multi_scene.py --scenario-configs scenarios/huashan.json --benchmark-mode single --trials 5 --skip-b1 --disable-plots --skip-layered-plot --benchmark-out-name benchmark_single
+```
+
+For a new mountainous scenario, copy `scenarios/template.example.json`, provide the new DEM/OSM inputs and scene-specific parameters, and execute the same pipeline with the new scenario configuration.
+
 ## 目录结构
 
-| 路径 | 作用 |
-|---|---|
-| `article_planner/` | 通用工具包，包含场景配置、DEM 坐标、目标定位和输出规则。 |
-| `data/raw/<scene_name>/` | 原始输入数据归档目录，按场景保存 DEM、OSM 和其他不可再生资料。 |
-| `tools/locate_targets.py` | 通用目标点定位工具，替代旧的华山五峰定位实验脚本。 |
-| `scenarios/huashan.json` | 华山场景配置，包含 DEM、裁剪范围、五峰目标、任务和风险关键词。 |
-| `scenarios/template.example.json` | 新场景配置模板，复制后填写 DEM、目标点和可选 OSM 信息即可泛化实验。 |
-| `init_graph.py` | 兼容入口：裁剪 DEM 并生成地理网格。 |
-| `human_risk_osm.py` | 兼容入口：从 OSM 生成游客/人群暴露风险场。 |
-| `safe_corridor.py` | 兼容入口：根据 DEM、风险和目标区生成安全走廊与三层飞行高度。 |
-| `communication_risk.py` | 兼容入口：根据 DEM 视距生成三层通信风险场。 |
-| `layered_graph.py` | 兼容入口：构建分层航路图和终端锚点。 |
-| `task_generator.py` | 兼容入口：生成虚拟配送站、候选目标点和物流任务。 |
-| `lpa_star.py` | 兼容入口：执行单次 LPA* 路径规划、区域扰动和增量重规划演示。 |
-| `benchmark.py` | 兼容入口：运行 single 或 matrix benchmark。 |
-| `benchmark_matrix.py` | matrix benchmark 的 M-P/M-A 事件流实验实现。 |
-| `tools/plot_matrix_results.py` | 读取 matrix CSV 并输出论文 PDF 图。 |
-| `tools/plot_generalization_results.py` | 读取多场景汇总 CSV 并输出 E1 跨地形泛化论文图。 |
-| `tools/plot_ablation_results.py` | 读取 single benchmark 结构性消融 CSV 并输出 E2 消融论文图。 |
-| `tools/enrich_final_summary_metrics.py` | 从 trial 级记录回填 E1/E2 summary 中的风险、通信和 95% CI 字段。 |
-| `tools/normalize_final_summary_paths.py` | 将最终 summary 中的路径规范为相对路径，并清理正文级 summary 的本机命令日志。 |
-| `run_multi_scene.py` | 多场景流水线执行器。 |
-| `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。 |
-| `data/raw/huashan/map.osm` | 华山本地 OSM 输入。 |
-| `intermediate_artifacts/data/<scene_name>/` | 场景缓存和中间数据目录，保存 DEM 裁剪、风险场、安全走廊、分层图节点边和任务文件。 |
-| `intermediate_artifacts/figures/<scene_name>/` | 中间步骤图片归档目录。 |
-| `final_results/` | 正式实验结果目录，保存 E1-E4 CSV、PDF 图和日志归档；新实验结果不再写入 `outputs/`。 |
+| 路径                                                | 作用                                                     |
+| ------------------------------------------------- | ------------------------------------------------------ |
+| `article_planner/`                                | 通用工具包，包含场景配置、DEM 坐标、目标定位和输出规则。                         |
+| `data/raw/<scene_name>/`                          | 原始输入数据归档目录，按场景保存 DEM、OSM 和其他不可再生资料。                    |
+| `tools/locate_targets.py`                         | 通用目标点定位工具，替代旧的华山五峰定位实验脚本。                              |
+| `scenarios/huashan.json`                          | 华山场景配置，包含 DEM、裁剪范围、五峰目标、任务和风险关键词。                      |
+| `scenarios/template.example.json`                 | 新场景配置模板，复制后填写 DEM、目标点和可选 OSM 信息即可泛化实验。                 |
+| `init_graph.py`                                   | 兼容入口：裁剪 DEM 并生成地理网格。                                   |
+| `human_risk_osm.py`                               | 兼容入口：从 OSM 生成游客/人群暴露风险场。                               |
+| `safe_corridor.py`                                | 兼容入口：根据 DEM、风险和目标区生成安全走廊与三层飞行高度。                       |
+| `communication_risk.py`                           | 兼容入口：根据 DEM 视距生成三层通信风险场。                               |
+| `layered_graph.py`                                | 兼容入口：构建分层航路图和终端锚点。                                     |
+| `task_generator.py`                               | 兼容入口：生成虚拟配送站、候选目标点和物流任务。                               |
+| `lpa_star.py`                                     | 兼容入口：执行单次 LPA* 路径规划、区域扰动和增量重规划演示。                      |
+| `benchmark.py`                                    | 兼容入口：运行 single 或 matrix benchmark。                     |
+| `benchmark_matrix.py`                             | matrix benchmark 的 M-P/M-A 事件流实验实现。                    |
+| `tools/plot_matrix_results.py`                    | 读取 matrix CSV 并输出论文 PDF 图。                             |
+| `tools/plot_generalization_results.py`            | 读取多场景汇总 CSV 并输出 E1 跨地形泛化论文图。                           |
+| `tools/plot_ablation_results.py`                  | 读取 single benchmark 结构性消融 CSV 并输出 E2 消融论文图。            |
+| `tools/enrich_final_summary_metrics.py`           | 从 trial 级记录回填 E1/E2 summary 中的风险、通信和 95% CI 字段。        |
+| `tools/normalize_final_summary_paths.py`          | 将最终 summary 中的路径规范为相对路径，并清理正文级 summary 的本机命令日志。        |
+| `run_multi_scene.py`                              | 多场景流水线执行器。                                             |
+| `data/raw/huashan/AP_19438_FBD_F0680_RT1.dem.tif` | 华山原始 DEM 输入。                                           |
+| `data/raw/huashan/map.osm`                        | 华山本地 OSM 输入。                                           |
+| `intermediate_artifacts/data/<scene_name>/`       | 场景缓存和中间数据目录，保存 DEM 裁剪、风险场、安全走廊、分层图节点边和任务文件。            |
+| `intermediate_artifacts/figures/<scene_name>/`    | 中间步骤图片归档目录。                                            |
+| `final_results/`                                  | 正式实验结果目录，保存 E1-E4 CSV、PDF 图和日志归档；新实验结果不再写入 `outputs/`。 |
 
 ## 环境准备
 
@@ -69,22 +121,22 @@ pip install -e ".[dev]" -c constraints.txt
 
 核心字段说明：
 
-| 字段 | 含义 |
-|---|---|
-| `scene_name` | 场景名称，也用于默认输出目录占位符。 |
-| `dem_path` | 原始 DEM 文件路径，相对路径以项目根目录为基准，建议放在 `data/raw/<scene_name>/`。 |
-| `output_dir` | 场景缓存目录，默认使用 `intermediate_artifacts/data/{scene_name}`；正式实验结果由 benchmark 输出到 `final_results/<scene_name>/`。 |
-| `crop` | DEM 裁剪参数：中心经纬度和裁剪边长。实际像元分辨率由 `init_graph.py` 从 GeoTIFF 像元尺度读取并写入 `Z_crop_meta.json`。 |
-| `source_crs` | 可选字段；仅当 GeoTIFF 缺少 CRS 元数据时填写，例如 `EPSG:xxxx`。正常情况下不需要配置。 |
-| `targets` | 任务目标点列表；每个目标可包含 `lon`、`lat`、`elev`、`display_name`。华山五峰只是这里的一组配置。 |
-| `default_start` / `default_goal` | 单次 LPA* 演示默认起终点名称。 |
-| `virtual_depots` | 虚拟配送站自动生成规则。 |
-| `terrain_sampling` | 分层图节点采样规模和间距参数。 |
-| `adaptive_corridor` | 安全走廊地形抬升、终端厚度、高风险禁行层等参数。 |
-| `communication` | 通信风险建模参数和路径代价风险融合权重。 |
-| `task_generation` | 自动生成物流任务的目标数量、任务数量和分层采样规则。 |
-| `osm_file` | 可选 OSM 文件；建议放在 `data/raw/<scene_name>/`，缺失时可跳过人群风险生成。 |
-| `osm_risk_keywords` | 场景专有 OSM 风险关键词；华山危险道路名不再写死在通用流程中。 |
+| 字段                               | 含义                                                                                                          |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `scene_name`                     | 场景名称，也用于默认输出目录占位符。                                                                                          |
+| `dem_path`                       | 原始 DEM 文件路径，相对路径以项目根目录为基准，建议放在 `data/raw/<scene_name>/`。                                                    |
+| `output_dir`                     | 场景缓存目录，默认使用 `intermediate_artifacts/data/{scene_name}`；正式实验结果由 benchmark 输出到 `final_results/<scene_name>/`。 |
+| `crop`                           | DEM 裁剪参数：中心经纬度和裁剪边长。实际像元分辨率由 `init_graph.py` 从 GeoTIFF 像元尺度读取并写入 `Z_crop_meta.json`。                        |
+| `source_crs`                     | 可选字段；仅当 GeoTIFF 缺少 CRS 元数据时填写，例如 `EPSG:xxxx`。正常情况下不需要配置。                                                    |
+| `targets`                        | 任务目标点列表；每个目标可包含 `lon`、`lat`、`elev`、`display_name`。华山五峰只是这里的一组配置。                                            |
+| `default_start` / `default_goal` | 单次 LPA* 演示默认起终点名称。                                                                                          |
+| `virtual_depots`                 | 虚拟配送站自动生成规则。                                                                                                |
+| `terrain_sampling`               | 分层图节点采样规模和间距参数。                                                                                             |
+| `adaptive_corridor`              | 安全走廊地形抬升、终端厚度、高风险禁行层等参数。                                                                                    |
+| `communication`                  | 通信风险建模参数和路径代价风险融合权重。                                                                                        |
+| `task_generation`                | 自动生成物流任务的目标数量、任务数量和分层采样规则。                                                                                  |
+| `osm_file`                       | 可选 OSM 文件；建议放在 `data/raw/<scene_name>/`，缺失时可跳过人群风险生成。                                                       |
+| `osm_risk_keywords`              | 场景专有 OSM 风险关键词；华山危险道路名不再写死在通用流程中。                                                                           |
 
 ## 单场景完整执行流
 
@@ -126,8 +178,8 @@ python tools/locate_targets.py --scenario-config scenarios/huashan.json --workdi
 
 默认输出：
 
-| 文件 | 含义 |
-|---|---|
+| 文件                                                               | 含义                                  |
+| ---------------------------------------------------------------- | ----------------------------------- |
 | `intermediate_artifacts/data/<scene_name>/target_locations.json` | 每个目标点的像元坐标、吸附后经纬度、DEM 高程、声明高程和高程误差。 |
 
 当新场景目标不是“五峰”时，只需要在场景 JSON 中声明目标名称和经纬度即可。
@@ -164,22 +216,22 @@ python run_multi_scene.py --scenario-configs scenarios/*.json --benchmark-mode s
 
 论文正文和结果图统一使用 M 系列方法编号，CSV 的 `baseline` 字段仍保留 B 系列内部代号便于检索：
 
-| Method ID | Internal baseline ID | Figure label | Full method name | 作用 |
-|---|---|---|---|---|
-| M-P | B4_Proposed_LPA_Layered | Terrain-aware Layered LPA* (Proposed) | Terrain-aware three-layer airway network with LPA*-based incremental replanning | 本文主方法 |
-| M-A | B2_GlobalAstar_Layered | Terrain-aware Layered A* | Terrain-aware three-layer airway network with global A* recomputation | 消融增量重规划 |
-| M-F | B3_LPA_SingleLayer | Flat-graph LPA* | Flat graph with LPA*-based replanning | 消融三层航线结构 |
-| M-R | B5_RegularLayered_LPA | Regular-layered LPA* | Regular three-layer graph with LPA*-based replanning | 消融地形驱动分层 |
-| M-V | B1_Voxel_Dijkstra | Voxel Global Search | Coarse voxel graph with global search | 传统基线 |
+| Method ID | Internal baseline ID    | Figure label                          | Full method name                                                                | 作用       |
+| --------- | ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------- | -------- |
+| M-P       | B4_Proposed_LPA_Layered | Terrain-aware Layered LPA* (Proposed) | Terrain-aware three-layer airway network with LPA*-based incremental replanning | 本文主方法    |
+| M-A       | B2_GlobalAstar_Layered  | Terrain-aware Layered A*              | Terrain-aware three-layer airway network with global A* recomputation           | 消融增量重规划  |
+| M-F       | B3_LPA_SingleLayer      | Flat-graph LPA*                       | Flat graph with LPA*-based replanning                                           | 消融三层航线结构 |
+| M-R       | B5_RegularLayered_LPA   | Regular-layered LPA*                  | Regular three-layer graph with LPA*-based replanning                            | 消融地形驱动分层 |
+| M-V       | B1_Voxel_Dijkstra       | Voxel Global Search                   | Coarse voxel graph with global search                                           | 传统基线     |
 
 论文实验编号统一使用 E 系列：
 
-| Experiment ID | Recommended name | 对应输出 | 主要目的 |
-|---|---|---|---|
-| E1 | Cross-terrain Generalization and Baseline Comparison | `multi_scene_summary.csv` / `benchmark_summary.csv` | 验证跨华山、黄山、峨眉山的泛化能力，并进行综合基线对比。 |
-| E2 | Structural Ablation Study | `benchmark_structural_ablation.csv` | 拆开验证增量机制、三层结构、地形驱动分层和传统体素基线。 |
-| E3 | Event-driven Replanning Matrix Analysis | `experiment_A.csv` / `experiment_B.csv` / `experiment_C.csv` / `experiment_D.csv` | 在不同事件参数下分析 M-P 与 M-A 的增量重规划差异。 |
-| E4 | Path-quality Consistency Analysis | `experiment_path_quality.csv` / `benchmark_trials.csv` | 验证 M-P 的速度优势不是通过牺牲路径质量获得。 |
+| Experiment ID | Recommended name                                     | 对应输出                                                                              | 主要目的                           |
+| ------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------ |
+| E1            | Cross-terrain Generalization and Baseline Comparison | `multi_scene_summary.csv` / `benchmark_summary.csv`                               | 验证跨华山、黄山、峨眉山的泛化能力，并进行综合基线对比。   |
+| E2            | Structural Ablation Study                            | `benchmark_structural_ablation.csv`                                               | 拆开验证增量机制、三层结构、地形驱动分层和传统体素基线。   |
+| E3            | Event-driven Replanning Matrix Analysis              | `experiment_A.csv` / `experiment_B.csv` / `experiment_C.csv` / `experiment_D.csv` | 在不同事件参数下分析 M-P 与 M-A 的增量重规划差异。 |
+| E4            | Path-quality Consistency Analysis                    | `experiment_path_quality.csv` / `benchmark_trials.csv`                            | 验证 M-P 的速度优势不是通过牺牲路径质量获得。      |
 
 `benchmark.py --mode single` 输出一次多基线统计表（含 M-R 结构性消融）：
 
@@ -194,6 +246,7 @@ python benchmark.py --mode matrix --scenario-config scenarios/huashan.json --wor
 ```
 
 如果想保持 full matrix 的广度，同时把论文主分析涉及的关键组合提升到约 30 次，可直接运行：
+
 ```powershell
 python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . --trials 10 --key-trials 30 --disable-plots --out-dir benchmark_matrix_paper
 ```
@@ -201,32 +254,38 @@ python benchmark_matrix.py --scenario-config scenarios/huashan.json --workdir . 
 该脚本会自动把 E3.1-E3.4 焦点组合识别为关键组合，并在结果表中额外给出 `median / p95 / 配对 speedup / 检验方法 / p 值`，同时在 `benchmark_discussion.md` 中写出对非单调现象的解释。
 
 完整场景流水线也可以直接调用新版矩阵实验，不需要先生成场景再手动运行 `benchmark_matrix.py`：
+
 ```powershell
 python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --benchmark-out-name E3_E4_matrix_final
 ```
 
 `run_multi_scene.py` 已直接支持矩阵参数，不需要全部塞进 `--benchmark-extra-args`，例如：
+
 ```powershell
 python run_multi_scene.py --scenario-configs scenarios/huangshan.json --benchmark-runner benchmark_matrix --trials 10 --key-trials 30 --n-block-grid 2,4,6,8 --k-events-grid 1,3,5,7,10 --scales small,medium,large --scale-fractions small:0.55,medium:0.78,large:1.0 --focus-scale large --focus-k-intensity 5 --focus-n-block-cont 4 --benchmark-out-name E3_E4_matrix_final
 ```
 
 矩阵结果生成后，可直接输出论文 PDF 图：
+
 ```powershell
 python tools/plot_matrix_results.py --result-dir final_results/huangshan/E3_E4_matrix_final
 ```
 
 E1 跨地形泛化图从 `run_multi_scene.py` 的汇总 CSV 生成：
+
 ```powershell
 python tools/enrich_final_summary_metrics.py --final-dir final_results
 python tools/plot_generalization_results.py --summary-csv final_results/_summaries/E1_E2_three_mountain_single_final.csv --workdir . --out-dir final_results/_summaries
 ```
 
 E2 结构性消融图从 single benchmark 输出目录生成：
+
 ```powershell
 python tools/plot_ablation_results.py --result-dir final_results/huangshan/E1_E2_single_final
 ```
 
 正式 summary 提交前建议规范路径字段：
+
 ```powershell
 python tools/normalize_final_summary_paths.py --summary-dir final_results/_summaries
 ```
@@ -234,86 +293,88 @@ python tools/normalize_final_summary_paths.py --summary-dir final_results/_summa
 目录口径为：`final_results/` 保存 E1-E4 核心结果，`final_results/logs/` 保存 smoke、precheck 和事件明细日志，`intermediate_artifacts/data/` 保存 DEM 裁剪、风险场、走廊、节点和边等中间数据，`intermediate_artifacts/figures/` 保存中间步骤生成的图片。
 
 若需要继续使用矩阵绘图脚本的兼容入口，结果目录中需要包含 `benchmark_structural_ablation.csv`；可用 `benchmark.py --mode matrix` 自动补充 M-R 单事件消融，或对三场景分别运行 `benchmark.py --mode single` 后汇总。
+
 单独给 single 输出目录画 M-R 消融图也可运行：
+
 ```powershell
 python tools/plot_matrix_results.py --result-dir final_results/huangshan/E1_E2_single_final --ablation-only
 ```
 
 E3 子实验含义：
 
-| Sub-experiment ID | 输出文件 | 推荐名称 | 变化参数 | 固定/对比方法 |
-|---|---|---|---|---|
-| E3.1 | `experiment_A.csv` | Event-intensity Sensitivity | `intensity_index` / `n_block` | M-P vs M-A |
-| E3.2 | `experiment_B.csv` | Consecutive-event Replanning | `K` | M-P vs M-A |
-| E3.3 | `experiment_C.csv` | Graph-scale Sensitivity | `scale` | M-P vs M-A |
-| E3.4 | `experiment_D.csv` | Workload Mechanism Analysis | workload metrics | M-P vs M-A |
+| Sub-experiment ID | 输出文件               | 推荐名称                         | 变化参数                          | 固定/对比方法    |
+| ----------------- | ------------------ | ---------------------------- | ----------------------------- | ---------- |
+| E3.1              | `experiment_A.csv` | Event-intensity Sensitivity  | `intensity_index` / `n_block` | M-P vs M-A |
+| E3.2              | `experiment_B.csv` | Consecutive-event Replanning | `K`                           | M-P vs M-A |
+| E3.3              | `experiment_C.csv` | Graph-scale Sensitivity      | `scale`                       | M-P vs M-A |
+| E3.4              | `experiment_D.csv` | Workload Mechanism Analysis  | workload metrics              | M-P vs M-A |
 
 ## 输出结果说明
 
 场景缓存目录 `intermediate_artifacts/data/<scene_name>/` 的关键输出：
 
-| 文件 | 生成步骤 | 含义 |
-|---|---|---|
-| `Z_crop.npy` | `init_graph.py` | 裁剪后的 DEM 高程矩阵。 |
-| `Z_crop_geo.npz` | `init_graph.py` | 与 `Z_crop.npy` 对齐的 `lon_grid`、`lat_grid`。 |
-| `Z_crop_meta.json` | `init_graph.py` | 裁剪中心、源 DEM、源 CRS、像元尺度、实际分辨率、窗口行列范围和方向信息。 |
-| `<scene_name>_final.png` | `init_graph.py` | 裁剪 DEM 的俯视和三维预览图。 |
-| `risk_l1.npy` | `human_risk_osm.py` | 高风险危险路线或危险地物风险。 |
-| `risk_l2.npy` | `human_risk_osm.py` | 主要游线、峰顶、景点等风险。 |
-| `risk_l3.npy` | `human_risk_osm.py` | 索道、设施热点等高斯扩散风险。 |
-| `risk_l4.npy` | `human_risk_osm.py` | 低等级道路和山脚设施风险。 |
-| `risk_trail.npy` | `human_risk_osm.py` | 兼容旧流程的路线风险合并层。 |
-| `risk_hotspot.npy` | `human_risk_osm.py` | 兼容旧流程的热点风险合并层。 |
-| `risk_human.npy` | `human_risk_osm.py` | L1-L4 综合人群暴露风险。 |
-| `osm_feature_summary.json` | `human_risk_osm.py` | OSM 解析、命中特征和风险统计。 |
-| `osm_human_risk_preview.png` | `human_risk_osm.py` | OSM 风险可视化预览。 |
-| `floor.npy` | `safe_corridor.py` | 每个像元的飞行走廊下边界。 |
-| `ceiling.npy` | `safe_corridor.py` | 每个像元的飞行走廊上边界。 |
-| `layer_mid.npy` | `safe_corridor.py` | 三层飞行中面高度，形状通常为 `3 x rows x cols`。 |
-| `layer_allowed.npy` | `safe_corridor.py` | 三层像元可通行布尔掩码。 |
-| `corridor_meta.json` | `safe_corridor.py` | 走廊厚度、风险区域比例和可通行比例。 |
-| `corridor_vis.png` | `safe_corridor.py` | 安全走廊和三层高度可视化。 |
-| `risk_comm.npy` | `communication_risk.py` | 三层通信风险栅格。 |
-| `communication_summary.json` | `communication_risk.py` | 通信源、风险统计和覆盖比例。 |
-| `graph_nodes.npy` | `layered_graph.py` | 分层图节点表，字段为 `x_km, y_km, z_m, layer_id`。 |
-| `graph_edges.npy` | `layered_graph.py` | 分层图边表，字段为 `u, v, edge_type`。 |
-| `graph_terminal_status.json` | `layered_graph.py` | 终端锚点接入状态和安全校验。 |
-| `graph_node_roles.json` | `layered_graph.py` | 节点角色和采样元数据。 |
-| `graph_vis.png` | `layered_graph.py` | 分层航路图可视化。 |
-| `generated_depots.json` | `virtual_depots.py` / `layered_graph.py` / `task_generator.py` | 自动生成的虚拟配送站。 |
-| `generated_tasks.json` | `task_generator.py` | 自动生成的配送任务、目标点和任务分层。 |
-| `lpa_path_summary.json` | `lpa_star.py` | 单次初始规划和重规划指标摘要。 |
-| `path_vis.png` | `lpa_star.py` | 初始路径俯视、三维和高度剖面图。 |
-| `path_cost_profile.png` | `lpa_star.py` | 初始路径和重规划路径代价分布图。 |
-| `lpa_result.png` | `lpa_star.py` | 三阶段 LPA* 规划与动态扰动对比图。 |
+| 文件                           | 生成步骤                                                           | 含义                                        |
+| ---------------------------- | -------------------------------------------------------------- | ----------------------------------------- |
+| `Z_crop.npy`                 | `init_graph.py`                                                | 裁剪后的 DEM 高程矩阵。                            |
+| `Z_crop_geo.npz`             | `init_graph.py`                                                | 与 `Z_crop.npy` 对齐的 `lon_grid`、`lat_grid`。 |
+| `Z_crop_meta.json`           | `init_graph.py`                                                | 裁剪中心、源 DEM、源 CRS、像元尺度、实际分辨率、窗口行列范围和方向信息。  |
+| `<scene_name>_final.png`     | `init_graph.py`                                                | 裁剪 DEM 的俯视和三维预览图。                         |
+| `risk_l1.npy`                | `human_risk_osm.py`                                            | 高风险危险路线或危险地物风险。                           |
+| `risk_l2.npy`                | `human_risk_osm.py`                                            | 主要游线、峰顶、景点等风险。                            |
+| `risk_l3.npy`                | `human_risk_osm.py`                                            | 索道、设施热点等高斯扩散风险。                           |
+| `risk_l4.npy`                | `human_risk_osm.py`                                            | 低等级道路和山脚设施风险。                             |
+| `risk_trail.npy`             | `human_risk_osm.py`                                            | 兼容旧流程的路线风险合并层。                            |
+| `risk_hotspot.npy`           | `human_risk_osm.py`                                            | 兼容旧流程的热点风险合并层。                            |
+| `risk_human.npy`             | `human_risk_osm.py`                                            | L1-L4 综合人群暴露风险。                           |
+| `osm_feature_summary.json`   | `human_risk_osm.py`                                            | OSM 解析、命中特征和风险统计。                         |
+| `osm_human_risk_preview.png` | `human_risk_osm.py`                                            | OSM 风险可视化预览。                              |
+| `floor.npy`                  | `safe_corridor.py`                                             | 每个像元的飞行走廊下边界。                             |
+| `ceiling.npy`                | `safe_corridor.py`                                             | 每个像元的飞行走廊上边界。                             |
+| `layer_mid.npy`              | `safe_corridor.py`                                             | 三层飞行中面高度，形状通常为 `3 x rows x cols`。         |
+| `layer_allowed.npy`          | `safe_corridor.py`                                             | 三层像元可通行布尔掩码。                              |
+| `corridor_meta.json`         | `safe_corridor.py`                                             | 走廊厚度、风险区域比例和可通行比例。                        |
+| `corridor_vis.png`           | `safe_corridor.py`                                             | 安全走廊和三层高度可视化。                             |
+| `risk_comm.npy`              | `communication_risk.py`                                        | 三层通信风险栅格。                                 |
+| `communication_summary.json` | `communication_risk.py`                                        | 通信源、风险统计和覆盖比例。                            |
+| `graph_nodes.npy`            | `layered_graph.py`                                             | 分层图节点表，字段为 `x_km, y_km, z_m, layer_id`。   |
+| `graph_edges.npy`            | `layered_graph.py`                                             | 分层图边表，字段为 `u, v, edge_type`。              |
+| `graph_terminal_status.json` | `layered_graph.py`                                             | 终端锚点接入状态和安全校验。                            |
+| `graph_node_roles.json`      | `layered_graph.py`                                             | 节点角色和采样元数据。                               |
+| `graph_vis.png`              | `layered_graph.py`                                             | 分层航路图可视化。                                 |
+| `generated_depots.json`      | `virtual_depots.py` / `layered_graph.py` / `task_generator.py` | 自动生成的虚拟配送站。                               |
+| `generated_tasks.json`       | `task_generator.py`                                            | 自动生成的配送任务、目标点和任务分层。                       |
+| `lpa_path_summary.json`      | `lpa_star.py`                                                  | 单次初始规划和重规划指标摘要。                           |
+| `path_vis.png`               | `lpa_star.py`                                                  | 初始路径俯视、三维和高度剖面图。                          |
+| `path_cost_profile.png`      | `lpa_star.py`                                                  | 初始路径和重规划路径代价分布图。                          |
+| `lpa_result.png`             | `lpa_star.py`                                                  | 三阶段 LPA* 规划与动态扰动对比图。                      |
 
 Benchmark 输出目录中的关键文件：
 
-| 文件 | 含义 |
-|---|---|
-| `benchmark_trials.csv` | 每次 Monte Carlo trial、起终点、事件和各基线结果。 |
-| `benchmark_summary.csv` | 按基线或实验组合聚合后的均值、成功率和图规模。 |
-| `benchmark_pairwise.csv` | 成对基线统计比较。 |
-| `benchmark_combo_status.csv` | matrix 模式下各组合接受 trial 情况。 |
-| `benchmark_failure_reasons.csv` | matrix 模式下失败原因统计，用于解释 small scale 低成功率。 |
-| `benchmark_trial_failures.csv` | matrix 模式下 trial 级失败原因，包含采样失败和事件后断路。 |
-| `benchmark_events.csv` | matrix 模式下事件流采样记录。 |
-| `benchmark_table.md` | 可直接放入论文草稿的结果表。 |
-| `benchmark_table_four_baselines.md` | 四基线对比表。 |
-| `benchmark_table_structural_ablation.md` | 含 M-R 的结构性消融对比表。 |
-| `benchmark_structural_ablation.csv` | M-P/M-A/M-F/M-R/M-V 结构性消融 CSV，含 `method_id`、`internal_code`、`figure_label` 和 `full_method_name`。 |
-| `fig_expA_event_intensity_time.pdf` | E3.1 事件强度时间图。 |
-| `fig_E1_cross_terrain_success.pdf` | E1 跨地形成功率图。 |
-| `fig_E1_cross_terrain_overall.pdf` | E1 跨地形 2×2 综合图。 |
-| `fig_E1_cross_terrain_replan_time.pdf` | E1 跨地形重规划时间图。 |
-| `fig_E1_cross_terrain_comm_coverage.pdf` | E1 跨地形通信覆盖图。 |
-| `fig_E1_cross_terrain_risk_exposure.pdf` | E1 跨地形风险暴露图。 |
-| `fig_E2_structural_ablation.pdf` | E2 结构性消融图。 |
-| `fig_*.pdf` | `tools/plot_matrix_results.py` 生成的其他论文图。 |
-| `benchmark_discussion.md` | matrix 模式生成的讨论要点。 |
-| `fig*.png` | matrix 模式图表，可通过 `--disable-plots` 跳过。 |
-| `benchmark_config.json` | 本次实验参数快照。 |
-| `final_results/_summaries/multi_scene_summary.csv` | `run_multi_scene.py` 汇总所有场景的 benchmark 摘要。 |
+| 文件                                                 | 含义                                                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `benchmark_trials.csv`                             | 每次 Monte Carlo trial、起终点、事件和各基线结果。                                                               |
+| `benchmark_summary.csv`                            | 按基线或实验组合聚合后的均值、成功率和图规模。                                                                          |
+| `benchmark_pairwise.csv`                           | 成对基线统计比较。                                                                                        |
+| `benchmark_combo_status.csv`                       | matrix 模式下各组合接受 trial 情况。                                                                        |
+| `benchmark_failure_reasons.csv`                    | matrix 模式下失败原因统计，用于解释 small scale 低成功率。                                                          |
+| `benchmark_trial_failures.csv`                     | matrix 模式下 trial 级失败原因，包含采样失败和事件后断路。                                                             |
+| `benchmark_events.csv`                             | matrix 模式下事件流采样记录。                                                                               |
+| `benchmark_table.md`                               | 可直接放入论文草稿的结果表。                                                                                   |
+| `benchmark_table_four_baselines.md`                | 四基线对比表。                                                                                          |
+| `benchmark_table_structural_ablation.md`           | 含 M-R 的结构性消融对比表。                                                                                 |
+| `benchmark_structural_ablation.csv`                | M-P/M-A/M-F/M-R/M-V 结构性消融 CSV，含 `method_id`、`internal_code`、`figure_label` 和 `full_method_name`。 |
+| `fig_expA_event_intensity_time.pdf`                | E3.1 事件强度时间图。                                                                                    |
+| `fig_E1_cross_terrain_success.pdf`                 | E1 跨地形成功率图。                                                                                      |
+| `fig_E1_cross_terrain_overall.pdf`                 | E1 跨地形 2×2 综合图。                                                                                  |
+| `fig_E1_cross_terrain_replan_time.pdf`             | E1 跨地形重规划时间图。                                                                                    |
+| `fig_E1_cross_terrain_comm_coverage.pdf`           | E1 跨地形通信覆盖图。                                                                                     |
+| `fig_E1_cross_terrain_risk_exposure.pdf`           | E1 跨地形风险暴露图。                                                                                     |
+| `fig_E2_structural_ablation.pdf`                   | E2 结构性消融图。                                                                                       |
+| `fig_*.pdf`                                        | `tools/plot_matrix_results.py` 生成的其他论文图。                                                         |
+| `benchmark_discussion.md`                          | matrix 模式生成的讨论要点。                                                                                |
+| `fig*.png`                                         | matrix 模式图表，可通过 `--disable-plots` 跳过。                                                            |
+| `benchmark_config.json`                            | 本次实验参数快照。                                                                                        |
+| `final_results/_summaries/multi_scene_summary.csv` | `run_multi_scene.py` 汇总所有场景的 benchmark 摘要。                                                       |
 
 ## 测试流
 
@@ -408,3 +469,34 @@ final_results/
 ```
 
 如需复现已删除的历史结果，按 README 中的单场景或 benchmark 命令重新运行即可。
+
+## Contributing
+
+Contributions that improve reproducibility, documentation, scenario generalization, algorithm implementation, benchmark coverage, or visualization are welcome.
+
+Useful contribution directions include:
+
+* reproducing the pipeline on additional mountainous terrains;
+* reporting environment or dependency issues;
+* improving DEM/OSM preprocessing;
+* adding new path-planning or replanning baselines;
+* extending dynamic-event models;
+* improving statistical evaluation and visualization;
+* fixing bugs or clarifying documentation.
+
+For substantial changes, it is recommended to describe the intended change and the corresponding experiment or validation method before submitting a pull request.
+
+## Citation
+
+If this repository contributes to academic experiments, benchmarking, or derivative research, please cite the repository and clearly state the version or commit used for reproduction.
+
+Citation information for associated publications can be added here when available.
+
+```text
+LPA-Star for Mountainous Terrain
+Repository: 42095308/LPA-Star-for-mountainous-terrain
+```
+
+## Repository Scope
+
+This codebase is intended for research, reproducibility, benchmarking, and extension of terrain-aware UAV path-planning methods. The generated benchmark and visualization outputs should be interpreted together with the corresponding scenario configuration, random seeds, trial settings, and environment versions.
