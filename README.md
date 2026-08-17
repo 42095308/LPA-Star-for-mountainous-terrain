@@ -500,3 +500,9 @@ Repository: 42095308/LPA-Star-for-mountainous-terrain
 ## Repository Scope
 
 This codebase is intended for research, reproducibility, benchmarking, and extension of terrain-aware UAV path-planning methods. The generated benchmark and visualization outputs should be interpreted together with the corresponding scenario configuration, random seeds, trial settings, and environment versions.
+
+## License
+
+The source code developed as part of this project is licensed under the [MIT License](LICENSE), unless otherwise noted.
+
+Third-party datasets, DEM files, OSM data, geographic data, and other externally sourced materials included in or referenced by this repository remain subject to their respective original licenses and terms of use.
