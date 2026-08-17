@@ -82,5 +82,7 @@ intermediate_artifacts/
 # lpa_seed_sweep_summary.json
 
 
-
+# 临时目录
+/tmp_*/
+/_tmp_*/
 
